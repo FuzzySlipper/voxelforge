@@ -1,0 +1,8 @@
+<Project>
+  <!-- Submodules use their own build settings. Don't inherit VoxelForge's strict config. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <AppTargetFramework>net10.0</AppTargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+</Project>

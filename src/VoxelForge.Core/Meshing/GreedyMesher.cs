@@ -170,20 +170,20 @@ public sealed class GreedyMesher : IVoxelMesher
                             if (sign > 0)
                             {
                                 indices.Add(baseIdx);
+                                indices.Add(baseIdx + 2);
                                 indices.Add(baseIdx + 1);
-                                indices.Add(baseIdx + 2);
                                 indices.Add(baseIdx);
-                                indices.Add(baseIdx + 2);
                                 indices.Add(baseIdx + 3);
+                                indices.Add(baseIdx + 2);
                             }
                             else
                             {
                                 indices.Add(baseIdx);
-                                indices.Add(baseIdx + 2);
                                 indices.Add(baseIdx + 1);
-                                indices.Add(baseIdx);
-                                indices.Add(baseIdx + 3);
                                 indices.Add(baseIdx + 2);
+                                indices.Add(baseIdx);
+                                indices.Add(baseIdx + 2);
+                                indices.Add(baseIdx + 3);
                             }
                         }
                     }

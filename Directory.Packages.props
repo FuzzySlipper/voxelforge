@@ -11,10 +11,6 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.1" />
 
-    <!-- MonoGame -->
-    <PackageVersion Include="MonoGame.Framework.DesktopGL" Version="3.8.4.1" />
-    <PackageVersion Include="Myra" Version="1.5.11" />
-
     <!-- Test infrastructure -->
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

@@ -96,23 +96,24 @@ public sealed class NaiveMesher : IVoxelMesher
         vertices.Add(new VoxelVertex(c3[0], c3[1], c3[2], nx, ny, nz, r, g, b, a));
 
         // Two triangles — winding depends on face direction
+        // XNA4/FNA: counter-clockwise = front face
         if (sign > 0)
         {
             indices.Add(baseIndex);
+            indices.Add(baseIndex + 2);
             indices.Add(baseIndex + 1);
-            indices.Add(baseIndex + 2);
             indices.Add(baseIndex);
-            indices.Add(baseIndex + 2);
             indices.Add(baseIndex + 3);
+            indices.Add(baseIndex + 2);
         }
         else
         {
             indices.Add(baseIndex);
-            indices.Add(baseIndex + 2);
             indices.Add(baseIndex + 1);
-            indices.Add(baseIndex);
-            indices.Add(baseIndex + 3);
             indices.Add(baseIndex + 2);
+            indices.Add(baseIndex);
+            indices.Add(baseIndex + 2);
+            indices.Add(baseIndex + 3);
         }
     }
 }

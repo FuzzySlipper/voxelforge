@@ -67,7 +67,8 @@ public sealed class VoxelRenderer : IDisposable
         {
             pass.Apply();
             _graphicsDevice.DrawIndexedPrimitives(
-                PrimitiveType.TriangleList, 0, 0, _indexCount / 3);
+                PrimitiveType.TriangleList, 0, 0,
+                _vertexBuffer.VertexCount, 0, _indexCount / 3);
         }
 
         _graphicsDevice.RasterizerState = previousRasterizer;
