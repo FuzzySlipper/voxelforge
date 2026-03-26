@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -6,7 +5,6 @@ using Myra;
 using Myra.Graphics2D.UI;
 using VoxelForge.App;
 using VoxelForge.App.Commands;
-using VoxelForge.Core;
 using VoxelForge.Core.Meshing;
 using VoxelForge.Engine.MonoGame.Rendering;
 using VoxelForge.Engine.MonoGame.UI;
@@ -16,6 +14,10 @@ namespace VoxelForge.Engine.MonoGame;
 public sealed class VoxelForgeGame : Game
 {
     private readonly GraphicsDeviceManager _graphics;
+    private readonly EditorState _editorState;
+    private readonly UndoStack _undoStack;
+    private readonly CancellationTokenSource _cts;
+
     private BasicEffect? _effect;
     private VoxelRenderer? _voxelRenderer;
     private GridFloor? _gridFloor;
@@ -23,15 +25,17 @@ public sealed class VoxelForgeGame : Game
     private OrbitalCamera _camera = new();
     private Desktop? _desktop;
     private EditorLayout? _editorLayout;
-    private EditorState? _editorState;
-    private UndoStack? _undoStack;
     private InputHandler? _inputHandler;
 
     private MouseState _previousMouse;
     private KeyboardState _previousKeyboard;
 
-    public VoxelForgeGame()
+    public VoxelForgeGame(EditorState editorState, UndoStack undoStack, CancellationTokenSource cts)
     {
+        _editorState = editorState;
+        _undoStack = undoStack;
+        _cts = cts;
+
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = 1280,
@@ -53,28 +57,8 @@ public sealed class VoxelForgeGame : Game
     {
         _effect = new BasicEffect(GraphicsDevice);
 
-        // Create a demo model
-        var model = new VoxelModel(NullLogger<VoxelModel>.Instance) { GridHint = 16 };
-        model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(160, 160, 160) });
-        model.Palette.Set(2, new MaterialDef { Name = "Grass", Color = new RgbaColor(80, 160, 60) });
-        model.Palette.Set(3, new MaterialDef { Name = "Wood", Color = new RgbaColor(139, 90, 43) });
-
-        // Simple house shape
-        model.FillRegion(new Point3(0, 0, 0), new Point3(15, 0, 15), 2);
-        model.FillRegion(new Point3(0, 1, 0), new Point3(15, 6, 0), 1);
-        model.FillRegion(new Point3(0, 1, 15), new Point3(15, 6, 15), 1);
-        model.FillRegion(new Point3(0, 1, 0), new Point3(0, 6, 15), 1);
-        model.FillRegion(new Point3(15, 1, 0), new Point3(15, 6, 15), 1);
-
-        for (int i = 0; i <= 8; i++)
-        {
-            model.FillRegion(
-                new Point3(i, 7 + i, i),
-                new Point3(15 - i, 7 + i, 15 - i), 3);
-        }
-
         // Center camera on model
-        var bounds = model.GetBounds();
+        var bounds = _editorState.ActiveModel.GetBounds();
         if (bounds is not null)
         {
             var center = new Vector3(
@@ -84,22 +68,13 @@ public sealed class VoxelForgeGame : Game
             _camera.Target = center;
         }
 
-        // Editor state
-        var labels = new LabelIndex(NullLogger<LabelIndex>.Instance);
-        _editorState = new EditorState(model, labels, NullLogger<EditorState>.Instance);
-        _undoStack = new UndoStack(100, NullLogger<UndoStack>.Instance);
-        _undoStack.StateChanged += () =>
-        {
-            _voxelRenderer?.MarkDirty();
-            _editorState.NotifyModelChanged();
-        };
-
-        // Rendering
+        // Wire undo stack and model changes to renderer
         _voxelRenderer = new VoxelRenderer(new GreedyMesher(), GraphicsDevice);
+        _undoStack.StateChanged += () => _voxelRenderer?.MarkDirty();
+        _editorState.ModelChanged += () => _voxelRenderer?.MarkDirty();
+
         _gridFloor = new GridFloor(GraphicsDevice);
         _axisIndicator = new AxisIndicator(GraphicsDevice);
-
-        // Input handler
         _inputHandler = new InputHandler();
 
         // Myra UI
@@ -114,6 +89,13 @@ public sealed class VoxelForgeGame : Game
 
     protected override void Update(GameTime gameTime)
     {
+        // Check if console requested exit
+        if (_cts.IsCancellationRequested)
+        {
+            Exit();
+            return;
+        }
+
         var mouse = Mouse.GetState();
         var keyboard = Keyboard.GetState();
 
@@ -145,13 +127,12 @@ public sealed class VoxelForgeGame : Game
         // Undo/Redo
         bool ctrl = keyboard.IsKeyDown(Keys.LeftControl) || keyboard.IsKeyDown(Keys.RightControl);
         if (ctrl && keyboard.IsKeyDown(Keys.Z) && _previousKeyboard.IsKeyUp(Keys.Z))
-            _undoStack?.Undo();
+            _undoStack.Undo();
         if (ctrl && keyboard.IsKeyDown(Keys.Y) && _previousKeyboard.IsKeyUp(Keys.Y))
-            _undoStack?.Redo();
+            _undoStack.Redo();
 
         // Tool input (only when not right-dragging camera)
-        if (mouse.RightButton != ButtonState.Pressed &&
-            _editorState is not null && _undoStack is not null)
+        if (mouse.RightButton != ButtonState.Pressed)
         {
             _inputHandler?.HandleInput(mouse, _previousMouse, keyboard, _previousKeyboard,
                 _editorState, _undoStack, _camera, GraphicsDevice);
@@ -161,7 +142,6 @@ public sealed class VoxelForgeGame : Game
         if (keyboard.IsKeyDown(Keys.Escape))
             Exit();
 
-        // Refresh properties panel each frame
         _editorLayout?.Refresh();
 
         _previousMouse = mouse;
@@ -175,7 +155,7 @@ public sealed class VoxelForgeGame : Game
         GraphicsDevice.Clear(new Color(40, 40, 45));
         GraphicsDevice.DepthStencilState = DepthStencilState.Default;
 
-        if (_effect is not null && _editorState is not null)
+        if (_effect is not null)
         {
             float aspect = GraphicsDevice.Viewport.AspectRatio;
             _effect.View = _camera.GetView();
@@ -187,7 +167,6 @@ public sealed class VoxelForgeGame : Game
             _voxelRenderer?.Draw(_editorState.ActiveModel, _camera, _effect);
         }
 
-        // Render Myra UI on top
         _desktop?.Render();
 
         base.Draw(gameTime);
