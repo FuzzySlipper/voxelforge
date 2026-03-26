@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VoxelForge.Core\VoxelForge.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.Content\VoxelForge.Content.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.LLM\VoxelForge.LLM.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.App\VoxelForge.App.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.Engine.MonoGame\VoxelForge.Engine.MonoGame.csproj" />
+  </ItemGroup>
+
+</Project>

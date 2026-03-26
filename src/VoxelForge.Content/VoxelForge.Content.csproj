@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\VoxelForge.Core\VoxelForge.Core.csproj" />
+  </ItemGroup>
+
+</Project>

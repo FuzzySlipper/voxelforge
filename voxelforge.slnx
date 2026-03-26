@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VoxelForge.Core/VoxelForge.Core.csproj" />
+    <Project Path="src/VoxelForge.Content/VoxelForge.Content.csproj" />
+    <Project Path="src/VoxelForge.LLM/VoxelForge.LLM.csproj" />
+    <Project Path="src/VoxelForge.App/VoxelForge.App.csproj" />
+    <Project Path="src/VoxelForge.Engine.MonoGame/VoxelForge.Engine.MonoGame.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VoxelForge.Core.Tests/VoxelForge.Core.Tests.csproj" />
+    <Project Path="tests/VoxelForge.LLM.Tests/VoxelForge.LLM.Tests.csproj" />
+    <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
+  </Folder>
+</Solution>
