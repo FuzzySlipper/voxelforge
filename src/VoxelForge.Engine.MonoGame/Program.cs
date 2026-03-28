@@ -3,20 +3,32 @@ using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Console;
+using VoxelForge.App.Reference;
+using VoxelForge.Content;
 using VoxelForge.Core;
 using VoxelForge.Engine.MonoGame;
 
 var headless = args.Contains("--headless");
 var loggerFactory = NullLoggerFactory.Instance;
 
-// Create shared state
-var model = new VoxelModel(loggerFactory.CreateLogger<VoxelModel>()) { GridHint = 16 };
-var labels = new LabelIndex(loggerFactory.CreateLogger<LabelIndex>());
-var editorState = new EditorState(model, labels, loggerFactory.CreateLogger<EditorState>());
-var undoStack = new UndoStack(100, loggerFactory.CreateLogger<UndoStack>());
+// Load config
+var config = EditorConfig.Load();
 
-// Build console
-var router = CommandRegistry.Build(loggerFactory);
+// Create shared state
+var model = new VoxelModel(NullLogger<VoxelModel>.Instance) { GridHint = config.DefaultGridHint };
+var labels = new LabelIndex(NullLogger<LabelIndex>.Instance);
+var editorState = new EditorState(model, labels, NullLogger<EditorState>.Instance);
+var undoStack = new UndoStack(config.MaxUndoDepth, NullLogger<UndoStack>.Instance);
+var refRegistry = new ReferenceModelRegistry();
+var refLoader = new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance);
+var imageStore = new ReferenceImageStore();
+
+// Game reference (set after construction, screenshot provider available after LoadContent)
+VoxelForgeGame? game = null;
+
+// Build console — screenshot provider resolves lazily from the game
+var router = CommandRegistry.Build(loggerFactory, config, refRegistry, refLoader, imageStore,
+    screenshotFactory: () => game?.ScreenshotProvider);
 var context = new CommandContext
 {
     Model = model,
@@ -32,10 +44,8 @@ using var cts = new CancellationTokenSource();
 
 if (headless)
 {
-    // Headless mode: stdio or interactive console, no window
     Console.Error.WriteLine("VoxelForge headless mode");
 
-    bool isPiped = !Console.IsInputRedirected is false || Console.IsInputRedirected;
     if (Console.IsInputRedirected)
     {
         var stdio = new StdioHost(router, context);
@@ -49,12 +59,15 @@ if (headless)
 }
 else
 {
-    // GUI mode: MonoGame window + terminal console on background thread
     context.OnModelChanged = () => editorState.NotifyModelChanged();
+
+    game = new VoxelForgeGame(editorState, undoStack, config, refRegistry, imageStore, cts);
 
     var consoleThread = new Thread(() =>
     {
-        // Detect piped stdin → use stdio JSON protocol, otherwise interactive
+        // Wait for game to finish GPU initialization
+        game.Ready.Wait(cts.Token);
+
         if (Console.IsInputRedirected)
         {
             var stdio = new StdioHost(router, context);
@@ -65,7 +78,6 @@ else
             var console = new InteractiveConsoleHost(router, context);
             console.Run(cts.Token);
         }
-        // Console exit → signal game to close
         cts.Cancel();
     })
     {
@@ -74,8 +86,8 @@ else
     };
     consoleThread.Start();
 
-    using var game = new VoxelForgeGame(editorState, undoStack, cts);
-    game.Run();
+    using (game)
+        game.Run();
 }
 
 static void SetupDemoModel(VoxelModel model)

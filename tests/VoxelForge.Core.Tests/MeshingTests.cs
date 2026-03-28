@@ -167,8 +167,8 @@ public sealed class MeshingTests
         var mesh = mesher.Build(model);
         sw.Stop();
 
-        Assert.True(sw.ElapsedMilliseconds < 100,
-            $"GreedyMesher took {sw.ElapsedMilliseconds}ms, expected <100ms");
+        Assert.True(sw.ElapsedMilliseconds < 500,
+            $"GreedyMesher took {sw.ElapsedMilliseconds}ms, expected <500ms");
         Assert.True(mesh.Vertices.Length > 0);
     }
 

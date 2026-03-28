@@ -11,7 +11,11 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.1" />
 
+    <!-- Model loading -->
+    <PackageVersion Include="AssimpNetter" Version="6.0.4" />
+
     <!-- Console -->
+    <PackageVersion Include="ReadLine" Version="2.0.1" />
     <PackageVersion Include="Spectre.Console" Version="0.54.0" />
 
     <!-- Test infrastructure -->

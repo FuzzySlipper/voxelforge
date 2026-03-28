@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Logging;
 using VoxelForge.App.Console.Commands;
+using VoxelForge.App.Reference;
+using VoxelForge.Content;
+using VoxelForge.Core.Screenshot;
 
 namespace VoxelForge.App.Console;
 
@@ -8,12 +11,15 @@ namespace VoxelForge.App.Console;
 /// </summary>
 public static class CommandRegistry
 {
-    public static CommandRouter Build(ILoggerFactory loggerFactory)
+    public static CommandRouter Build(
+        ILoggerFactory loggerFactory,
+        EditorConfig config,
+        ReferenceModelRegistry refRegistry,
+        ReferenceModelLoader refLoader,
+        ReferenceImageStore imageStore,
+        Func<IScreenshotProvider?>? screenshotFactory = null)
     {
         var logger = loggerFactory.CreateLogger<CommandRouter>();
-
-        // Create router first (HelpCommand needs it)
-        CommandRouter? router = null;
 
         var commands = new List<IConsoleCommand>
         {
@@ -22,6 +28,9 @@ public static class CommandRegistry
             new RemoveVoxelConsoleCommand(),
             new FillCommand(),
             new GetVoxelCommand(),
+            new GetCubeCommand(),
+            new GetSphereCommand(),
+            new CountCommand(),
             new UndoCommand(),
             new RedoCommand(),
             new ListRegionsCommand(),
@@ -29,12 +38,25 @@ public static class CommandRegistry
             new PaletteCommand(),
             new SaveCommand(loggerFactory),
             new LoadCommand(loggerFactory),
+            new ListFilesCommand(),
             new ClearCommand(),
+            new GridCommand(),
+            new ConfigCommand(config),
+            new RefLoadCommand(refRegistry, refLoader),
+            new RefListCommand(refRegistry),
+            new RefRemoveCommand(refRegistry),
+            new RefTransformCommand(refRegistry),
+            new RefModeCommand(refRegistry),
+            new RefVisibilityCommand(refRegistry, show: true),
+            new RefVisibilityCommand(refRegistry, show: false),
+            new ImgLoadCommand(imageStore),
+            new ImgListCommand(imageStore),
+            new ImgRemoveCommand(imageStore),
+            new ScreenshotCommand(screenshotFactory ?? (() => null)),
+            new VoxelizeCommand(refRegistry, loggerFactory),
         };
 
-        router = new CommandRouter(commands, logger);
-
-        // Add help command (needs reference to router)
+        var router = new CommandRouter(commands, logger);
         var allCommands = new List<IConsoleCommand>(commands) { new HelpCommand(router) };
         router = new CommandRouter(allCommands, logger);
 

@@ -69,12 +69,14 @@ node_modules/
 .vscode
 .claude/
 .taskmaster/
+content/
 *.suo
 *.ntvs*
 *.njsproj
 *.sw?
 # OS specific
 .DS_Store
+AGENTS.MD
 
 # Task files
 # tasks.json

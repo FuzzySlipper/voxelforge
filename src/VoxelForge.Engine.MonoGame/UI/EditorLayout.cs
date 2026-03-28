@@ -17,6 +17,7 @@ public sealed class EditorLayout
     public AnimationPanel AnimationPanel { get; }
     public PropertiesPanel PropertiesPanel { get; }
     public LlmPanel LlmPanel { get; }
+    public VerticalStackPanel RightSidebar { get; private set; } = null!;
     public Widget Root { get; }
 
     public EditorLayout(EditorState state)
@@ -54,10 +55,11 @@ public sealed class EditorLayout
         // Center is empty — 3D viewport renders behind the UI
 
         // Right sidebar
-        var rightPanel = new VerticalStackPanel { Spacing = 8 };
-        rightPanel.Widgets.Add(RegionPanel.Root);
-        rightPanel.Widgets.Add(AnimationPanel.Root);
-        rightPanel.Widgets.Add(PropertiesPanel.Root);
+        RightSidebar = new VerticalStackPanel { Spacing = 8 };
+        RightSidebar.Widgets.Add(RegionPanel.Root);
+        RightSidebar.Widgets.Add(AnimationPanel.Root);
+        RightSidebar.Widgets.Add(PropertiesPanel.Root);
+        var rightPanel = RightSidebar;
         var rightScroll = new ScrollViewer
         {
             Content = rightPanel,

@@ -10,7 +10,8 @@ namespace VoxelForge.App.Console;
 /// Input:  {"command": "set", "args": ["0", "0", "0", "1"]}
 ///   or:   {"command": "describe"}
 /// Output: {"ok": true, "message": "Set (0,0,0) = 1"}
-///   or:   {"ok": false, "message": "Unknown command: 'foo'"}
+///   or:   {"ok": true, "message": "Captured viewport", "image": "base64..."}
+///   or:   {"ok": true, "message": "Captured 5 views", "images": ["base64...", ...]}
 /// </summary>
 public sealed class StdioHost
 {
@@ -34,7 +35,6 @@ public sealed class StdioHost
     /// </summary>
     public void Run(CancellationToken ct)
     {
-        // Signal readiness
         WriteOutput(new StdioResponse { Ok = true, Message = "VoxelForge stdio ready. Send JSON commands." });
 
         using var reader = new StreamReader(System.Console.OpenStandardInput());
@@ -51,7 +51,7 @@ public sealed class StdioHost
                 break;
             }
 
-            if (line is null) // EOF
+            if (line is null)
                 break;
 
             if (string.IsNullOrWhiteSpace(line))
@@ -77,6 +77,16 @@ public sealed class StdioHost
                         Ok = result.Success,
                         Message = result.Message,
                     };
+
+                    // Attach image data if present
+                    if (result.Data is byte[] imageBytes)
+                    {
+                        response.Image = Convert.ToBase64String(imageBytes);
+                    }
+                    else if (result.Data is byte[][] imageArray)
+                    {
+                        response.Images = imageArray.Select(Convert.ToBase64String).ToArray();
+                    }
                 }
             }
             catch (JsonException ex)
@@ -105,5 +115,7 @@ public sealed class StdioHost
     {
         public bool Ok { get; set; }
         public string Message { get; set; } = "";
+        public string? Image { get; set; }
+        public string[]? Images { get; set; }
     }
 }

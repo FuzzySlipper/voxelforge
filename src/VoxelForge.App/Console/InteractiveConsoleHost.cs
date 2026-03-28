@@ -4,7 +4,7 @@ namespace VoxelForge.App.Console;
 
 /// <summary>
 /// Interactive REPL that runs in the terminal alongside the MonoGame window.
-/// Uses Spectre.Console for input/output.
+/// Uses ReadLine for history and tab completion, Spectre.Console for output.
 /// </summary>
 public sealed class InteractiveConsoleHost
 {
@@ -24,19 +24,25 @@ public sealed class InteractiveConsoleHost
     {
         AnsiConsole.MarkupLine("[bold blue]VoxelForge Console[/] — type [green]help[/] for commands, [green]quit[/] to exit");
 
+        // Set up tab completion with command names
+        var commandNames = _router.Commands.Keys.Order().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        ReadLine.AutoCompletionHandler = new CommandAutoComplete(commandNames);
+        ReadLine.HistoryEnabled = true;
+
         while (!ct.IsCancellationRequested)
         {
-            string input;
+            string? input;
             try
             {
-                input = AnsiConsole.Prompt(
-                    new TextPrompt<string>("[grey]>[/]")
-                        .AllowEmpty());
+                input = ReadLine.Read("> ");
             }
             catch (OperationCanceledException)
             {
                 break;
             }
+
+            if (input is null) // EOF
+                break;
 
             if (string.IsNullOrWhiteSpace(input))
                 continue;
@@ -58,4 +64,22 @@ public sealed class InteractiveConsoleHost
 
     private static string EscapeMarkup(string text) =>
         text.Replace("[", "[[").Replace("]", "]]");
+
+    private sealed class CommandAutoComplete : IAutoCompleteHandler
+    {
+        private readonly List<string> _commandNames;
+
+        public CommandAutoComplete(List<string> commandNames) => _commandNames = commandNames;
+
+        public char[] Separators { get; set; } = [' '];
+
+        public string[] GetSuggestions(string text, int index)
+        {
+            // Only autocomplete the first token (command name)
+            var prefix = text.Split(' ')[0];
+            return _commandNames
+                .Where(n => n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+        }
+    }
 }
