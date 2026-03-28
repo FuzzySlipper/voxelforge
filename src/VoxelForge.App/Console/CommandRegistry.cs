@@ -49,6 +49,7 @@ public static class CommandRegistry
             new RefModeCommand(refRegistry),
             new RefVisibilityCommand(refRegistry, show: true),
             new RefVisibilityCommand(refRegistry, show: false),
+            new RefScaleCommand(refRegistry),
             new RefInfoCommand(refRegistry, refLoader),
             new ImgLoadCommand(imageStore),
             new ImgListCommand(imageStore),
@@ -58,7 +59,11 @@ public static class CommandRegistry
         };
 
         var router = new CommandRouter(commands, logger);
-        var allCommands = new List<IConsoleCommand>(commands) { new HelpCommand(router) };
+        var allCommands = new List<IConsoleCommand>(commands)
+        {
+            new HelpCommand(router),
+            new ExecCommand(router),
+        };
         router = new CommandRouter(allCommands, logger);
 
         return router;

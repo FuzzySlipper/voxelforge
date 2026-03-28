@@ -50,6 +50,20 @@ public sealed class OrbitalCamera
         Distance = MathHelper.Clamp(Distance - delta, MinDistance, MaxDistance);
     }
 
+    /// <summary>
+    /// Moves the target point relative to the camera's current orientation.
+    /// Forward/back is along the camera's XZ look direction, strafe is perpendicular.
+    /// </summary>
+    public void Pan(float forward, float right, float up)
+    {
+        // Camera's forward direction projected onto XZ plane
+        var fwd = new Vector3(MathF.Sin(Yaw), 0, MathF.Cos(Yaw));
+        // Right is perpendicular to forward on the XZ plane
+        var rt = new Vector3(fwd.Z, 0, -fwd.X);
+
+        Target += fwd * forward + rt * right + Vector3.Up * up;
+    }
+
     public void SnapToFront() { Yaw = 0; Pitch = 0; }
     public void SnapToSide() { Yaw = MathHelper.PiOver2; Pitch = 0; }
     public void SnapToTop() { Yaw = 0; Pitch = MathHelper.PiOver2 - 0.01f; }

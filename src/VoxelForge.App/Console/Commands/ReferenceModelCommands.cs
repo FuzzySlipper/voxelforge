@@ -190,6 +190,30 @@ public sealed class RefVisibilityCommand : IConsoleCommand
     }
 }
 
+public sealed class RefScaleCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+
+    public string Name => "refscale";
+    public string[] Aliases => [];
+    public string HelpText => "Set scale of a reference model. Usage: refscale <index> <scale>";
+
+    public RefScaleCommand(ReferenceModelRegistry registry) => _registry = registry;
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 2 || !int.TryParse(args[0], out int idx) || !float.TryParse(args[1], out float scale))
+            return CommandResult.Fail("Usage: refscale <index> <scale>");
+
+        var model = _registry.Get(idx);
+        if (model is null)
+            return CommandResult.Fail($"No reference model at index {idx}.");
+
+        model.Scale = scale;
+        return CommandResult.Ok($"[{idx}] scale = {scale}");
+    }
+}
+
 public sealed class RefInfoCommand : IConsoleCommand
 {
     private readonly ReferenceModelRegistry _registry;

@@ -83,6 +83,18 @@ public sealed class VoxelizeCommand : IConsoleCommand
             VertexColors = hasColorVariation ? vertexColors.ToArray() : null,
         };
 
+        // Compute AABB of transformed positions for world-space remapping
+        var aabbMin = positions[0];
+        var aabbMax = positions[0];
+        for (int i = 1; i < positions.Count; i++)
+        {
+            aabbMin = Vector3.Min(aabbMin, positions[i]);
+            aabbMax = Vector3.Max(aabbMax, positions[i]);
+        }
+        var aabbSize = aabbMax - aabbMin;
+        float maxDim = MathF.Max(aabbSize.X, MathF.Max(aabbSize.Y, aabbSize.Z));
+        float cellSize = maxDim / resolution;
+
         var service = new VoxelizeService(_loggerFactory);
         var result = service.Voxelize(triMesh, resolution, mode);
 
@@ -90,10 +102,17 @@ public sealed class VoxelizeCommand : IConsoleCommand
         foreach (var (palIdx, matDef) in result.Palette.Entries)
             context.Model.Palette.Set(palIdx, matDef);
 
-        // Apply to current model via undo stack
+        // Remap voxel positions from grid space [0, resolution) to world-integer space
+        // so the model's scale and position are reflected in the output
+        var gridMin = aabbMin - new Vector3(cellSize * 0.5f); // matches voxelizer padding
         var commands = new List<IEditorCommand>();
-        foreach (var (pos, val) in result.Voxels)
-            commands.Add(new SetVoxelCommand(context.Model, pos, val));
+        foreach (var (gridPos, val) in result.Voxels)
+        {
+            int wx = (int)MathF.Floor(gridMin.X + gridPos.X * cellSize);
+            int wy = (int)MathF.Floor(gridMin.Y + gridPos.Y * cellSize);
+            int wz = (int)MathF.Floor(gridMin.Z + gridPos.Z * cellSize);
+            commands.Add(new SetVoxelCommand(context.Model, new Point3(wx, wy, wz), val));
+        }
 
         if (commands.Count > 0)
         {

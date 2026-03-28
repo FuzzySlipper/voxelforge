@@ -38,6 +38,11 @@ public sealed class EditorConfig
     public float ZoomSensitivity { get; set; } = 0.02f;
 
     /// <summary>
+    /// WASD camera pan speed (units per second).
+    /// </summary>
+    public float PanSpeed { get; set; } = 30f;
+
+    /// <summary>
     /// Default grid hint for new models.
     /// </summary>
     public int DefaultGridHint { get; set; } = 32;

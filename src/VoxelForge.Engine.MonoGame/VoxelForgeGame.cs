@@ -144,6 +144,21 @@ public sealed class VoxelForgeGame : Game
         if (scrollDelta != 0)
             _camera.Zoom(scrollDelta * _config.ZoomSensitivity);
 
+        // WASD camera pan (move the orbital target point)
+        float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        float speed = _config.PanSpeed * dt;
+        if (keyboard.IsKeyDown(Keys.LeftShift) || keyboard.IsKeyDown(Keys.RightShift))
+            speed *= 3f;
+        float fwd = 0, right = 0, up = 0;
+        if (keyboard.IsKeyDown(Keys.W)) fwd -= speed;
+        if (keyboard.IsKeyDown(Keys.S)) fwd += speed;
+        if (keyboard.IsKeyDown(Keys.A)) right -= speed;
+        if (keyboard.IsKeyDown(Keys.D)) right += speed;
+        if (keyboard.IsKeyDown(Keys.Q)) up += speed;
+        if (keyboard.IsKeyDown(Keys.E)) up -= speed;
+        if (fwd != 0 || right != 0 || up != 0)
+            _camera.Pan(fwd, right, up);
+
         // Axis-aligned view snaps
         if (keyboard.IsKeyDown(Keys.F1) && _previousKeyboard.IsKeyUp(Keys.F1))
             _camera.SnapToFront();
