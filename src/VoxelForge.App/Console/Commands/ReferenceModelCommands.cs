@@ -189,3 +189,39 @@ public sealed class RefVisibilityCommand : IConsoleCommand
         return CommandResult.Ok($"[{idx}] {(_show ? "shown" : "hidden")}");
     }
 }
+
+public sealed class RefInfoCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelLoader _loader;
+
+    public string Name => "refinfo";
+    public string[] Aliases => [];
+    public string HelpText => "Inspect material/texture/UV info for a loaded reference model. Usage: refinfo <index>";
+
+    public RefInfoCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    {
+        _registry = registry;
+        _loader = loader;
+    }
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 1 || !int.TryParse(args[0], out int idx))
+            return CommandResult.Fail("Usage: refinfo <index>");
+
+        var model = _registry.Get(idx);
+        if (model is null)
+            return CommandResult.Fail($"No reference model at index {idx}.");
+
+        try
+        {
+            var info = _loader.Inspect(model.FilePath);
+            return CommandResult.Ok(info);
+        }
+        catch (Exception ex)
+        {
+            return CommandResult.Fail($"Inspect failed: {ex.Message}");
+        }
+    }
+}

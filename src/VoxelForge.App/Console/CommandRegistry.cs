@@ -49,6 +49,7 @@ public static class CommandRegistry
             new RefModeCommand(refRegistry),
             new RefVisibilityCommand(refRegistry, show: true),
             new RefVisibilityCommand(refRegistry, show: false),
+            new RefInfoCommand(refRegistry, refLoader),
             new ImgLoadCommand(imageStore),
             new ImgListCommand(imageStore),
             new ImgRemoveCommand(imageStore),

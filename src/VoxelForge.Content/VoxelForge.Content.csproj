@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="AssimpNetter" />
+    <PackageReference Include="StbImageSharp" />
   </ItemGroup>
 
   <ItemGroup>

@@ -6,7 +6,8 @@ namespace VoxelForge.Core.Reference;
 public readonly record struct ReferenceVertex(
     float PosX, float PosY, float PosZ,
     float NormX, float NormY, float NormZ,
-    byte R, byte G, byte B, byte A);
+    byte R, byte G, byte B, byte A,
+    float U = 0f, float V = 0f);
 
 /// <summary>
 /// A triangle mesh extracted from a reference model file. Engine-agnostic.
@@ -16,6 +17,7 @@ public sealed class ReferenceMeshData
     public required ReferenceVertex[] Vertices { get; init; }
     public required int[] Indices { get; init; }
     public string MaterialName { get; init; } = "default";
+    public string? DiffuseTexturePath { get; init; }
 }
 
 /// <summary>

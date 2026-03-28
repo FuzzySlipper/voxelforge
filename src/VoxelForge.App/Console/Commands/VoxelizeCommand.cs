@@ -40,8 +40,8 @@ public sealed class VoxelizeCommand : IConsoleCommand
 
         // Convert ReferenceModelData meshes to TriangleMesh
         var positions = new List<Vector3>();
+        var vertexColors = new List<RgbaColor>();
         var indices = new List<int>();
-
         foreach (var mesh in refModel.Meshes)
         {
             int baseVertex = positions.Count;
@@ -54,19 +54,41 @@ public sealed class VoxelizeCommand : IConsoleCommand
                     pos.Y + refModel.PositionY,
                     pos.Z + refModel.PositionZ);
                 positions.Add(pos);
+                vertexColors.Add(new RgbaColor(v.R, v.G, v.B, v.A));
             }
             foreach (var idx in mesh.Indices)
                 indices.Add(baseVertex + idx);
+        }
+
+        // Check if vertex colors are diverse (texture-baked or meaningful vertex colors)
+        // If all vertices have the same color, skip color voxelization
+        bool hasColorVariation = false;
+        if (vertexColors.Count > 1)
+        {
+            var first = vertexColors[0];
+            for (int i = 1; i < vertexColors.Count; i++)
+            {
+                if (vertexColors[i] != first)
+                {
+                    hasColorVariation = true;
+                    break;
+                }
+            }
         }
 
         var triMesh = new TriangleMesh
         {
             Positions = positions.ToArray(),
             Indices = indices.ToArray(),
+            VertexColors = hasColorVariation ? vertexColors.ToArray() : null,
         };
 
         var service = new VoxelizeService(_loggerFactory);
         var result = service.Voxelize(triMesh, resolution, mode);
+
+        // Copy palette entries from the voxelization result into the context model
+        foreach (var (palIdx, matDef) in result.Palette.Entries)
+            context.Model.Palette.Set(palIdx, matDef);
 
         // Apply to current model via undo stack
         var commands = new List<IEditorCommand>();
@@ -79,6 +101,7 @@ public sealed class VoxelizeCommand : IConsoleCommand
             context.OnModelChanged?.Invoke();
         }
 
-        return CommandResult.Ok($"Voxelized: {commands.Count} voxels at resolution {resolution} ({mode})");
+        string colorInfo = hasColorVariation ? $", {result.Palette.Count} colors" : "";
+        return CommandResult.Ok($"Voxelized: {commands.Count} voxels at resolution {resolution} ({mode}{colorInfo})");
     }
 }

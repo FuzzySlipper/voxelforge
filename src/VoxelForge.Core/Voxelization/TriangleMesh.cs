@@ -10,6 +10,12 @@ public sealed class TriangleMesh
     public required Vector3[] Positions { get; init; }
     public required int[] Indices { get; init; }
 
+    /// <summary>
+    /// Optional per-vertex colors, parallel to Positions. When present,
+    /// voxelization interpolates colors at ray-hit points.
+    /// </summary>
+    public RgbaColor[]? VertexColors { get; init; }
+
     public int TriangleCount => Indices.Length / 3;
 }
 
