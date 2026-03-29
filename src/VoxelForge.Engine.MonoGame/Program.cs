@@ -48,11 +48,13 @@ if (headless)
 
     if (Console.IsInputRedirected)
     {
+        context.Mode = ExecutionMode.Stdio;
         var stdio = new StdioHost(router, context);
         stdio.Run(cts.Token);
     }
     else
     {
+        context.Mode = ExecutionMode.Headless;
         var console = new InteractiveConsoleHost(router, context);
         console.Run(cts.Token);
     }
@@ -70,6 +72,7 @@ else
 
         if (Console.IsInputRedirected)
         {
+            context.Mode = ExecutionMode.Stdio;
             var stdio = new StdioHost(router, context);
             stdio.Run(cts.Token);
         }

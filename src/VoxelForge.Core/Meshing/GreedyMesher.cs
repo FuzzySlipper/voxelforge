@@ -167,7 +167,6 @@ public sealed class GreedyMesher : IVoxelMesher
                             vertices.Add(new VoxelVertex(c2[0], c2[1], c2[2], nx, ny, nz, cr, cg, cb, ca));
                             vertices.Add(new VoxelVertex(c3[0], c3[1], c3[2], nx, ny, nz, cr, cg, cb, ca));
 
-                            // FNA default: CullCounterClockwiseFace — clockwise = front face
                             if (sign > 0)
                             {
                                 indices.Add(baseIdx);

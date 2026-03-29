@@ -96,7 +96,6 @@ public sealed class NaiveMesher : IVoxelMesher
         vertices.Add(new VoxelVertex(c3[0], c3[1], c3[2], nx, ny, nz, r, g, b, a));
 
         // Two triangles — winding depends on face direction
-        // FNA default: CullCounterClockwiseFace — clockwise = front face
         if (sign > 0)
         {
             indices.Add(baseIndex);

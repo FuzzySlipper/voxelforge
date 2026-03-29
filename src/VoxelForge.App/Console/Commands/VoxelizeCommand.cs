@@ -31,12 +31,20 @@ public sealed class VoxelizeCommand : IConsoleCommand
         if (refModel is null)
             return CommandResult.Fail($"No reference model at index {refIdx}.");
 
-        if (resolution < 2 || resolution > 128)
-            return CommandResult.Fail("Resolution must be 2-128.");
+        if (resolution < 2 || resolution > 256)
+            return CommandResult.Fail("Resolution must be 2-256.");
 
         var mode = VoxelizeMode.Solid;
         if (args.Length >= 3 && args[2].Equals("surface", StringComparison.OrdinalIgnoreCase))
             mode = VoxelizeMode.Surface;
+
+        // Build the same Scale → YawPitchRoll → Translation transform the renderer uses
+        var transform = Matrix4x4.CreateScale(refModel.Scale)
+            * Matrix4x4.CreateFromYawPitchRoll(
+                float.DegreesToRadians(refModel.RotationY),
+                float.DegreesToRadians(refModel.RotationX),
+                float.DegreesToRadians(refModel.RotationZ))
+            * Matrix4x4.CreateTranslation(refModel.PositionX, refModel.PositionY, refModel.PositionZ);
 
         // Convert ReferenceModelData meshes to TriangleMesh
         var positions = new List<Vector3>();
@@ -47,12 +55,7 @@ public sealed class VoxelizeCommand : IConsoleCommand
             int baseVertex = positions.Count;
             foreach (var v in mesh.Vertices)
             {
-                // Apply model transform
-                var pos = new Vector3(v.PosX, v.PosY, v.PosZ) * refModel.Scale;
-                pos = new Vector3(
-                    pos.X + refModel.PositionX,
-                    pos.Y + refModel.PositionY,
-                    pos.Z + refModel.PositionZ);
+                var pos = Vector3.Transform(new Vector3(v.PosX, v.PosY, v.PosZ), transform);
                 positions.Add(pos);
                 vertexColors.Add(new RgbaColor(v.R, v.G, v.B, v.A));
             }
@@ -105,22 +108,36 @@ public sealed class VoxelizeCommand : IConsoleCommand
         // Remap voxel positions from grid space [0, resolution) to world-integer space
         // so the model's scale and position are reflected in the output
         var gridMin = aabbMin - new Vector3(cellSize * 0.5f); // matches voxelizer padding
-        var commands = new List<IEditorCommand>();
+        var newVoxels = new Dictionary<Point3, byte>();
         foreach (var (gridPos, val) in result.Voxels)
         {
             int wx = (int)MathF.Floor(gridMin.X + gridPos.X * cellSize);
             int wy = (int)MathF.Floor(gridMin.Y + gridPos.Y * cellSize);
             int wz = (int)MathF.Floor(gridMin.Z + gridPos.Z * cellSize);
-            commands.Add(new SetVoxelCommand(context.Model, new Point3(wx, wy, wz), val));
+            newVoxels[new Point3(wx, wy, wz)] = val;
         }
+
+        // Build a single compound command that replaces the entire model:
+        // 1) Remove existing voxels not present in the new result
+        // 2) Set all new voxels (SetVoxelCommand handles overwrite via undo)
+        var commands = new List<IEditorCommand>();
+        foreach (var pos in context.Model.Voxels.Keys)
+        {
+            if (!newVoxels.ContainsKey(pos))
+                commands.Add(new RemoveVoxelCommand(context.Model, pos));
+        }
+        foreach (var (pos, val) in newVoxels)
+            commands.Add(new SetVoxelCommand(context.Model, pos, val));
 
         if (commands.Count > 0)
         {
-            context.UndoStack.Execute(new CompoundCommand(commands, $"Voxelize ({commands.Count} voxels)"));
+            context.UndoStack.Execute(new CompoundCommand(commands, $"Voxelize ({newVoxels.Count} voxels)"));
             context.OnModelChanged?.Invoke();
         }
 
+        int removed = commands.Count - newVoxels.Count;
+        string removeInfo = removed > 0 ? $", {removed} removed" : "";
         string colorInfo = hasColorVariation ? $", {result.Palette.Count} colors" : "";
-        return CommandResult.Ok($"Voxelized: {commands.Count} voxels at resolution {resolution} ({mode}{colorInfo})");
+        return CommandResult.Ok($"Voxelized: {newVoxels.Count} voxels at resolution {resolution} ({mode}{colorInfo}{removeInfo})");
     }
 }

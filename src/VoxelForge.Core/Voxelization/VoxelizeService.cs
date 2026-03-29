@@ -353,9 +353,9 @@ public sealed class VoxelizeService
     }
 
     // Map (axis, u, v, w) back to (x, y, z)
-    private static int GetX(int axis, int u, int v, int w) => axis == 0 ? w : axis == 1 ? u : u;
+    private static int GetX(int axis, int u, int v, int w) => axis == 0 ? w : axis == 1 ? v : u;
     private static int GetY(int axis, int u, int v, int w) => axis == 0 ? u : axis == 1 ? w : v;
-    private static int GetZ(int axis, int u, int v, int w) => axis == 0 ? v : axis == 1 ? v : w;
+    private static int GetZ(int axis, int u, int v, int w) => axis == 0 ? v : axis == 1 ? u : w;
 
     /// <summary>
     /// Möller–Trumbore ray-triangle intersection.

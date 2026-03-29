@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.Core.Meshing;
 
@@ -11,6 +12,67 @@ public sealed class MeshingTests
         var model = new VoxelModel(NullLogger<VoxelModel>.Instance);
         model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(128, 128, 128) });
         return model;
+    }
+
+    private static void AssertFrontFacingTrianglesProjectCorrectly(VoxelMesh mesh)
+    {
+        var cameraPosition = new Vector3(4f, 3f, 5f);
+        var target = new Vector3(0.5f, 0.5f, 0.5f);
+        var view = Matrix4x4.CreateLookAt(cameraPosition, target, Vector3.UnitY);
+        var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 4f, 16f / 10f, 0.1f, 100f);
+        var viewProjection = view * projection;
+        const float viewportWidth = 1600f;
+        const float viewportHeight = 1000f;
+        int checkedTriangleCount = 0;
+
+        for (int i = 0; i < mesh.Indices.Length; i += 3)
+        {
+            var v0 = mesh.Vertices[mesh.Indices[i]];
+            var v1 = mesh.Vertices[mesh.Indices[i + 1]];
+            var v2 = mesh.Vertices[mesh.Indices[i + 2]];
+
+            var p0 = new Vector3(v0.X, v0.Y, v0.Z);
+            var p1 = new Vector3(v1.X, v1.Y, v1.Z);
+            var p2 = new Vector3(v2.X, v2.Y, v2.Z);
+            var triangleCenter = (p0 + p1 + p2) / 3f;
+            var faceNormal = Vector3.Normalize(new Vector3(v0.NX, v0.NY, v0.NZ));
+            var toCamera = Vector3.Normalize(cameraPosition - triangleCenter);
+
+            if (Vector3.Dot(faceNormal, toCamera) <= 0.01f)
+                continue;
+
+            var clip0 = Vector4.Transform(new Vector4(p0, 1f), viewProjection);
+            var clip1 = Vector4.Transform(new Vector4(p1, 1f), viewProjection);
+            var clip2 = Vector4.Transform(new Vector4(p2, 1f), viewProjection);
+
+            Assert.True(clip0.W > 0f && clip1.W > 0f && clip2.W > 0f,
+                $"Triangle {i / 3} is behind the camera.");
+
+            var ndc0 = new Vector2(clip0.X / clip0.W, clip0.Y / clip0.W);
+            var ndc1 = new Vector2(clip1.X / clip1.W, clip1.Y / clip1.W);
+            var ndc2 = new Vector2(clip2.X / clip2.W, clip2.Y / clip2.W);
+
+            var screen0 = new Vector2(
+                (ndc0.X * 0.5f + 0.5f) * viewportWidth,
+                (1f - (ndc0.Y * 0.5f + 0.5f)) * viewportHeight);
+            var screen1 = new Vector2(
+                (ndc1.X * 0.5f + 0.5f) * viewportWidth,
+                (1f - (ndc1.Y * 0.5f + 0.5f)) * viewportHeight);
+            var screen2 = new Vector2(
+                (ndc2.X * 0.5f + 0.5f) * viewportWidth,
+                (1f - (ndc2.Y * 0.5f + 0.5f)) * viewportHeight);
+
+            float signedArea = (screen1.X - screen0.X) * (screen2.Y - screen0.Y) -
+                               (screen1.Y - screen0.Y) * (screen2.X - screen0.X);
+
+            Assert.True(
+                signedArea < 0f,
+                $"Triangle {i / 3} does not project correctly for a front-facing triangle. Area={signedArea}");
+
+            checkedTriangleCount++;
+        }
+
+        Assert.True(checkedTriangleCount > 0, "Expected to validate at least one front-facing triangle.");
     }
 
     // --- NaiveMesher ---
@@ -74,6 +136,18 @@ public sealed class MeshingTests
     }
 
     [Fact]
+    public void NaiveMesher_SingleVoxel_ProjectsFrontFacesCorrectly_ForFnaCull()
+    {
+        var model = CreateModel();
+        model.SetVoxel(new Point3(0, 0, 0), 1);
+
+        var mesher = new NaiveMesher();
+        var mesh = mesher.Build(model);
+
+        AssertFrontFacingTrianglesProjectCorrectly(mesh);
+    }
+
+    [Fact]
     public void NaiveMesher_MissingPalette_UsesMagenta()
     {
         var model = new VoxelModel(NullLogger<VoxelModel>.Instance);
@@ -103,6 +177,18 @@ public sealed class MeshingTests
         // Single voxel can't be merged — same as naive: 6 quads
         Assert.Equal(24, mesh.Vertices.Length);
         Assert.Equal(36, mesh.Indices.Length);
+    }
+
+    [Fact]
+    public void GreedyMesher_SingleVoxel_ProjectsFrontFacesCorrectly_ForFnaCull()
+    {
+        var model = CreateModel();
+        model.SetVoxel(new Point3(0, 0, 0), 1);
+
+        var mesher = new GreedyMesher();
+        var mesh = mesher.Build(model);
+
+        AssertFrontFacingTrianglesProjectCorrectly(mesh);
     }
 
     [Fact]

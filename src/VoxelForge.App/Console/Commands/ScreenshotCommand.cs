@@ -22,15 +22,22 @@ public sealed class ScreenshotCommand : IConsoleCommand
         if (provider is null)
             return CommandResult.Fail("Screenshot provider not available (headless without GPU?).");
 
-        Directory.CreateDirectory(ScreenshotDir);
+        var writeFiles = context.Mode == ExecutionMode.Interactive;
+        if (writeFiles)
+            Directory.CreateDirectory(ScreenshotDir);
+
         var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
         if (args.Length == 0)
         {
-            var path = Path.Combine(ScreenshotDir, $"viewport_{timestamp}.png");
             var bytes = provider.CaptureViewport();
-            File.WriteAllBytes(path, bytes);
-            return CommandResult.Ok($"Saved screenshot to {path} ({bytes.Length} bytes)", bytes);
+            if (writeFiles)
+            {
+                var path = Path.Combine(ScreenshotDir, $"viewport_{timestamp}.png");
+                File.WriteAllBytes(path, bytes);
+                return CommandResult.Ok($"Saved screenshot to {path} ({bytes.Length} bytes)", bytes);
+            }
+            return CommandResult.Ok($"Captured viewport ({bytes.Length} bytes)", bytes);
         }
 
         if (args[0] == "all")
@@ -38,17 +45,20 @@ public sealed class ScreenshotCommand : IConsoleCommand
             var prefix = args.Length >= 2 ? args[1] : timestamp;
             string[] names = ["front", "back", "left", "right", "top"];
             var images = provider.CaptureMultiAngle();
-            var paths = new List<string>();
 
-            for (int i = 0; i < images.Length; i++)
+            if (writeFiles)
             {
-                var path = Path.Combine(ScreenshotDir, $"{prefix}_{names[i]}.png");
-                File.WriteAllBytes(path, images[i]);
-                paths.Add(path);
+                var paths = new List<string>();
+                for (int i = 0; i < images.Length; i++)
+                {
+                    var path = Path.Combine(ScreenshotDir, $"{prefix}_{names[i]}.png");
+                    File.WriteAllBytes(path, images[i]);
+                    paths.Add(path);
+                }
+                return CommandResult.Ok($"Saved {images.Length} screenshots:\n" +
+                    string.Join("\n", paths.Select(p => $"  {p}")), images);
             }
-
-            return CommandResult.Ok($"Saved {images.Length} screenshots:\n" +
-                string.Join("\n", paths.Select(p => $"  {p}")), images);
+            return CommandResult.Ok($"Captured {images.Length} views", images);
         }
 
         if (args[0] == "angle" && args.Length >= 3)
@@ -56,21 +66,28 @@ public sealed class ScreenshotCommand : IConsoleCommand
             if (!float.TryParse(args[1], out float yaw) || !float.TryParse(args[2], out float pitch))
                 return CommandResult.Fail("Invalid angle. Expected: screenshot angle <yaw> <pitch>");
 
-            var path = args.Length >= 4
-                ? args[3]
-                : Path.Combine(ScreenshotDir, $"angle_{yaw:F0}_{pitch:F0}_{timestamp}.png");
-
             var bytes = provider.CaptureFromAngle(yaw, pitch);
-            File.WriteAllBytes(path, bytes);
-            return CommandResult.Ok($"Saved screenshot to {path} ({bytes.Length} bytes)", bytes);
+            if (writeFiles)
+            {
+                var path = args.Length >= 4
+                    ? args[3]
+                    : Path.Combine(ScreenshotDir, $"angle_{yaw:F0}_{pitch:F0}_{timestamp}.png");
+                File.WriteAllBytes(path, bytes);
+                return CommandResult.Ok($"Saved screenshot to {path} ({bytes.Length} bytes)", bytes);
+            }
+            return CommandResult.Ok($"Captured angle ({bytes.Length} bytes)", bytes);
         }
 
         // Single arg = filepath
         {
-            var path = args[0];
             var bytes = provider.CaptureViewport();
-            File.WriteAllBytes(path, bytes);
-            return CommandResult.Ok($"Saved screenshot to {path} ({bytes.Length} bytes)", bytes);
+            if (writeFiles)
+            {
+                var path = args[0];
+                File.WriteAllBytes(path, bytes);
+                return CommandResult.Ok($"Saved screenshot to {path} ({bytes.Length} bytes)", bytes);
+            }
+            return CommandResult.Ok($"Captured viewport ({bytes.Length} bytes)", bytes);
         }
     }
 }

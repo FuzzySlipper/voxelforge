@@ -191,6 +191,9 @@ public sealed class VoxelForgeGame : Game
 
         _editorLayout?.Refresh();
 
+        // Sync grid floor to model's grid hint
+        _gridFloor?.Resize(_editorState.ActiveModel.GridHint);
+
         _previousMouse = mouse;
         _previousKeyboard = keyboard;
 

@@ -8,24 +8,20 @@ Rendering: **FNA** (XNA4 reimplementation) with **FNA3D** (Vulkan via SDL_GPU on
 
 ## Task Management
 
-Tasks are tracked in `.taskmaster/tasks/tasks.json` via the TaskMaster MCP server.
+Tasks are tracked via the Den MCP server (project ID: `voxelforge`).
 
 **Available MCP tools:**
 
-- `mcp__taskmaster-ai__get_tasks` — list all tasks and status
-- `mcp__taskmaster-ai__get_task` — get details on a specific task
-- `mcp__taskmaster-ai__next_task` — find the next unblocked task to work on
-- `mcp__taskmaster-ai__set_task_status` — mark tasks done/in-progress/blocked etc.
-- `mcp__taskmaster-ai__parse_prd` — generate tasks from a PRD (use `append: true` to add)
-- `mcp__taskmaster-ai__expand_task` — break a task into subtasks
-- `mcp__taskmaster-ai__update_subtask` — update subtask details
+- `mcp__den__list_tasks` — list all tasks and status
+- `mcp__den__get_task` — get full task details including dependencies and subtasks
+- `mcp__den__next_task` — find the next unblocked task to work on
+- `mcp__den__create_task` — create a new task or subtask
+- `mcp__den__update_task` — update task fields and status (requires agent identity)
+- `mcp__den__add_dependency` / `mcp__den__remove_dependency` — manage task dependencies
+- `mcp__den__send_message` — send a message on a task or thread
+- `mcp__den__store_document` / `mcp__den__search_documents` — store and search project documents
 
-**Current milestones:** Foundation (tasks 1-13, done), Reference Models & Vision (tasks 14-19, in progress). See `.taskmaster/docs/` for PRDs.
-
-**Codex Note:**
-- Use `$bug-hunt-taskmaster` for bug hunts, plan sanity checks, and logging confirmed issues to TaskMaster.
-- Read current and completed TaskMaster tasks first for codebase context.
-- Log only high-confidence issues with clear acceptance criteria.
+**Current milestones:** Foundation (done), Reference Models & Vision. See `docs/` for PRDs.
 
 ## Hard Architectural Rules
 
@@ -69,7 +65,7 @@ Frame-swap: `AnimationClip` has a shared `Base` VoxelModel + `List<AnimationFram
 
 ### Meshing
 
-`IVoxelMesher` strategy interface. `GreedyMesher` (primary) and `NaiveMesher` (debug baseline). Both produce `VoxelMesh` (vertex/index arrays) from a VoxelModel. Interior faces are culled. Winding order is counter-clockwise for front faces (XNA4/FNA convention).
+`IVoxelMesher` strategy interface. `GreedyMesher` (primary) and `NaiveMesher` (debug baseline). Both produce `VoxelMesh` (vertex/index arrays) from a VoxelModel. Interior faces are culled. FNA/XNA defaults to `RasterizerState.CullCounterClockwise`, so mesh winding and rasterizer state must stay aligned; verify winding changes with code-side tests against the active render-path convention rather than relying on visual inspection alone.
 
 ## Command & Undo System
 
@@ -124,7 +120,7 @@ lib/
 
 ## Before Editing
 
-1. Check the current task in `.taskmaster/tasks/tasks.json` for scope and acceptance criteria.
+1. Check the current task via `mcp__den__next_task` or `mcp__den__get_task` for scope and acceptance criteria.
 2. Read the relevant section of this file for the subsystem you're changing.
 3. Build: `dotnet build voxelforge.slnx`
 

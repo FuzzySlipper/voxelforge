@@ -26,6 +26,18 @@ public sealed class CommandResult
 }
 
 /// <summary>
+/// How the console session was invoked — commands can branch on this
+/// to skip side-effects (e.g. file writes) that don't make sense for
+/// a particular mode.
+/// </summary>
+public enum ExecutionMode
+{
+    Interactive,
+    Stdio,
+    Headless,
+}
+
+/// <summary>
 /// Shared state passed to every command. Commands never access global state.
 /// </summary>
 public sealed class CommandContext
@@ -34,6 +46,7 @@ public sealed class CommandContext
     public required VoxelForge.Core.LabelIndex Labels { get; init; }
     public required List<VoxelForge.Core.AnimationClip> Clips { get; init; }
     public required VoxelForge.App.Commands.UndoStack UndoStack { get; init; }
+    public ExecutionMode Mode { get; set; } = ExecutionMode.Interactive;
 
     /// <summary>
     /// Fired after any command mutates the model so the renderer can update.

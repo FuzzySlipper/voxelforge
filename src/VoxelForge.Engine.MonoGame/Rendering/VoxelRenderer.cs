@@ -57,7 +57,7 @@ public sealed class VoxelRenderer : IDisposable
         }
         else
         {
-            _graphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
+            _graphicsDevice.RasterizerState = RasterizerState.CullClockwise;
         }
 
         _graphicsDevice.SetVertexBuffer(_vertexBuffer);

@@ -5,36 +5,55 @@ namespace VoxelForge.Engine.MonoGame.Rendering;
 
 /// <summary>
 /// Renders a flat grid on the XZ plane for spatial reference.
+/// Rebuild by calling <see cref="Resize"/> when the grid size changes.
 /// </summary>
 public sealed class GridFloor : IDisposable
 {
-    private readonly VertexBuffer _vertexBuffer;
-    private readonly int _lineCount;
+    private readonly GraphicsDevice _graphicsDevice;
+    private VertexBuffer? _vertexBuffer;
+    private int _lineCount;
+    private int _halfExtent;
 
-    public GridFloor(GraphicsDevice graphicsDevice, int halfExtent = 32, float y = 0f)
+    public GridFloor(GraphicsDevice graphicsDevice, int halfExtent = 32)
+    {
+        _graphicsDevice = graphicsDevice;
+        _halfExtent = halfExtent;
+        Build();
+    }
+
+    public void Resize(int halfExtent)
+    {
+        if (halfExtent == _halfExtent)
+            return;
+        _halfExtent = halfExtent;
+        _vertexBuffer?.Dispose();
+        Build();
+    }
+
+    private void Build()
     {
         var lines = new List<VertexPositionColor>();
         var gridColor = new Color(80, 80, 80);
 
-        for (int i = -halfExtent; i <= halfExtent; i++)
+        for (int i = -_halfExtent; i <= _halfExtent; i++)
         {
-            // Lines along Z
-            lines.Add(new VertexPositionColor(new Vector3(i, y, -halfExtent), gridColor));
-            lines.Add(new VertexPositionColor(new Vector3(i, y, halfExtent), gridColor));
+            lines.Add(new VertexPositionColor(new Vector3(i, 0f, -_halfExtent), gridColor));
+            lines.Add(new VertexPositionColor(new Vector3(i, 0f, _halfExtent), gridColor));
 
-            // Lines along X
-            lines.Add(new VertexPositionColor(new Vector3(-halfExtent, y, i), gridColor));
-            lines.Add(new VertexPositionColor(new Vector3(halfExtent, y, i), gridColor));
+            lines.Add(new VertexPositionColor(new Vector3(-_halfExtent, 0f, i), gridColor));
+            lines.Add(new VertexPositionColor(new Vector3(_halfExtent, 0f, i), gridColor));
         }
 
         _lineCount = lines.Count / 2;
-        _vertexBuffer = new VertexBuffer(graphicsDevice, VertexPositionColor.VertexDeclaration,
+        _vertexBuffer = new VertexBuffer(_graphicsDevice, VertexPositionColor.VertexDeclaration,
             lines.Count, BufferUsage.WriteOnly);
         _vertexBuffer.SetData(lines.ToArray());
     }
 
     public void Draw(GraphicsDevice graphicsDevice, BasicEffect effect)
     {
+        if (_vertexBuffer is null) return;
+
         effect.VertexColorEnabled = true;
         effect.LightingEnabled = false;
 
@@ -49,6 +68,6 @@ public sealed class GridFloor : IDisposable
 
     public void Dispose()
     {
-        _vertexBuffer.Dispose();
+        _vertexBuffer?.Dispose();
     }
 }

@@ -73,7 +73,7 @@ public sealed class ReferenceModelRenderer : IDisposable
                     effect.LightingEnabled = true;
                     effect.EnableDefaultLighting();
                     effect.Alpha = 1f;
-                    // Imported models (FBX/OBJ) use CCW winding — flip cull mode
+                    // Both voxel and reference meshes use CCW front-facing with CullClockwise.
                     _graphicsDevice.RasterizerState = RasterizerState.CullClockwise;
                     break;
             }
