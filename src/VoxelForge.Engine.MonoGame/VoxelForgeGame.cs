@@ -5,6 +5,7 @@ using Myra;
 using Myra.Graphics2D.UI;
 using VoxelForge.App;
 using VoxelForge.App.Commands;
+using VoxelForge.App.Console;
 using VoxelForge.App.Reference;
 using VoxelForge.Core.Screenshot;
 using VoxelForge.Core.Meshing;
@@ -23,12 +24,14 @@ public sealed class VoxelForgeGame : Game
     private readonly ReferenceModelRegistry _refRegistry;
     private readonly ReferenceImageStore _imageStore;
     private readonly CancellationTokenSource _cts;
+    private readonly MenuCommandDispatcher? _menuDispatcher;
 
     private BasicEffect? _effect;
     private VoxelRenderer? _voxelRenderer;
     private ReferenceModelRenderer? _refRenderer;
     private GridFloor? _gridFloor;
     private AxisIndicator? _axisIndicator;
+    private OrientationGizmo? _orientationGizmo;
     private OrbitalCamera _camera = new();
     private ScreenshotCapture? _screenshotCapture;
     private Desktop? _desktop;
@@ -49,7 +52,9 @@ public sealed class VoxelForgeGame : Game
     private MouseState _previousMouse;
     private KeyboardState _previousKeyboard;
 
-    public VoxelForgeGame(EditorState editorState, UndoStack undoStack, EditorConfig config, ReferenceModelRegistry refRegistry, ReferenceImageStore imageStore, CancellationTokenSource cts)
+    public VoxelForgeGame(EditorState editorState, UndoStack undoStack, EditorConfig config,
+        ReferenceModelRegistry refRegistry, ReferenceImageStore imageStore,
+        CancellationTokenSource cts, CommandRouter? router = null, CommandContext? context = null)
     {
         _editorState = editorState;
         _undoStack = undoStack;
@@ -57,6 +62,9 @@ public sealed class VoxelForgeGame : Game
         _refRegistry = refRegistry;
         _imageStore = imageStore;
         _cts = cts;
+        _menuDispatcher = router is not null && context is not null
+            ? new MenuCommandDispatcher(router, context)
+            : null;
 
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -98,6 +106,7 @@ public sealed class VoxelForgeGame : Game
         _refRenderer = new ReferenceModelRenderer(GraphicsDevice, _refRegistry);
         _gridFloor = new GridFloor(GraphicsDevice);
         _axisIndicator = new AxisIndicator(GraphicsDevice);
+        _orientationGizmo = new OrientationGizmo(GraphicsDevice);
         _screenshotCapture = new ScreenshotCapture(
             GraphicsDevice, _editorState, _camera, _voxelRenderer,
             _refRenderer, _gridFloor, _effect, _config);
@@ -106,10 +115,24 @@ public sealed class VoxelForgeGame : Game
         // Myra UI
         MyraEnvironment.Game = this;
         _desktop = new Desktop();
-        _editorLayout = new EditorLayout(_editorState);
+        _editorLayout = new EditorLayout(_editorState, _menuDispatcher, _refRegistry);
         _imagePanel = new ReferenceImagePanel(_imageStore, GraphicsDevice);
         _editorLayout.RightSidebar.Widgets.Add(_imagePanel.Root);
         _desktop.Root = _editorLayout.Root;
+        _editorLayout.RefModelPanel?.SetDesktop(_desktop);
+
+        if (_editorLayout.MenuBar is { } menuBar)
+        {
+            menuBar.Initialize(_desktop, Exit);
+            menuBar.OnSnapFront = () => _camera.SnapToFront();
+            menuBar.OnSnapSide = () => _camera.SnapToSide();
+            menuBar.OnSnapTop = () => _camera.SnapToTop();
+            menuBar.OnToggleWireframe = () =>
+            {
+                if (_voxelRenderer is not null)
+                    _voxelRenderer.WireframeEnabled = !_voxelRenderer.WireframeEnabled;
+            };
+        }
 
         _previousMouse = Mouse.GetState();
         _previousKeyboard = Keyboard.GetState();
@@ -194,6 +217,10 @@ public sealed class VoxelForgeGame : Game
         // Sync grid floor to model's grid hint
         _gridFloor?.Resize(_editorState.ActiveModel.GridHint);
 
+        // Tick reference model animations
+        _refRenderer?.UpdateAnimations((float)gameTime.ElapsedGameTime.TotalSeconds);
+        _editorLayout?.RefModelPanel?.UpdateAnimationDisplay();
+
         _previousMouse = mouse;
         _previousKeyboard = keyboard;
 
@@ -217,6 +244,8 @@ public sealed class VoxelForgeGame : Game
             _axisIndicator?.Draw(GraphicsDevice, _effect);
             _voxelRenderer?.Draw(_editorState.ActiveModel, _camera, _effect);
             _refRenderer?.Draw(_camera, _effect);
+
+            _orientationGizmo?.Draw(GraphicsDevice, _effect, _camera);
         }
 
         _desktop?.Render();
@@ -231,6 +260,7 @@ public sealed class VoxelForgeGame : Game
         _imagePanel?.Dispose();
         _gridFloor?.Dispose();
         _axisIndicator?.Dispose();
+        _orientationGizmo?.Dispose();
         _effect?.Dispose();
         base.UnloadContent();
     }

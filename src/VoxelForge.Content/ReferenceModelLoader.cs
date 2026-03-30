@@ -1,7 +1,12 @@
+using System.Numerics;
 using Assimp;
 using Microsoft.Extensions.Logging;
 using StbImageSharp;
 using VoxelForge.Core.Reference;
+
+using SysQuaternion = System.Numerics.Quaternion;
+using SysMatrix = System.Numerics.Matrix4x4;
+using SysVector3 = System.Numerics.Vector3;
 
 namespace VoxelForge.Content;
 
@@ -105,19 +110,39 @@ public sealed class ReferenceModelLoader
             PostProcessSteps.Triangulate |
             PostProcessSteps.GenerateNormals |
             PostProcessSteps.JoinIdenticalVertices |
-            PostProcessSteps.OptimizeMeshes);
+            PostProcessSteps.OptimizeMeshes |
+            PostProcessSteps.LimitBoneWeights);
 
         if (scene is null || scene.MeshCount == 0)
             throw new InvalidDataException($"No meshes found in {filePath}");
 
         var modelDir = Path.GetDirectoryName(Path.GetFullPath(filePath)) ?? ".";
 
+        // Build skeleton from node hierarchy if any mesh has bones
+        bool hasBones = scene.Meshes.Any(m => m.HasBones);
+        Skeleton? skeleton = null;
+        Dictionary<string, int>? boneNameToIndex = null;
+
+        if (hasBones && scene.RootNode is not null)
+        {
+            (skeleton, boneNameToIndex) = BuildSkeleton(scene);
+            _logger.LogInformation("Extracted skeleton: {BoneCount} bones", skeleton.BoneCount);
+        }
+
         // Cache loaded textures by resolved path so we don't load the same image twice
         var textureCache = new Dictionary<string, ImageResult>(StringComparer.OrdinalIgnoreCase);
 
         var meshes = new List<ReferenceMeshData>();
         foreach (var mesh in scene.Meshes)
-            meshes.Add(ConvertMesh(mesh, scene, modelDir, textureCache));
+            meshes.Add(ConvertMesh(mesh, scene, modelDir, textureCache, boneNameToIndex));
+
+        // Extract animation clips
+        List<SkeletalAnimationClip>? clips = null;
+        if (skeleton is not null && scene.HasAnimations)
+        {
+            clips = ExtractAnimations(scene, boneNameToIndex!);
+            _logger.LogInformation("Extracted {ClipCount} animation clips", clips.Count);
+        }
 
         _logger.LogInformation("Loaded reference model {Path}: {MeshCount} meshes, {VertCount} vertices",
             filePath, meshes.Count, meshes.Sum(m => m.Vertices.Length));
@@ -127,11 +152,14 @@ public sealed class ReferenceModelLoader
             FilePath = filePath,
             Format = Path.GetExtension(filePath).TrimStart('.').ToUpperInvariant(),
             Meshes = meshes,
+            Skeleton = skeleton,
+            AnimationClips = clips,
         };
     }
 
     private ReferenceMeshData ConvertMesh(Mesh mesh, Scene scene, string modelDir,
-        Dictionary<string, ImageResult> textureCache)
+        Dictionary<string, ImageResult> textureCache,
+        Dictionary<string, int>? boneNameToIndex = null)
     {
         // Resolve material color if available
         byte matR = 180, matG = 180, matB = 180, matA = 255;
@@ -205,6 +233,51 @@ public sealed class ReferenceModelLoader
             }
 
             vertices[i] = new ReferenceVertex(pos.X, pos.Y, pos.Z, nx, ny, nz, r, g, b, a, u, v);
+        }
+
+        // Extract bone weights per vertex (up to 4 influences, limited by Assimp post-process)
+        if (mesh.HasBones && boneNameToIndex is not null)
+        {
+            // Accumulate bone influences per vertex
+            var boneIndices = new int[mesh.VertexCount * 4];
+            var boneWeights = new float[mesh.VertexCount * 4];
+            var influenceCount = new int[mesh.VertexCount];
+
+            foreach (var bone in mesh.Bones)
+            {
+                if (!boneNameToIndex.TryGetValue(bone.Name, out int boneIdx))
+                    continue;
+
+                if (bone.HasVertexWeights)
+                {
+                    foreach (var vw in bone.VertexWeights)
+                    {
+                        int vi = vw.VertexID;
+                        int slot = influenceCount[vi];
+                        if (slot < 4)
+                        {
+                            int offset = vi * 4 + slot;
+                            boneIndices[offset] = boneIdx;
+                            boneWeights[offset] = vw.Weight;
+                            influenceCount[vi] = slot + 1;
+                        }
+                    }
+                }
+            }
+
+            // Rebuild vertices with bone data
+            for (int i = 0; i < mesh.VertexCount; i++)
+            {
+                int off = i * 4;
+                var v = vertices[i];
+                vertices[i] = new ReferenceVertex(
+                    v.PosX, v.PosY, v.PosZ,
+                    v.NormX, v.NormY, v.NormZ,
+                    v.R, v.G, v.B, v.A,
+                    v.U, v.V,
+                    boneIndices[off], boneIndices[off + 1], boneIndices[off + 2], boneIndices[off + 3],
+                    boneWeights[off], boneWeights[off + 1], boneWeights[off + 2], boneWeights[off + 3]);
+            }
         }
 
         var indices = new List<int>();
@@ -296,6 +369,230 @@ public sealed class ReferenceModelLoader
             return null;
         }
     }
+
+    /// <summary>
+    /// Builds a flat bone list from the Assimp node hierarchy.
+    /// Includes all nodes that are referenced as bones by any mesh, plus their ancestors
+    /// up to the root so the hierarchy is intact.
+    /// </summary>
+    private (Skeleton skeleton, Dictionary<string, int> nameToIndex) BuildSkeleton(Scene scene)
+    {
+        // Collect all bone names from all meshes
+        var boneNames = new HashSet<string>();
+        var inverseBindMatrices = new Dictionary<string, SysMatrix>();
+        foreach (var mesh in scene.Meshes)
+        {
+            if (!mesh.HasBones) continue;
+            foreach (var bone in mesh.Bones)
+            {
+                boneNames.Add(bone.Name);
+                inverseBindMatrices[bone.Name] = bone.OffsetMatrix;
+            }
+        }
+
+        // Walk the node tree depth-first, collecting nodes that are bones or ancestors of bones
+        var needed = new HashSet<string>(boneNames);
+        MarkAncestors(scene.RootNode, needed);
+
+        var bones = new List<Core.Reference.Bone>();
+        var nameToIndex = new Dictionary<string, int>();
+        FlattenNodeTree(scene.RootNode, -1, needed, inverseBindMatrices, bones, nameToIndex);
+
+        return (new Skeleton { Bones = bones, RootIndex = 0 }, nameToIndex);
+    }
+
+    /// <summary>
+    /// Marks all ancestor nodes of bone nodes as needed so the hierarchy is complete.
+    /// Returns true if any descendant is a bone.
+    /// </summary>
+    private static bool MarkAncestors(Node node, HashSet<string> needed)
+    {
+        bool childNeeded = false;
+        if (node.HasChildren)
+        {
+            foreach (var child in node.Children)
+            {
+                if (MarkAncestors(child, needed))
+                    childNeeded = true;
+            }
+        }
+
+        if (childNeeded)
+            needed.Add(node.Name);
+
+        return childNeeded || needed.Contains(node.Name);
+    }
+
+    private static void FlattenNodeTree(Node node, int parentIndex,
+        HashSet<string> needed, Dictionary<string, SysMatrix> inverseBindMatrices,
+        List<Core.Reference.Bone> bones, Dictionary<string, int> nameToIndex)
+    {
+        if (!needed.Contains(node.Name) && node.Parent is not null)
+            return; // Skip nodes that aren't part of the skeleton hierarchy
+
+        int myIndex = bones.Count;
+        nameToIndex[node.Name] = myIndex;
+
+        inverseBindMatrices.TryGetValue(node.Name, out var ibm);
+
+        var t = node.Transform;
+        bones.Add(new Core.Reference.Bone
+        {
+            Name = node.Name,
+            ParentIndex = parentIndex,
+            InverseBindMatrix = ibm.Equals(default(SysMatrix))
+                ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+                : Mat4ToArray(ibm),
+            LocalBindTransform = Mat4ToArray(t),
+        });
+
+        if (node.HasChildren)
+        {
+            foreach (var child in node.Children)
+                FlattenNodeTree(child, myIndex, needed, inverseBindMatrices, bones, nameToIndex);
+        }
+    }
+
+    /// <summary>
+    /// Extracts all animation clips from the Assimp scene.
+    /// </summary>
+    private List<SkeletalAnimationClip> ExtractAnimations(Scene scene, Dictionary<string, int> boneNameToIndex)
+    {
+        var clips = new List<SkeletalAnimationClip>();
+
+        foreach (var anim in scene.Animations)
+        {
+            float tps = anim.TicksPerSecond > 0 ? (float)anim.TicksPerSecond : 25f;
+            float duration = (float)(anim.DurationInTicks / tps);
+
+            var channels = new List<BoneAnimationChannel>();
+
+            if (anim.HasNodeAnimations)
+            {
+                foreach (var channel in anim.NodeAnimationChannels)
+                {
+                    if (!boneNameToIndex.TryGetValue(channel.NodeName, out int boneIdx))
+                        continue;
+
+                    // Merge all keyframe times from position, rotation, and scale tracks
+                    var times = new SortedSet<float>();
+                    if (channel.HasPositionKeys)
+                        foreach (var k in channel.PositionKeys) times.Add((float)(k.Time / tps));
+                    if (channel.HasRotationKeys)
+                        foreach (var k in channel.RotationKeys) times.Add((float)(k.Time / tps));
+                    if (channel.HasScalingKeys)
+                        foreach (var k in channel.ScalingKeys) times.Add((float)(k.Time / tps));
+
+                    var keyframes = new List<BoneKeyframe>();
+                    foreach (float t in times)
+                    {
+                        float tickTime = t * tps;
+
+                        // Sample position at this time
+                        var pos = SamplePosition(channel, tickTime);
+                        var rot = SampleRotation(channel, tickTime);
+                        var scl = SampleScale(channel, tickTime);
+
+                        keyframes.Add(new BoneKeyframe(t,
+                            pos.X, pos.Y, pos.Z,
+                            rot.X, rot.Y, rot.Z, rot.W,
+                            scl.X, scl.Y, scl.Z));
+                    }
+
+                    channels.Add(new BoneAnimationChannel
+                    {
+                        BoneIndex = boneIdx,
+                        BoneName = channel.NodeName,
+                        Keyframes = keyframes.ToArray(),
+                    });
+                }
+            }
+
+            clips.Add(new SkeletalAnimationClip
+            {
+                Name = string.IsNullOrWhiteSpace(anim.Name) ? $"Clip{clips.Count}" : anim.Name,
+                Duration = duration,
+                TicksPerSecond = tps,
+                Channels = channels,
+            });
+
+            _logger.LogInformation("Animation '{Name}': {Duration:F2}s, {Channels} channels",
+                clips[^1].Name, duration, channels.Count);
+        }
+
+        return clips;
+    }
+
+    private static SysVector3 SamplePosition(NodeAnimationChannel channel, float tick)
+    {
+        if (!channel.HasPositionKeys || channel.PositionKeyCount == 0)
+            return SysVector3.Zero;
+        if (channel.PositionKeyCount == 1)
+            return channel.PositionKeys[0].Value;
+
+        for (int i = channel.PositionKeyCount - 2; i >= 0; i--)
+        {
+            if (channel.PositionKeys[i].Time <= tick)
+            {
+                var k0 = channel.PositionKeys[i];
+                var k1 = channel.PositionKeys[i + 1];
+                float dt = (float)(k1.Time - k0.Time);
+                float f = dt > 0 ? (float)((tick - k0.Time) / dt) : 0;
+                return SysVector3.Lerp(k0.Value, k1.Value, f);
+            }
+        }
+        return channel.PositionKeys[0].Value;
+    }
+
+    private static SysQuaternion SampleRotation(NodeAnimationChannel channel, float tick)
+    {
+        if (!channel.HasRotationKeys || channel.RotationKeyCount == 0)
+            return SysQuaternion.Identity;
+        if (channel.RotationKeyCount == 1)
+            return channel.RotationKeys[0].Value;
+
+        for (int i = channel.RotationKeyCount - 2; i >= 0; i--)
+        {
+            if (channel.RotationKeys[i].Time <= tick)
+            {
+                var k0 = channel.RotationKeys[i];
+                var k1 = channel.RotationKeys[i + 1];
+                float dt = (float)(k1.Time - k0.Time);
+                float f = dt > 0 ? (float)((tick - k0.Time) / dt) : 0;
+                return SysQuaternion.Slerp(k0.Value, k1.Value, f);
+            }
+        }
+        return channel.RotationKeys[0].Value;
+    }
+
+    private static SysVector3 SampleScale(NodeAnimationChannel channel, float tick)
+    {
+        if (!channel.HasScalingKeys || channel.ScalingKeyCount == 0)
+            return SysVector3.One;
+        if (channel.ScalingKeyCount == 1)
+            return channel.ScalingKeys[0].Value;
+
+        for (int i = channel.ScalingKeyCount - 2; i >= 0; i--)
+        {
+            if (channel.ScalingKeys[i].Time <= tick)
+            {
+                var k0 = channel.ScalingKeys[i];
+                var k1 = channel.ScalingKeys[i + 1];
+                float dt = (float)(k1.Time - k0.Time);
+                float f = dt > 0 ? (float)((tick - k0.Time) / dt) : 0;
+                return SysVector3.Lerp(k0.Value, k1.Value, f);
+            }
+        }
+        return channel.ScalingKeys[0].Value;
+    }
+
+    private static float[] Mat4ToArray(SysMatrix m) =>
+    [
+        m.M11, m.M12, m.M13, m.M14,
+        m.M21, m.M22, m.M23, m.M24,
+        m.M31, m.M32, m.M33, m.M34,
+        m.M41, m.M42, m.M43, m.M44,
+    ];
 
     private static void SampleTexture(ImageResult image, float u, float v,
         out byte r, out byte g, out byte b, out byte a)

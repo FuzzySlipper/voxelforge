@@ -63,7 +63,7 @@ else
 {
     context.OnModelChanged = () => editorState.NotifyModelChanged();
 
-    game = new VoxelForgeGame(editorState, undoStack, config, refRegistry, imageStore, cts);
+    game = new VoxelForgeGame(editorState, undoStack, config, refRegistry, imageStore, cts, router, context);
 
     var consoleThread = new Thread(() =>
     {

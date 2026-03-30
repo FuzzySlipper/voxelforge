@@ -214,6 +214,166 @@ public sealed class RefScaleCommand : IConsoleCommand
     }
 }
 
+public sealed class RefRotateCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+
+    public string Name => "refrotate";
+    public string[] Aliases => ["refrot"];
+    public string HelpText => "Quick rotate a reference model on one axis. Usage: refrotate <index> <x|y|z> [degrees=90]";
+
+    public RefRotateCommand(ReferenceModelRegistry registry) => _registry = registry;
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 2 || !int.TryParse(args[0], out int idx))
+            return CommandResult.Fail("Usage: refrotate <index> <x|y|z> [degrees=90]");
+
+        var model = _registry.Get(idx);
+        if (model is null)
+            return CommandResult.Fail($"No reference model at index {idx}.");
+
+        float degrees = 90f;
+        if (args.Length >= 3 && !float.TryParse(args[2], out degrees))
+            return CommandResult.Fail("Invalid degrees value.");
+
+        switch (args[1].ToLowerInvariant())
+        {
+            case "x": model.RotationX += degrees; break;
+            case "y": model.RotationY += degrees; break;
+            case "z": model.RotationZ += degrees; break;
+            default: return CommandResult.Fail("Axis must be x, y, or z.");
+        }
+
+        return CommandResult.Ok($"[{idx}] rot=({model.RotationX},{model.RotationY},{model.RotationZ})");
+    }
+}
+
+public sealed class RefOrientCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+
+    public string Name => "reforient";
+    public string[] Aliases => ["refautopose"];
+    public string HelpText => "Auto-orient a reference model: upright (Y+), feet at Y=0, facing Z+. Usage: reforient <index>";
+
+    public RefOrientCommand(ReferenceModelRegistry registry) => _registry = registry;
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 1 || !int.TryParse(args[0], out int idx))
+            return CommandResult.Fail("Usage: reforient <index>");
+
+        var model = _registry.Get(idx);
+        if (model is null)
+            return CommandResult.Fail($"No reference model at index {idx}.");
+
+        // Compute the axis-aligned bounding box of the raw mesh data
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+        foreach (var mesh in model.Meshes)
+        {
+            foreach (var v in mesh.Vertices)
+            {
+                if (v.PosX < minX) minX = v.PosX;
+                if (v.PosY < minY) minY = v.PosY;
+                if (v.PosZ < minZ) minZ = v.PosZ;
+                if (v.PosX > maxX) maxX = v.PosX;
+                if (v.PosY > maxY) maxY = v.PosY;
+                if (v.PosZ > maxZ) maxZ = v.PosZ;
+            }
+        }
+
+        if (minX == float.MaxValue)
+            return CommandResult.Fail("Model has no vertices.");
+
+        float extX = maxX - minX;
+        float extY = maxY - minY;
+        float extZ = maxZ - minZ;
+
+        // Determine which raw axis is tallest (should become Y-up)
+        // and which of the remaining two is widest (should become X, leaving the other as Z-forward)
+        float rx = 0, ry = 0, rz = 0;
+
+        if (extY >= extX && extY >= extZ)
+        {
+            // Already Y-tallest — no rotation needed for uprighting
+            // Check if the model is wider in X or Z for facing
+            // We want the narrower horizontal axis to be Z (depth/forward)
+            if (extX < extZ)
+                ry = 90; // rotate so the narrow axis faces Z+
+        }
+        else if (extZ >= extX && extZ >= extY)
+        {
+            // Z is tallest — rotate to make it Y-up
+            // Pitch -90°: +Z maps to +Y (right-hand rule: positive pitch sends +Z to -Y)
+            rx = -90;
+        }
+        else
+        {
+            // X is tallest — rotate to make it Y-up
+            // Roll +90°: +X maps to +Y (positive roll sends +X to +Y)
+            rz = 90;
+        }
+
+        model.RotationX = rx;
+        model.RotationY = ry;
+        model.RotationZ = rz;
+
+        // After rotation, recompute the transformed bounding box to position feet at Y=0
+        // Apply the rotation matrix to all vertices to find the new min Y
+        float cosRx = MathF.Cos(MathF.PI / 180f * rx);
+        float sinRx = MathF.Sin(MathF.PI / 180f * rx);
+        float cosRy = MathF.Cos(MathF.PI / 180f * ry);
+        float sinRy = MathF.Sin(MathF.PI / 180f * ry);
+        float cosRz = MathF.Cos(MathF.PI / 180f * rz);
+        float sinRz = MathF.Sin(MathF.PI / 180f * rz);
+
+        float newMinY = float.MaxValue;
+        float newMinX = float.MaxValue, newMaxX = float.MinValue;
+        float newMinZ = float.MaxValue, newMaxZ = float.MinValue;
+
+        foreach (var mesh in model.Meshes)
+        {
+            foreach (var v in mesh.Vertices)
+            {
+                float px = v.PosX * model.Scale;
+                float py = v.PosY * model.Scale;
+                float pz = v.PosZ * model.Scale;
+
+                // Apply YawPitchRoll (Y, X, Z) matching the renderer's CreateFromYawPitchRoll order
+                // Yaw (around Y)
+                float x1 = cosRy * px + sinRy * pz;
+                float y1 = py;
+                float z1 = -sinRy * px + cosRy * pz;
+                // Pitch (around X)
+                float x2 = x1;
+                float y2 = cosRx * y1 - sinRx * z1;
+                float z2 = sinRx * y1 + cosRx * z1;
+                // Roll (around Z)
+                float x3 = cosRz * x2 - sinRz * y2;
+                float y3 = sinRz * x2 + cosRz * y2;
+                float z3 = z2;
+
+                if (y3 < newMinY) newMinY = y3;
+                if (x3 < newMinX) newMinX = x3;
+                if (x3 > newMaxX) newMaxX = x3;
+                if (z3 < newMinZ) newMinZ = z3;
+                if (z3 > newMaxZ) newMaxZ = z3;
+            }
+        }
+
+        // Position so bottom is at Y=0, centered on X and Z
+        model.PositionY = -newMinY;
+        model.PositionX = -(newMinX + newMaxX) / 2f;
+        model.PositionZ = -(newMinZ + newMaxZ) / 2f;
+
+        return CommandResult.Ok(
+            $"[{idx}] oriented: pos=({model.PositionX:F1},{model.PositionY:F1},{model.PositionZ:F1}) rot=({rx},{ry},{rz}) scale={model.Scale}");
+    }
+}
+
 public sealed class RefInfoCommand : IConsoleCommand
 {
     private readonly ReferenceModelRegistry _registry;
@@ -247,5 +407,137 @@ public sealed class RefInfoCommand : IConsoleCommand
         {
             return CommandResult.Fail($"Inspect failed: {ex.Message}");
         }
+    }
+}
+
+public sealed class RefAnimCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+
+    public string Name => "refanim";
+    public string[] Aliases => [];
+    public string HelpText => "Control reference model animation. Usage: refanim <index> <list|play|stop|pause|frame|speed> [args]";
+
+    public RefAnimCommand(ReferenceModelRegistry registry) => _registry = registry;
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 2 || !int.TryParse(args[0], out int idx))
+            return CommandResult.Fail("Usage: refanim <index> <list|play|stop|pause|frame|speed> [args]");
+
+        var model = _registry.Get(idx);
+        if (model is null)
+            return CommandResult.Fail($"No reference model at index {idx}.");
+
+        var action = args[1].ToLowerInvariant();
+
+        return action switch
+        {
+            "list" => ListClips(model, idx),
+            "play" => Play(model, idx, args),
+            "stop" => Stop(model, idx),
+            "pause" => Pause(model, idx),
+            "frame" => Scrub(model, idx, args),
+            "speed" => SetSpeed(model, idx, args),
+            _ => CommandResult.Fail($"Unknown action '{action}'. Use: list, play, stop, pause, frame, speed."),
+        };
+    }
+
+    private static CommandResult ListClips(ReferenceModelData model, int idx)
+    {
+        if (!model.HasAnimations)
+            return CommandResult.Ok($"[{idx}] No animations found in this model.");
+
+        var lines = new List<string> { $"[{idx}] {model.AnimationClips!.Count} animation clip(s):" };
+        for (int i = 0; i < model.AnimationClips.Count; i++)
+        {
+            var clip = model.AnimationClips[i];
+            lines.Add($"  [{i}] \"{clip.Name}\" — {clip.Duration:F2}s, {clip.Channels.Count} channels");
+        }
+
+        if (model.Skeleton is not null)
+            lines.Add($"  Skeleton: {model.Skeleton.BoneCount} bones");
+
+        return CommandResult.Ok(string.Join("\n", lines));
+    }
+
+    private static CommandResult Play(ReferenceModelData model, int idx, string[] args)
+    {
+        if (!model.HasAnimations)
+            return CommandResult.Fail($"[{idx}] No animations to play.");
+
+        int clipIdx = 0;
+        if (args.Length >= 3)
+        {
+            // Try as index first, then as name
+            if (int.TryParse(args[2], out int parsed))
+            {
+                clipIdx = parsed;
+            }
+            else
+            {
+                var name = args[2];
+                clipIdx = -1;
+                for (int i = 0; i < model.AnimationClips!.Count; i++)
+                {
+                    if (model.AnimationClips[i].Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        clipIdx = i;
+                        break;
+                    }
+                }
+                if (clipIdx < 0)
+                    return CommandResult.Fail($"No clip named '{name}'. Use 'refanim {idx} list' to see available clips.");
+            }
+        }
+
+        if (clipIdx < 0 || clipIdx >= model.AnimationClips!.Count)
+            return CommandResult.Fail($"Clip index {clipIdx} out of range (0-{model.AnimationClips!.Count - 1}).");
+
+        model.ActiveClipIndex = clipIdx;
+        model.AnimationTime = 0;
+        model.IsAnimating = true;
+
+        var clip = model.AnimationClips[clipIdx];
+        return CommandResult.Ok($"[{idx}] Playing \"{clip.Name}\" ({clip.Duration:F2}s)");
+    }
+
+    private static CommandResult Stop(ReferenceModelData model, int idx)
+    {
+        model.IsAnimating = false;
+        model.ActiveClipIndex = null;
+        model.AnimationTime = 0;
+        return CommandResult.Ok($"[{idx}] Stopped, reset to bind pose.");
+    }
+
+    private static CommandResult Pause(ReferenceModelData model, int idx)
+    {
+        model.IsAnimating = false;
+        return CommandResult.Ok($"[{idx}] Paused at {model.AnimationTime:F2}s.");
+    }
+
+    private static CommandResult Scrub(ReferenceModelData model, int idx, string[] args)
+    {
+        if (!model.HasAnimations)
+            return CommandResult.Fail($"[{idx}] No animations.");
+
+        if (args.Length < 3 || !float.TryParse(args[2], out float time))
+            return CommandResult.Fail("Usage: refanim <index> frame <time_seconds>");
+
+        // Ensure a clip is active
+        model.ActiveClipIndex ??= 0;
+        model.AnimationTime = Math.Max(0, time);
+        model.IsAnimating = false; // Pause at this frame
+
+        return CommandResult.Ok($"[{idx}] Scrubbed to {model.AnimationTime:F2}s (paused).");
+    }
+
+    private static CommandResult SetSpeed(ReferenceModelData model, int idx, string[] args)
+    {
+        if (args.Length < 3 || !float.TryParse(args[2], out float speed))
+            return CommandResult.Fail("Usage: refanim <index> speed <multiplier>");
+
+        model.AnimationSpeed = speed;
+        return CommandResult.Ok($"[{idx}] Animation speed = {speed:F1}x");
     }
 }

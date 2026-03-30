@@ -8,6 +8,7 @@ namespace VoxelForge.Engine.MonoGame.Rendering;
 
 /// <summary>
 /// Renders reference models loaded via AssimpNetter. Draws after voxels.
+/// Supports per-frame CPU skeletal skinning for animated models.
 /// </summary>
 public sealed class ReferenceModelRenderer : IDisposable
 {
@@ -23,6 +24,15 @@ public sealed class ReferenceModelRenderer : IDisposable
         _registry.Changed += () => _dirty = true;
     }
 
+    /// <summary>
+    /// Tick animation time on all animating models. Call from Update().
+    /// </summary>
+    public void UpdateAnimations(float deltaSeconds)
+    {
+        foreach (var model in _registry.Models)
+            model.UpdateAnimation(deltaSeconds);
+    }
+
     public void Draw(OrbitalCamera camera, BasicEffect effect)
     {
         if (_dirty)
@@ -30,6 +40,9 @@ public sealed class ReferenceModelRenderer : IDisposable
             RebuildBuffers();
             _dirty = false;
         }
+
+        // Update dynamic vertex buffers for animated models
+        UpdateAnimatedBuffers();
 
         int meshIndex = 0;
         foreach (var model in _registry.Models)
@@ -104,6 +117,54 @@ public sealed class ReferenceModelRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Recompute skinned vertices for any model that is currently animating.
+    /// </summary>
+    private void UpdateAnimatedBuffers()
+    {
+        int meshIndex = 0;
+        foreach (var model in _registry.Models)
+        {
+            bool animating = model.IsAnimating
+                && model.ActiveClipIndex is { } clipIdx
+                && model.Skeleton is not null
+                && model.AnimationClips is not null
+                && clipIdx >= 0 && clipIdx < model.AnimationClips.Count;
+
+            foreach (var mesh in model.Meshes)
+            {
+                if (meshIndex >= _gpuMeshes.Count) break;
+                var gpu = _gpuMeshes[meshIndex];
+
+                if (animating && gpu.IsDynamic && gpu.DynamicVerts is not null && gpu.VertexBuffer is not null)
+                {
+                    var clip = model.AnimationClips![model.ActiveClipIndex!.Value];
+                    var boneMatrices = SkeletalAnimator.ComputeBoneMatrices(model.Skeleton!, clip, model.AnimationTime);
+
+                    int vertCount = mesh.Vertices.Length;
+                    gpu.SkinPositions ??= new float[vertCount * 3];
+                    gpu.SkinNormals ??= new float[vertCount * 3];
+
+                    SkeletalAnimator.SkinVertices(mesh.Vertices, boneMatrices, gpu.SkinPositions, gpu.SkinNormals);
+
+                    // Write skinned positions/normals into the staging array
+                    for (int i = 0; i < vertCount; i++)
+                    {
+                        int o = i * 3;
+                        gpu.DynamicVerts[i] = new VoxelVertexMg(
+                            new Vector3(gpu.SkinPositions[o], gpu.SkinPositions[o + 1], gpu.SkinPositions[o + 2]),
+                            new Vector3(gpu.SkinNormals[o], gpu.SkinNormals[o + 1], gpu.SkinNormals[o + 2]),
+                            gpu.DynamicVerts[i].Color);
+                    }
+
+                    gpu.VertexBuffer.SetData(gpu.DynamicVerts);
+                }
+
+                meshIndex++;
+            }
+        }
+    }
+
     private void RebuildBuffers()
     {
         foreach (var gpu in _gpuMeshes)
@@ -112,6 +173,8 @@ public sealed class ReferenceModelRenderer : IDisposable
 
         foreach (var model in _registry.Models)
         {
+            bool hasAnimation = model.HasAnimations;
+
             foreach (var mesh in model.Meshes)
             {
                 if (mesh.Vertices.Length == 0 || mesh.Indices.Length == 0)
@@ -130,8 +193,10 @@ public sealed class ReferenceModelRenderer : IDisposable
                         new Color(v.R, v.G, v.B, v.A));
                 }
 
+                // Use dynamic buffer for animated models so we can update per-frame
+                var usage = hasAnimation ? BufferUsage.None : BufferUsage.WriteOnly;
                 var vb = new VertexBuffer(_graphicsDevice, VoxelVertexMg.Declaration,
-                    mgVerts.Length, BufferUsage.WriteOnly);
+                    mgVerts.Length, usage);
                 vb.SetData(mgVerts);
 
                 var ib = new IndexBuffer(_graphicsDevice, IndexElementSize.ThirtyTwoBits,
@@ -143,6 +208,8 @@ public sealed class ReferenceModelRenderer : IDisposable
                     VertexBuffer = vb,
                     IndexBuffer = ib,
                     IndexCount = mesh.Indices.Length,
+                    IsDynamic = hasAnimation,
+                    DynamicVerts = hasAnimation ? mgVerts : null,
                 });
             }
         }
@@ -159,6 +226,12 @@ public sealed class ReferenceModelRenderer : IDisposable
         public VertexBuffer? VertexBuffer { get; init; }
         public IndexBuffer? IndexBuffer { get; init; }
         public int IndexCount { get; init; }
+
+        // Animation support: dynamic buffers for skinned models
+        public bool IsDynamic { get; init; }
+        public VoxelVertexMg[]? DynamicVerts { get; init; }
+        public float[]? SkinPositions { get; set; }
+        public float[]? SkinNormals { get; set; }
 
         public void Dispose()
         {

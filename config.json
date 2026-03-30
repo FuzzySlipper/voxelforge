@@ -1,0 +1,14 @@
+{
+  "invertOrbitX": true,
+  "invertOrbitY": true,
+  "orbitSensitivity": 0.05,
+  "zoomSensitivity": 0.05,
+  "panSpeed": 30,
+  "defaultGridHint": 32,
+  "maxUndoDepth": 100,
+  "backgroundColor": [
+    40,
+    40,
+    45
+  ]
+}
