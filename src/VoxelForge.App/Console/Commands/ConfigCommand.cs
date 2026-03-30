@@ -22,6 +22,7 @@ public sealed class ConfigCommand : IConsoleCommand
                 $"  zoomSensitivity    = {_config.ZoomSensitivity}",
                 $"  defaultGridHint    = {_config.DefaultGridHint}",
                 $"  maxUndoDepth       = {_config.MaxUndoDepth}",
+                $"  maxZoomDistance    = {_config.MaxZoomDistance}",
                 $"  backgroundColor    = {string.Join(",", _config.BackgroundColor)}",
             };
             return CommandResult.Ok(string.Join("\n", lines));
@@ -64,6 +65,10 @@ public sealed class ConfigCommand : IConsoleCommand
             case "maxundodepth":
                 if (!int.TryParse(value, out var mu)) return CommandResult.Fail("Expected integer");
                 _config.MaxUndoDepth = mu;
+                break;
+            case "maxzoomdistance":
+                if (!float.TryParse(value, out var mz)) return CommandResult.Fail("Expected number");
+                _config.MaxZoomDistance = mz;
                 break;
             default:
                 return CommandResult.Fail($"Unknown config key: '{key}'");

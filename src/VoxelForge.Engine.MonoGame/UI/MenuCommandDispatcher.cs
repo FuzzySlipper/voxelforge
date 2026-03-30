@@ -35,13 +35,15 @@ public sealed class MenuCommandDispatcher
 
     /// <summary>
     /// Execute a command by name with separate args (e.g. "save", ["myproject"]).
+    /// Args containing spaces are automatically quoted for the tokenizer.
     /// </summary>
     public CommandResult Dispatch(string commandName, params string[] args)
     {
-        var full = args.Length > 0
-            ? $"{commandName} {string.Join(" ", args)}"
-            : commandName;
-        return Dispatch(full);
+        if (args.Length == 0)
+            return Dispatch(commandName);
+
+        var quoted = args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a);
+        return Dispatch($"{commandName} {string.Join(" ", quoted)}");
     }
 
     public IReadOnlyDictionary<string, IConsoleCommand> Commands => _router.Commands;

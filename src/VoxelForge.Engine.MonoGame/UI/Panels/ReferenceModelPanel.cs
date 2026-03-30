@@ -135,8 +135,9 @@ public sealed class ReferenceModelPanel
         _visibilityCheck.Click += (_, _) => OnVisibilityChanged();
         _propertiesSection.Widgets.Add(visRow);
 
-        // -- Remove button
-        var removeBtn = new Button { Content = new Label { Text = "Remove" }, Width = 160 };
+        // -- Remove / Clear buttons
+        var removeBtnRow = new HorizontalStackPanel { Spacing = 4 };
+        var removeBtn = new Button { Content = new Label { Text = "Remove" } };
         removeBtn.Click += (_, _) =>
         {
             if (_selectedIndex >= 0)
@@ -146,7 +147,17 @@ public sealed class ReferenceModelPanel
                 Refresh();
             }
         };
-        _propertiesSection.Widgets.Add(removeBtn);
+        removeBtnRow.Widgets.Add(removeBtn);
+
+        var clearAllBtn = new Button { Content = new Label { Text = "Clear All" } };
+        clearAllBtn.Click += (_, _) =>
+        {
+            _dispatcher.Dispatch("refclear");
+            _selectedIndex = -1;
+            Refresh();
+        };
+        removeBtnRow.Widgets.Add(clearAllBtn);
+        _propertiesSection.Widgets.Add(removeBtnRow);
 
         // -- Animation section (only visible when model has animations)
         _animSection = new VerticalStackPanel { Spacing = 4, Visible = false };
@@ -447,9 +458,9 @@ public sealed class ReferenceModelPanel
     {
         if (_desktop is null) return;
 
-        var dlg = new FileDialog(FileDialogMode.OpenFile)
+        var dlg = new VoxelForgeFileDialog(FileDialogMode.OpenFile)
         {
-            Filter = "*.fbx;*.obj;*.gltf;*.glb;*.dae;*.3ds;*.blend",
+            Filter = "*.fbx|*.obj|*.gltf|*.glb|*.dae|*.3ds|*.blend",
         };
 
         dlg.Closed += (_, _) =>

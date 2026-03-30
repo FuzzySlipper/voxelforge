@@ -1,5 +1,5 @@
 {
-  "invertOrbitX": true,
+  "invertOrbitX": false,
   "invertOrbitY": true,
   "orbitSensitivity": 0.05,
   "zoomSensitivity": 0.05,

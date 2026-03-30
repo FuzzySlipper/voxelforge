@@ -92,6 +92,28 @@ public sealed class RefRemoveCommand : IConsoleCommand
     }
 }
 
+public sealed class RefClearCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+
+    public string Name => "refclear";
+    public string[] Aliases => [];
+    public string HelpText => "Remove all loaded reference models.";
+
+    public RefClearCommand(ReferenceModelRegistry registry) => _registry = registry;
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        int count = _registry.Models.Count;
+        if (count == 0)
+            return CommandResult.Ok("No reference models to remove.");
+
+        _registry.Clear();
+        _registry.NotifyChanged();
+        return CommandResult.Ok($"Removed {count} reference model(s).");
+    }
+}
+
 public sealed class RefTransformCommand : IConsoleCommand
 {
     private readonly ReferenceModelRegistry _registry;
@@ -539,5 +561,71 @@ public sealed class RefAnimCommand : IConsoleCommand
 
         model.AnimationSpeed = speed;
         return CommandResult.Ok($"[{idx}] Animation speed = {speed:F1}x");
+    }
+}
+
+public sealed class RefTexCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelLoader _loader;
+
+    public string Name => "reftex";
+    public string[] Aliases => [];
+    public string HelpText => "Swap texture on a reference model. Usage: reftex <modelIndex> <texturePath> [meshIndex]\n" +
+        "  Omit meshIndex to apply to all meshes.";
+
+    public RefTexCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    {
+        _registry = registry;
+        _loader = loader;
+    }
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 2)
+            return CommandResult.Fail(HelpText);
+
+        if (!int.TryParse(args[0], out int modelIdx))
+            return CommandResult.Fail("Invalid model index.");
+
+        var model = _registry.Get(modelIdx);
+        if (model is null)
+            return CommandResult.Fail($"No model at index {modelIdx}.");
+
+        string texPath = args[1];
+        if (!File.Exists(texPath))
+            return CommandResult.Fail($"Texture file not found: {texPath}");
+
+        texPath = Path.GetFullPath(texPath);
+
+        int? meshIdx = null;
+        if (args.Length >= 3)
+        {
+            if (!int.TryParse(args[2], out int mi))
+                return CommandResult.Fail("Invalid mesh index.");
+            if (mi < 0 || mi >= model.Meshes.Count)
+                return CommandResult.Fail($"Mesh index {mi} out of range (0-{model.Meshes.Count - 1}).");
+            meshIdx = mi;
+        }
+
+        int updated = 0;
+        int start = meshIdx ?? 0;
+        int end = meshIdx.HasValue ? meshIdx.Value + 1 : model.Meshes.Count;
+
+        for (int i = start; i < end; i++)
+        {
+            var newMesh = _loader.Retexture(model.Meshes[i], texPath);
+            if (newMesh is not null)
+            {
+                model.Meshes[i] = newMesh;
+                updated++;
+            }
+        }
+
+        if (updated == 0)
+            return CommandResult.Fail("Failed to apply texture — check file format.");
+
+        _registry.NotifyChanged();
+        return CommandResult.Ok($"Retextured {updated} mesh(es) on model [{modelIdx}] with {Path.GetFileName(texPath)}");
     }
 }

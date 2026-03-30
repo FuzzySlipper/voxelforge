@@ -59,6 +59,7 @@ public sealed class VoxelForgeGame : Game
         _editorState = editorState;
         _undoStack = undoStack;
         _config = config;
+        _camera.MaxDistance = config.MaxZoomDistance;
         _refRegistry = refRegistry;
         _imageStore = imageStore;
         _cts = cts;
@@ -121,6 +122,16 @@ public sealed class VoxelForgeGame : Game
         _desktop.Root = _editorLayout.Root;
         _editorLayout.RefModelPanel?.SetDesktop(_desktop);
 
+        // Log menu-dispatched command results to console for visibility
+        if (_menuDispatcher is not null)
+        {
+            _menuDispatcher.CommandExecuted += result =>
+            {
+                var prefix = result.Success ? "[OK]" : "[FAIL]";
+                System.Console.Error.WriteLine($"{prefix} {result.Message}");
+            };
+        }
+
         if (_editorLayout.MenuBar is { } menuBar)
         {
             menuBar.Initialize(_desktop, Exit);
@@ -163,6 +174,7 @@ public sealed class VoxelForgeGame : Game
         }
 
         // Camera zoom via scroll wheel
+        _camera.MaxDistance = _config.MaxZoomDistance;
         int scrollDelta = mouse.ScrollWheelValue - _previousMouse.ScrollWheelValue;
         if (scrollDelta != 0)
             _camera.Zoom(scrollDelta * _config.ZoomSensitivity);

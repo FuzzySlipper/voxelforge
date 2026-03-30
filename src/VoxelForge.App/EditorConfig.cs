@@ -53,6 +53,11 @@ public sealed class EditorConfig
     public int MaxUndoDepth { get; set; } = 100;
 
     /// <summary>
+    /// Maximum camera zoom-out distance.
+    /// </summary>
+    public float MaxZoomDistance { get; set; } = 200f;
+
+    /// <summary>
     /// Background color (R,G,B).
     /// </summary>
     public int[] BackgroundColor { get; set; } = [40, 40, 45];

@@ -21,6 +21,8 @@ public sealed class Palette
         return _entries.GetValueOrDefault(index);
     }
 
+    public bool Remove(byte index) => index != 0 && _entries.Remove(index);
+
     public bool Contains(byte index) => _entries.ContainsKey(index);
 
     public int Count => _entries.Count;

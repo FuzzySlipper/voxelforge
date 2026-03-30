@@ -24,6 +24,8 @@ public sealed class ReferenceModelRegistry
         return index >= 0 && index < _models.Count ? _models[index] : null;
     }
 
+    public void Clear() => _models.Clear();
+
     /// <summary>
     /// Fired when models are added/removed so the renderer can rebuild GPU buffers.
     /// </summary>

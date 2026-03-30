@@ -109,7 +109,7 @@ public sealed class EditorMenuBar
     {
         if (_desktop is null) return;
 
-        var dlg = new FileDialog(FileDialogMode.OpenFile)
+        var dlg = new VoxelForgeFileDialog(FileDialogMode.OpenFile)
         {
             Filter = "*.vforge",
             Folder = Path.GetFullPath("content"),
@@ -131,7 +131,7 @@ public sealed class EditorMenuBar
     {
         if (_desktop is null) return;
 
-        var dlg = new FileDialog(FileDialogMode.SaveFile)
+        var dlg = new VoxelForgeFileDialog(FileDialogMode.SaveFile)
         {
             Filter = "*.vforge",
             Folder = Path.GetFullPath("content"),
@@ -349,6 +349,15 @@ public sealed class EditorMenuBar
         var list = Cmd("ref_list", "L&ist Models", "reflist");
         models.Items.Add(list);
 
+        var remove = new MenuItem("ref_remove", "&Remove...");
+        remove.Selected += (_, _) => ShowArgsDialog("Remove Model",
+            ["Model Index"],
+            args => _dispatcher.Dispatch("refremove", args));
+        models.Items.Add(remove);
+
+        var clearAll = Cmd("ref_clear", "&Clear All Models", "refclear");
+        models.Items.Add(clearAll);
+
         models.Items.Add(new MenuSeparator());
 
         var orient = new MenuItem("ref_orient", "&Auto-Orient...");
@@ -382,6 +391,18 @@ public sealed class EditorMenuBar
             ["Index", "Mode (solid/wireframe/transparent)"],
             args => _dispatcher.Dispatch("refmode", args));
         models.Items.Add(mode);
+
+        var tex = new MenuItem("ref_tex", "Swap &Texture...");
+        tex.Selected += (_, _) => ShowArgsDialog("Swap Texture",
+            ["Model Index", "Texture Path", "Mesh Index (optional, blank=all)"],
+            args =>
+            {
+                var cmdArgs = new List<string> { args[0], args[1] };
+                if (args.Length >= 3 && args[2] != "")
+                    cmdArgs.Add(args[2]);
+                _dispatcher.Dispatch("reftex", cmdArgs.ToArray());
+            });
+        models.Items.Add(tex);
 
         menu.Items.Add(models);
 
@@ -450,9 +471,9 @@ public sealed class EditorMenuBar
     {
         if (_desktop is null) return;
 
-        var dlg = new FileDialog(FileDialogMode.OpenFile)
+        var dlg = new VoxelForgeFileDialog(FileDialogMode.OpenFile)
         {
-            Filter = "*.fbx;*.obj;*.gltf;*.glb;*.dae;*.3ds;*.blend",
+            Filter = "*.fbx|*.obj|*.gltf|*.glb|*.dae|*.3ds|*.blend",
         };
 
         dlg.Closed += (_, _) =>
@@ -468,9 +489,9 @@ public sealed class EditorMenuBar
     {
         if (_desktop is null) return;
 
-        var dlg = new FileDialog(FileDialogMode.OpenFile)
+        var dlg = new VoxelForgeFileDialog(FileDialogMode.OpenFile)
         {
-            Filter = "*.png;*.jpg;*.jpeg;*.bmp;*.tga",
+            Filter = "*.png|*.jpg|*.jpeg|*.bmp|*.tga",
         };
 
         dlg.Closed += (_, _) =>
@@ -501,6 +522,10 @@ public sealed class EditorMenuBar
         screenshot.Items.Add(ssCustom);
 
         menu.Items.Add(screenshot);
+
+        menu.Items.Add(new MenuSeparator());
+
+        menu.Items.Add(BuildColorPipelineMenu());
 
         menu.Items.Add(new MenuSeparator());
 
@@ -548,13 +573,89 @@ public sealed class EditorMenuBar
         return menu;
     }
 
+    private MenuItem BuildColorPipelineMenu()
+    {
+        var menu = new MenuItem("tools_color", "&Color Pipeline");
+
+        // Palette Reduce
+        var reduce = new MenuItem("tools_color_reduce", "Palette &Reduce...");
+        reduce.Selected += (_, _) => ShowArgsDialog("Palette Reduce",
+            ["Target Color Count", "Preserve Colors (#hex, comma-sep, optional)"],
+            args =>
+            {
+                var cmdArgs = new List<string> { args[0] };
+                if (args.Length >= 2 && args[1] != "")
+                    cmdArgs.AddRange(["--preserve", args[1]]);
+                _dispatcher.Dispatch("palette-reduce", cmdArgs.ToArray());
+            });
+        menu.Items.Add(reduce);
+
+        // Palette Map
+        var map = new MenuItem("tools_color_map", "Palette &Map (Find/Replace)...");
+        map.Selected += (_, _) => ShowArgsDialog("Palette Map",
+            ["From Color (#hex or R,G,B)", "To Color (#hex or R,G,B)", "Tolerance (0-1, optional)"],
+            args =>
+            {
+                var cmdArgs = new List<string> { args[0], args[1] };
+                if (args.Length >= 3 && args[2] != "")
+                    cmdArgs.Add(args[2]);
+                _dispatcher.Dispatch("palette-map", cmdArgs.ToArray());
+            });
+        menu.Items.Add(map);
+
+        menu.Items.Add(new MenuSeparator());
+
+        // AO Bake
+        var ao = new MenuItem("tools_color_ao", "&Ambient Occlusion...");
+        ao.Selected += (_, _) => ShowArgsDialog("AO Bake",
+            ["Intensity (0-1, default 0.5)", "Steps (default 4)"],
+            args =>
+            {
+                var cmdArgs = new List<string>();
+                if (args.Length >= 1 && args[0] != "") cmdArgs.Add(args[0]);
+                if (args.Length >= 2 && args[1] != "") cmdArgs.Add(args[1]);
+                _dispatcher.Dispatch("ao-bake", cmdArgs.ToArray());
+            });
+        menu.Items.Add(ao);
+
+        // Edge Darken
+        var edge = new MenuItem("tools_color_edge", "&Edge Darken...");
+        edge.Selected += (_, _) => ShowArgsDialog("Edge Darken",
+            ["Strength (0-1, default 0.3)", "Steps (default 3)", "Tint Color (optional, e.g. #2B1B4E)"],
+            args =>
+            {
+                var cmdArgs = new List<string>();
+                if (args.Length >= 1 && args[0] != "") cmdArgs.Add(args[0]);
+                if (args.Length >= 2 && args[1] != "") cmdArgs.Add(args[1]);
+                if (args.Length >= 3 && args[2] != "") cmdArgs.Add(args[2]);
+                _dispatcher.Dispatch("edge-darken", cmdArgs.ToArray());
+            });
+        menu.Items.Add(edge);
+
+        // Light Bake
+        var light = new MenuItem("tools_color_light", "&Light Bake...");
+        light.Selected += (_, _) => ShowArgsDialog("Light Bake",
+            ["Direction (x,y,z)", "Intensity (0-1, default 0.4)", "Steps (default 4)", "Tint Color (optional, e.g. #FFF4E0)"],
+            args =>
+            {
+                var cmdArgs = new List<string> { args[0] };
+                if (args.Length >= 2 && args[1] != "") cmdArgs.Add(args[1]);
+                if (args.Length >= 3 && args[2] != "") cmdArgs.Add(args[2]);
+                if (args.Length >= 4 && args[3] != "") cmdArgs.Add(args[3]);
+                _dispatcher.Dispatch("light-bake", cmdArgs.ToArray());
+            });
+        menu.Items.Add(light);
+
+        return menu;
+    }
+
     private void ShowScriptDialog()
     {
         if (_desktop is null) return;
 
-        var dlg = new FileDialog(FileDialogMode.OpenFile)
+        var dlg = new VoxelForgeFileDialog(FileDialogMode.OpenFile)
         {
-            Filter = "*.txt;*.vfscript",
+            Filter = "*.txt|*.vfscript",
         };
 
         dlg.Closed += (_, _) =>

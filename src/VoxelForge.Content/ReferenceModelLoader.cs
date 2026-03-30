@@ -613,4 +613,42 @@ public sealed class ReferenceModelLoader
         b = image.Data[offset + 2];
         a = image.Data[offset + 3];
     }
+
+    /// <summary>
+    /// Re-bake a mesh's vertex colors from a new texture file using existing UVs.
+    /// Returns a new ReferenceMeshData with updated colors, or null on failure.
+    /// </summary>
+    public ReferenceMeshData? Retexture(ReferenceMeshData mesh, string texturePath)
+    {
+        var image = LoadImage(texturePath);
+        if (image is null)
+        {
+            _logger.LogError("Failed to load texture for retexture: {Path}", texturePath);
+            return null;
+        }
+
+        var oldVerts = mesh.Vertices;
+        var newVerts = new ReferenceVertex[oldVerts.Length];
+
+        for (int i = 0; i < oldVerts.Length; i++)
+        {
+            var ov = oldVerts[i];
+            SampleTexture(image, ov.U, ov.V, out byte r, out byte g, out byte b, out byte a);
+            newVerts[i] = new ReferenceVertex(
+                ov.PosX, ov.PosY, ov.PosZ,
+                ov.NormX, ov.NormY, ov.NormZ,
+                r, g, b, a,
+                ov.U, ov.V,
+                ov.BoneIndex0, ov.BoneIndex1, ov.BoneIndex2, ov.BoneIndex3,
+                ov.BoneWeight0, ov.BoneWeight1, ov.BoneWeight2, ov.BoneWeight3);
+        }
+
+        return new ReferenceMeshData
+        {
+            Vertices = newVerts,
+            Indices = mesh.Indices,
+            MaterialName = mesh.MaterialName,
+            DiffuseTexturePath = texturePath,
+        };
+    }
 }
