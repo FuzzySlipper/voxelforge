@@ -47,7 +47,11 @@ public sealed class ReferenceModelRenderer : IDisposable
         int meshIndex = 0;
         foreach (var model in _registry.Models)
         {
-            if (!model.IsVisible) continue;
+            if (!model.IsVisible)
+            {
+                meshIndex += model.Meshes.Count;
+                continue;
+            }
 
             var world = Matrix.CreateScale(model.Scale)
                 * Matrix.CreateFromYawPitchRoll(

@@ -15,32 +15,38 @@ public sealed class EditorLayout
     public EditorMenuBar MenuBar { get; }
     public ToolPanel ToolPanel { get; }
     public PalettePanel PalettePanel { get; }
+    public ContentBrowserPanel ContentBrowser { get; }
     public RegionPanel RegionPanel { get; }
     public AnimationPanel AnimationPanel { get; }
     public PropertiesPanel PropertiesPanel { get; }
     public ReferenceModelPanel? RefModelPanel { get; }
+    public MaterialPanel MaterialPanel { get; }
     public LlmPanel LlmPanel { get; }
+    public ContentDragDrop DragDrop { get; }
     public VerticalStackPanel RightSidebar { get; private set; } = null!;
     public Widget Root { get; }
 
     public EditorLayout(EditorState state, MenuCommandDispatcher? dispatcher = null,
         ReferenceModelRegistry? refRegistry = null)
     {
+        DragDrop = new ContentDragDrop();
         ToolPanel = new ToolPanel(state);
         PalettePanel = new PalettePanel(state);
+        ContentBrowser = new ContentBrowserPanel(DragDrop);
         RegionPanel = new RegionPanel(state);
         AnimationPanel = new AnimationPanel(state);
         PropertiesPanel = new PropertiesPanel(state);
         LlmPanel = new LlmPanel(state);
 
+        MaterialPanel = new MaterialPanel(state, DragDrop);
+
         if (dispatcher is not null && refRegistry is not null)
             RefModelPanel = new ReferenceModelPanel(refRegistry, dispatcher);
 
-        // Main grid: 3 rows (menu bar + main area + bottom panel)
+        // Main grid: 2 rows (menu bar + main area)
         var outerGrid = new Grid();
         outerGrid.RowsProportions.Add(new Proportion(ProportionType.Auto));  // menu bar
         outerGrid.RowsProportions.Add(new Proportion(ProportionType.Fill));  // main area
-        outerGrid.RowsProportions.Add(new Proportion(ProportionType.Pixels, 180)); // bottom
 
         // Menu bar (row 0)
         if (dispatcher is not null)
@@ -64,6 +70,10 @@ public sealed class EditorLayout
         var leftPanel = new VerticalStackPanel { Spacing = 4 };
         leftPanel.Widgets.Add(new CollapsibleSection("Tools", ToolPanel.Root, expanded: true).Root);
         leftPanel.Widgets.Add(new CollapsibleSection("Palette", PalettePanel.Root, expanded: true).Root);
+        leftPanel.Widgets.Add(new CollapsibleSection("Content", ContentBrowser.Root, expanded: false).Root);
+        if (RefModelPanel is not null)
+            leftPanel.Widgets.Add(new CollapsibleSection("Ref Models", RefModelPanel.Root, expanded: true).Root);
+        leftPanel.Widgets.Add(new CollapsibleSection("Material", MaterialPanel.Root, expanded: true).Root);
         var leftScroll = new ScrollViewer
         {
             Content = leftPanel,
@@ -76,8 +86,6 @@ public sealed class EditorLayout
 
         // Right sidebar — collapsible sections
         RightSidebar = new VerticalStackPanel { Spacing = 4 };
-        if (RefModelPanel is not null)
-            RightSidebar.Widgets.Add(new CollapsibleSection("Ref Models", RefModelPanel.Root, expanded: true).Root);
         RightSidebar.Widgets.Add(new CollapsibleSection("Regions", RegionPanel.Root, expanded: false).Root);
         RightSidebar.Widgets.Add(new CollapsibleSection("Animation", AnimationPanel.Root, expanded: false).Root);
         RightSidebar.Widgets.Add(new CollapsibleSection("Properties", PropertiesPanel.Root, expanded: true).Root);
@@ -89,17 +97,24 @@ public sealed class EditorLayout
         Grid.SetColumn(rightScroll, 2);
         mainGrid.Widgets.Add(rightScroll);
 
+        // LLM panel in the lower-right sidebar
+        RightSidebar.Widgets.Add(new CollapsibleSection("LLM Chat", LlmPanel.Root, expanded: false).Root);
+
         Grid.SetRow(mainGrid, 1);
         outerGrid.Widgets.Add(mainGrid);
 
-        // Bottom: LLM panel
-        var bottomScroll = new ScrollViewer
+        // Drag-drop overlay (spans full window so the label can appear anywhere)
+        Grid.SetRowSpan(DragDrop.DragLabel, 2);
+        outerGrid.Widgets.Add(DragDrop.DragLabel);
+
+        // Register drop targets
+        if (RefModelPanel is not null && dispatcher is not null)
         {
-            Content = LlmPanel.Root,
-            ShowHorizontalScrollBar = false,
-        };
-        Grid.SetRow(bottomScroll, 2);
-        outerGrid.Widgets.Add(bottomScroll);
+            DragDrop.RegisterTarget(
+                RefModelPanel.Root,
+                ContentBrowserPanel.IsModelFile,
+                path => dispatcher.Dispatch("refload", path));
+        }
 
         Root = outerGrid;
     }
@@ -108,5 +123,6 @@ public sealed class EditorLayout
     {
         PropertiesPanel.Refresh();
         RefModelPanel?.Refresh();
+        MaterialPanel.Refresh();
     }
 }

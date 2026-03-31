@@ -47,6 +47,7 @@ public static class CommandRegistry
             new ClearCommand(),
             new GridCommand(),
             new ConfigCommand(config),
+            new MeasureCommand(config),
             new RefLoadCommand(refRegistry, refLoader),
             new RefListCommand(refRegistry),
             new RefRemoveCommand(refRegistry),
@@ -61,11 +62,15 @@ public static class CommandRegistry
             new RefInfoCommand(refRegistry, refLoader),
             new RefAnimCommand(refRegistry),
             new RefTexCommand(refRegistry, refLoader),
+            new RefTexEmissiveCommand(refRegistry, refLoader),
+            new RefSaveMetaCommand(refRegistry),
+            new RefLoadMetaCommand(refRegistry, refLoader),
             new ImgLoadCommand(imageStore),
             new ImgListCommand(imageStore),
             new ImgRemoveCommand(imageStore),
             new ScreenshotCommand(screenshotFactory ?? (() => null)),
             new VoxelizeCommand(refRegistry, loggerFactory),
+            new VoxelizeCompareCommand(refRegistry, loggerFactory),
         };
 
         var router = new CommandRouter(commands, logger);

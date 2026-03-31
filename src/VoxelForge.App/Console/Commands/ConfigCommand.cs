@@ -23,6 +23,7 @@ public sealed class ConfigCommand : IConsoleCommand
                 $"  defaultGridHint    = {_config.DefaultGridHint}",
                 $"  maxUndoDepth       = {_config.MaxUndoDepth}",
                 $"  maxZoomDistance    = {_config.MaxZoomDistance}",
+                $"  voxelsPerMeter    = {_config.VoxelsPerMeter}",
                 $"  backgroundColor    = {string.Join(",", _config.BackgroundColor)}",
             };
             return CommandResult.Ok(string.Join("\n", lines));
@@ -69,6 +70,10 @@ public sealed class ConfigCommand : IConsoleCommand
             case "maxzoomdistance":
                 if (!float.TryParse(value, out var mz)) return CommandResult.Fail("Expected number");
                 _config.MaxZoomDistance = mz;
+                break;
+            case "voxelspermeter":
+                if (!float.TryParse(value, out var vpm) || vpm <= 0) return CommandResult.Fail("Expected positive number");
+                _config.VoxelsPerMeter = vpm;
                 break;
             default:
                 return CommandResult.Fail($"Unknown config key: '{key}'");

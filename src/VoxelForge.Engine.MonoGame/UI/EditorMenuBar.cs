@@ -277,6 +277,16 @@ public sealed class EditorMenuBar
             args => _dispatcher.Dispatch("grid", args));
         menu.Items.Add(grid);
 
+        var measure = Cmd("view_measure", "&Measure Grid Toggle", "measure");
+        measure.ShortcutText = "F5";
+        menu.Items.Add(measure);
+
+        var measureScale = new MenuItem("view_measure_scale", "Measure &Scale...");
+        measureScale.Selected += (_, _) => ShowArgsDialog("Voxels Per Meter",
+            ["Voxels per meter (e.g. 8)"],
+            args => _dispatcher.Dispatch("measure", "scale", args[0]));
+        menu.Items.Add(measureScale);
+
         menu.Items.Add(new MenuSeparator());
 
         var bgColor = new MenuItem("view_bgcolor", "&Background Color...");
@@ -346,6 +356,18 @@ public sealed class EditorMenuBar
         load.Selected += (_, _) => ShowRefLoadDialog();
         models.Items.Add(load);
 
+        var loadMeta = new MenuItem("ref_loadmeta", "Load from &Meta...");
+        loadMeta.Selected += (_, _) => ShowRefMetaLoadDialog();
+        models.Items.Add(loadMeta);
+
+        var saveMeta = new MenuItem("ref_savemeta", "&Save Meta...");
+        saveMeta.Selected += (_, _) => ShowArgsDialog("Save Ref Model Meta",
+            ["Model Index", "File Path (.refmeta)"],
+            args => _dispatcher.Dispatch("refsave", args));
+        models.Items.Add(saveMeta);
+
+        models.Items.Add(new MenuSeparator());
+
         var list = Cmd("ref_list", "L&ist Models", "reflist");
         models.Items.Add(list);
 
@@ -403,6 +425,18 @@ public sealed class EditorMenuBar
                 _dispatcher.Dispatch("reftex", cmdArgs.ToArray());
             });
         models.Items.Add(tex);
+
+        var emissive = new MenuItem("ref_emissive", "&Emissive Texture...");
+        emissive.Selected += (_, _) => ShowArgsDialog("Emissive Texture",
+            ["Model Index", "Emissive Texture Path", "Brightness (default 1.0)", "Mesh Index (optional, blank=all)"],
+            args =>
+            {
+                var cmdArgs = new List<string> { args[0], args[1] };
+                if (args.Length >= 3 && args[2] != "") cmdArgs.Add(args[2]);
+                if (args.Length >= 4 && args[3] != "") cmdArgs.Add(args[3]);
+                _dispatcher.Dispatch("reftex-emissive", cmdArgs.ToArray());
+            });
+        models.Items.Add(emissive);
 
         menu.Items.Add(models);
 
@@ -480,6 +514,24 @@ public sealed class EditorMenuBar
         {
             if (dlg.Result && !string.IsNullOrEmpty(dlg.FilePath))
                 _dispatcher.Dispatch("refload", dlg.FilePath);
+        };
+
+        dlg.ShowModal(_desktop);
+    }
+
+    private void ShowRefMetaLoadDialog()
+    {
+        if (_desktop is null) return;
+
+        var dlg = new VoxelForgeFileDialog(FileDialogMode.OpenFile)
+        {
+            Filter = "*.refmeta",
+        };
+
+        dlg.Closed += (_, _) =>
+        {
+            if (dlg.Result && !string.IsNullOrEmpty(dlg.FilePath))
+                _dispatcher.Dispatch("refloadmeta", dlg.FilePath);
         };
 
         dlg.ShowModal(_desktop);

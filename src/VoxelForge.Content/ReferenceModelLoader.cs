@@ -615,25 +615,94 @@ public sealed class ReferenceModelLoader
     }
 
     /// <summary>
-    /// Re-bake a mesh's vertex colors from a new texture file using existing UVs.
+    /// Re-bake a mesh's vertex colors from a new diffuse texture using existing UVs.
+    /// If the mesh has an emissive texture, it is re-applied on top.
     /// Returns a new ReferenceMeshData with updated colors, or null on failure.
     /// </summary>
     public ReferenceMeshData? Retexture(ReferenceMeshData mesh, string texturePath)
     {
-        var image = LoadImage(texturePath);
-        if (image is null)
+        var diffuseImage = LoadImage(texturePath);
+        if (diffuseImage is null)
         {
             _logger.LogError("Failed to load texture for retexture: {Path}", texturePath);
             return null;
         }
 
-        var oldVerts = mesh.Vertices;
-        var newVerts = new ReferenceVertex[oldVerts.Length];
+        ImageResult? emissiveImage = null;
+        if (mesh.EmissiveTexturePath is not null)
+            emissiveImage = LoadImage(mesh.EmissiveTexturePath);
 
+        var newVerts = BakeVertexColors(mesh.Vertices, diffuseImage, emissiveImage, mesh.EmissiveBrightness);
+
+        return new ReferenceMeshData
+        {
+            Vertices = newVerts,
+            Indices = mesh.Indices,
+            MaterialName = mesh.MaterialName,
+            DiffuseTexturePath = texturePath,
+            EmissiveTexturePath = mesh.EmissiveTexturePath,
+            EmissiveBrightness = mesh.EmissiveBrightness,
+        };
+    }
+
+    /// <summary>
+    /// Apply an emissive texture to a mesh, blending it into existing vertex colors
+    /// with the given brightness multiplier. Re-bakes from diffuse first if available.
+    /// Returns a new ReferenceMeshData, or null on failure.
+    /// </summary>
+    public ReferenceMeshData? RetextureEmissive(ReferenceMeshData mesh, string emissivePath, float brightness)
+    {
+        var emissiveImage = LoadImage(emissivePath);
+        if (emissiveImage is null)
+        {
+            _logger.LogError("Failed to load emissive texture: {Path}", emissivePath);
+            return null;
+        }
+
+        // Re-bake from diffuse if we have a path, otherwise use current vertex colors as base.
+        ImageResult? diffuseImage = null;
+        if (mesh.DiffuseTexturePath is not null)
+            diffuseImage = LoadImage(mesh.DiffuseTexturePath);
+
+        ReferenceVertex[] newVerts;
+        if (diffuseImage is not null)
+        {
+            newVerts = BakeVertexColors(mesh.Vertices, diffuseImage, emissiveImage, brightness);
+        }
+        else
+        {
+            // No diffuse texture — blend emissive into existing vertex colors.
+            newVerts = BlendEmissive(mesh.Vertices, emissiveImage, brightness);
+        }
+
+        return new ReferenceMeshData
+        {
+            Vertices = newVerts,
+            Indices = mesh.Indices,
+            MaterialName = mesh.MaterialName,
+            DiffuseTexturePath = mesh.DiffuseTexturePath,
+            EmissiveTexturePath = emissivePath,
+            EmissiveBrightness = brightness,
+        };
+    }
+
+    private ReferenceVertex[] BakeVertexColors(
+        ReferenceVertex[] oldVerts, ImageResult diffuse, ImageResult? emissive, float emissiveBrightness)
+    {
+        var newVerts = new ReferenceVertex[oldVerts.Length];
         for (int i = 0; i < oldVerts.Length; i++)
         {
             var ov = oldVerts[i];
-            SampleTexture(image, ov.U, ov.V, out byte r, out byte g, out byte b, out byte a);
+            SampleTexture(diffuse, ov.U, ov.V, out byte r, out byte g, out byte b, out byte a);
+
+            if (emissive is not null && emissiveBrightness > 0f)
+            {
+                SampleTexture(emissive, ov.U, ov.V, out byte er, out byte eg, out byte eb, out _);
+                r = (byte)Math.Clamp(r + (int)(er * emissiveBrightness), 0, 255);
+                g = (byte)Math.Clamp(g + (int)(eg * emissiveBrightness), 0, 255);
+                b = (byte)Math.Clamp(b + (int)(eb * emissiveBrightness), 0, 255);
+            }
+
             newVerts[i] = new ReferenceVertex(
                 ov.PosX, ov.PosY, ov.PosZ,
                 ov.NormX, ov.NormY, ov.NormZ,
@@ -642,13 +711,29 @@ public sealed class ReferenceModelLoader
                 ov.BoneIndex0, ov.BoneIndex1, ov.BoneIndex2, ov.BoneIndex3,
                 ov.BoneWeight0, ov.BoneWeight1, ov.BoneWeight2, ov.BoneWeight3);
         }
+        return newVerts;
+    }
 
-        return new ReferenceMeshData
+    private ReferenceVertex[] BlendEmissive(
+        ReferenceVertex[] oldVerts, ImageResult emissive, float brightness)
+    {
+        var newVerts = new ReferenceVertex[oldVerts.Length];
+        for (int i = 0; i < oldVerts.Length; i++)
         {
-            Vertices = newVerts,
-            Indices = mesh.Indices,
-            MaterialName = mesh.MaterialName,
-            DiffuseTexturePath = texturePath,
-        };
+            var ov = oldVerts[i];
+            SampleTexture(emissive, ov.U, ov.V, out byte er, out byte eg, out byte eb, out _);
+            byte r = (byte)Math.Clamp(ov.R + (int)(er * brightness), 0, 255);
+            byte g = (byte)Math.Clamp(ov.G + (int)(eg * brightness), 0, 255);
+            byte b = (byte)Math.Clamp(ov.B + (int)(eb * brightness), 0, 255);
+
+            newVerts[i] = new ReferenceVertex(
+                ov.PosX, ov.PosY, ov.PosZ,
+                ov.NormX, ov.NormY, ov.NormZ,
+                r, g, b, ov.A,
+                ov.U, ov.V,
+                ov.BoneIndex0, ov.BoneIndex1, ov.BoneIndex2, ov.BoneIndex3,
+                ov.BoneWeight0, ov.BoneWeight1, ov.BoneWeight2, ov.BoneWeight3);
+        }
+        return newVerts;
     }
 }

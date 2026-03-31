@@ -58,6 +58,17 @@ public sealed class EditorConfig
     public float MaxZoomDistance { get; set; } = 200f;
 
     /// <summary>
+    /// Scale convention: how many voxel units equal 1 meter.
+    /// Used by the measurement grid overlay.
+    /// </summary>
+    public float VoxelsPerMeter { get; set; } = 8f;
+
+    /// <summary>
+    /// Whether the measurement grid overlay is visible.
+    /// </summary>
+    public bool ShowMeasureGrid { get; set; }
+
+    /// <summary>
     /// Background color (R,G,B).
     /// </summary>
     public int[] BackgroundColor { get; set; } = [40, 40, 45];

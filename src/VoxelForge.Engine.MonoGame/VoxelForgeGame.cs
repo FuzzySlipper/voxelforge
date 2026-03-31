@@ -33,6 +33,7 @@ public sealed class VoxelForgeGame : Game
     private AxisIndicator? _axisIndicator;
     private OrientationGizmo? _orientationGizmo;
     private OrbitalCamera _camera = new();
+    private MeasureGrid? _measureGrid;
     private ScreenshotCapture? _screenshotCapture;
     private Desktop? _desktop;
     private EditorLayout? _editorLayout;
@@ -51,6 +52,7 @@ public sealed class VoxelForgeGame : Game
 
     private MouseState _previousMouse;
     private KeyboardState _previousKeyboard;
+    private Point? _dragPendingStart;
 
     public VoxelForgeGame(EditorState editorState, UndoStack undoStack, EditorConfig config,
         ReferenceModelRegistry refRegistry, ReferenceImageStore imageStore,
@@ -106,6 +108,7 @@ public sealed class VoxelForgeGame : Game
 
         _refRenderer = new ReferenceModelRenderer(GraphicsDevice, _refRegistry);
         _gridFloor = new GridFloor(GraphicsDevice);
+        _measureGrid = new MeasureGrid(GraphicsDevice);
         _axisIndicator = new AxisIndicator(GraphicsDevice);
         _orientationGizmo = new OrientationGizmo(GraphicsDevice);
         _screenshotCapture = new ScreenshotCapture(
@@ -220,6 +223,50 @@ public sealed class VoxelForgeGame : Game
                 _editorState, _undoStack, _camera, GraphicsDevice);
         }
 
+        // Content browser drag-and-drop (driven by raw mouse state, not Myra events)
+        if (_editorLayout?.DragDrop is { } dd)
+        {
+            var mousePoint = new Point(mouse.X, mouse.Y);
+            bool justPressed = mouse.LeftButton == ButtonState.Pressed
+                            && _previousMouse.LeftButton == ButtonState.Released;
+
+            if (justPressed)
+            {
+                // Remember click position if it started over the content tree
+                _dragPendingStart = _editorLayout.ContentBrowser.IsPointOverTree(mousePoint)
+                    ? mousePoint : null;
+            }
+
+            if (mouse.LeftButton == ButtonState.Pressed)
+            {
+                if (dd.IsDragging)
+                {
+                    dd.UpdateDrag(mousePoint);
+                }
+                else if (_dragPendingStart is { } start)
+                {
+                    int dx = mousePoint.X - start.X;
+                    int dy = mousePoint.Y - start.Y;
+                    if (dx * dx + dy * dy >= 36)
+                    {
+                        var path = _editorLayout.ContentBrowser.GetSelectedFilePath();
+                        if (path != null)
+                        {
+                            dd.BeginDrag(path);
+                            dd.UpdateDrag(mousePoint);
+                        }
+                        _dragPendingStart = null;
+                    }
+                }
+            }
+            else
+            {
+                if (dd.IsDragging)
+                    dd.EndDrag(mousePoint);
+                _dragPendingStart = null;
+            }
+        }
+
         // Escape to exit
         if (keyboard.IsKeyDown(Keys.Escape))
             Exit();
@@ -228,6 +275,13 @@ public sealed class VoxelForgeGame : Game
 
         // Sync grid floor to model's grid hint
         _gridFloor?.Resize(_editorState.ActiveModel.GridHint);
+
+        if (_measureGrid is not null)
+        {
+            _measureGrid.IsVisible = _config.ShowMeasureGrid;
+            if (_config.ShowMeasureGrid)
+                _measureGrid.Rebuild(_config.VoxelsPerMeter);
+        }
 
         // Tick reference model animations
         _refRenderer?.UpdateAnimations((float)gameTime.ElapsedGameTime.TotalSeconds);
@@ -253,6 +307,7 @@ public sealed class VoxelForgeGame : Game
 
             _effect.World = Matrix.Identity;
             _gridFloor?.Draw(GraphicsDevice, _effect);
+            _measureGrid?.Draw(GraphicsDevice, _effect);
             _axisIndicator?.Draw(GraphicsDevice, _effect);
             _voxelRenderer?.Draw(_editorState.ActiveModel, _camera, _effect);
             _refRenderer?.Draw(_camera, _effect);
@@ -271,6 +326,7 @@ public sealed class VoxelForgeGame : Game
         _refRenderer?.Dispose();
         _imagePanel?.Dispose();
         _gridFloor?.Dispose();
+        _measureGrid?.Dispose();
         _axisIndicator?.Dispose();
         _orientationGizmo?.Dispose();
         _effect?.Dispose();

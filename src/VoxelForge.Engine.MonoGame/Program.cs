@@ -37,9 +37,6 @@ var context = new CommandContext
     UndoStack = undoStack,
 };
 
-// Set up demo content
-SetupDemoModel(model);
-
 using var cts = new CancellationTokenSource();
 
 if (headless)
@@ -91,20 +88,4 @@ else
 
     using (game)
         game.Run();
-}
-
-static void SetupDemoModel(VoxelModel model)
-{
-    model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(160, 160, 160) });
-    model.Palette.Set(2, new MaterialDef { Name = "Grass", Color = new RgbaColor(80, 160, 60) });
-    model.Palette.Set(3, new MaterialDef { Name = "Wood", Color = new RgbaColor(139, 90, 43) });
-
-    model.FillRegion(new Point3(0, 0, 0), new Point3(15, 0, 15), 2);
-    model.FillRegion(new Point3(0, 1, 0), new Point3(15, 6, 0), 1);
-    model.FillRegion(new Point3(0, 1, 15), new Point3(15, 6, 15), 1);
-    model.FillRegion(new Point3(0, 1, 0), new Point3(0, 6, 15), 1);
-    model.FillRegion(new Point3(15, 1, 0), new Point3(15, 6, 15), 1);
-
-    for (int i = 0; i <= 8; i++)
-        model.FillRegion(new Point3(i, 7 + i, i), new Point3(15 - i, 7 + i, 15 - i), 3);
 }

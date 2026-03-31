@@ -629,3 +629,235 @@ public sealed class RefTexCommand : IConsoleCommand
         return CommandResult.Ok($"Retextured {updated} mesh(es) on model [{modelIdx}] with {Path.GetFileName(texPath)}");
     }
 }
+
+public sealed class RefTexEmissiveCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelLoader _loader;
+
+    public string Name => "reftex-emissive";
+    public string[] Aliases => ["refemissive"];
+    public string HelpText => "Apply emissive texture to a reference model. Usage: reftex-emissive <modelIndex> <texturePath> [brightness] [meshIndex]\n" +
+        "  brightness: emissive multiplier (default 1.0). Omit meshIndex for all meshes.";
+
+    public RefTexEmissiveCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    {
+        _registry = registry;
+        _loader = loader;
+    }
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 2)
+            return CommandResult.Fail(HelpText);
+
+        if (!int.TryParse(args[0], out int modelIdx))
+            return CommandResult.Fail("Invalid model index.");
+
+        var model = _registry.Get(modelIdx);
+        if (model is null)
+            return CommandResult.Fail($"No model at index {modelIdx}.");
+
+        string texPath = args[1];
+        if (!File.Exists(texPath))
+            return CommandResult.Fail($"Emissive texture not found: {texPath}");
+
+        texPath = Path.GetFullPath(texPath);
+
+        float brightness = 1f;
+        if (args.Length >= 3 && !float.TryParse(args[2], out brightness))
+            return CommandResult.Fail($"Invalid brightness: {args[2]}");
+
+        int? meshIdx = null;
+        if (args.Length >= 4)
+        {
+            if (!int.TryParse(args[3], out int mi))
+                return CommandResult.Fail("Invalid mesh index.");
+            if (mi < 0 || mi >= model.Meshes.Count)
+                return CommandResult.Fail($"Mesh index {mi} out of range (0-{model.Meshes.Count - 1}).");
+            meshIdx = mi;
+        }
+
+        int updated = 0;
+        int start = meshIdx ?? 0;
+        int end = meshIdx.HasValue ? meshIdx.Value + 1 : model.Meshes.Count;
+
+        for (int i = start; i < end; i++)
+        {
+            var newMesh = _loader.RetextureEmissive(model.Meshes[i], texPath, brightness);
+            if (newMesh is not null)
+            {
+                model.Meshes[i] = newMesh;
+                updated++;
+            }
+        }
+
+        if (updated == 0)
+            return CommandResult.Fail("Failed to apply emissive texture — check file format.");
+
+        _registry.NotifyChanged();
+        return CommandResult.Ok($"Applied emissive to {updated} mesh(es) on model [{modelIdx}] (brightness={brightness:F1})");
+    }
+}
+
+public sealed class RefSaveMetaCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+
+    public string Name => "refsave";
+    public string[] Aliases => [];
+    public string HelpText => "Save ref model config to .refmeta file. Usage: refsave <modelIndex> <path>";
+
+    public RefSaveMetaCommand(ReferenceModelRegistry registry) => _registry = registry;
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 2)
+            return CommandResult.Fail(HelpText);
+
+        if (!int.TryParse(args[0], out int modelIdx))
+            return CommandResult.Fail("Invalid model index.");
+
+        var model = _registry.Get(modelIdx);
+        if (model is null)
+            return CommandResult.Fail($"No model at index {modelIdx}.");
+
+        var path = args[1];
+        if (!path.EndsWith(".refmeta", StringComparison.OrdinalIgnoreCase))
+            path += ".refmeta";
+
+        path = Path.GetFullPath(path);
+        var dir = Path.GetDirectoryName(path) ?? ".";
+
+        var meta = ReferenceModelMeta.FromModel(model, dir);
+        File.WriteAllText(path, meta.ToJson());
+
+        return CommandResult.Ok($"Saved ref model [{modelIdx}] config to {path}");
+    }
+}
+
+public sealed class RefLoadMetaCommand : IConsoleCommand
+{
+    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelLoader _loader;
+
+    public string Name => "refloadmeta";
+    public string[] Aliases => ["refmeta"];
+    public string HelpText => "Load ref model from .refmeta file. Usage: refloadmeta <path>";
+
+    public RefLoadMetaCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    {
+        _registry = registry;
+        _loader = loader;
+    }
+
+    public CommandResult Execute(string[] args, CommandContext context)
+    {
+        if (args.Length < 1)
+            return CommandResult.Fail(HelpText);
+
+        var path = Path.GetFullPath(args[0]);
+        if (!File.Exists(path))
+            return CommandResult.Fail($"File not found: {path}");
+
+        string json;
+        try { json = File.ReadAllText(path); }
+        catch (Exception ex) { return CommandResult.Fail($"Failed to read file: {ex.Message}"); }
+
+        var meta = ReferenceModelMeta.FromJson(json);
+        if (meta is null)
+            return CommandResult.Fail("Failed to parse .refmeta file.");
+
+        var baseDir = Path.GetDirectoryName(path) ?? ".";
+        meta.ResolvePaths(baseDir);
+
+        // Load the model
+        ReferenceModelData model;
+        try
+        {
+            model = _loader.Load(meta.ModelPath);
+        }
+        catch (Exception ex)
+        {
+            return CommandResult.Fail($"Failed to load model '{meta.ModelPath}': {ex.Message}");
+        }
+
+        // Apply transform
+        model.PositionX = meta.PositionX;
+        model.PositionY = meta.PositionY;
+        model.PositionZ = meta.PositionZ;
+        model.RotationX = meta.RotationX;
+        model.RotationY = meta.RotationY;
+        model.RotationZ = meta.RotationZ;
+        model.Scale = meta.Scale;
+        model.RenderMode = meta.RenderMode;
+        model.IsVisible = meta.IsVisible;
+
+        // Apply per-mesh texture overrides
+        var warnings = new List<string>();
+        if (meta.MeshOverrides is not null)
+        {
+            foreach (var ov in meta.MeshOverrides)
+            {
+                if (ov.MeshIndex < 0 || ov.MeshIndex >= model.Meshes.Count)
+                {
+                    warnings.Add($"Mesh index {ov.MeshIndex} out of range, skipped.");
+                    continue;
+                }
+
+                if (ov.DiffuseTexturePath is not null)
+                {
+                    if (File.Exists(ov.DiffuseTexturePath))
+                    {
+                        var newMesh = _loader.Retexture(model.Meshes[ov.MeshIndex], ov.DiffuseTexturePath);
+                        if (newMesh is not null)
+                            model.Meshes[ov.MeshIndex] = newMesh;
+                        else
+                            warnings.Add($"Mesh {ov.MeshIndex}: failed to apply diffuse texture.");
+                    }
+                    else
+                    {
+                        warnings.Add($"Mesh {ov.MeshIndex}: diffuse texture not found: {ov.DiffuseTexturePath}");
+                    }
+                }
+
+                if (ov.EmissiveTexturePath is not null)
+                {
+                    float brightness = ov.EmissiveBrightness ?? 1f;
+                    if (File.Exists(ov.EmissiveTexturePath))
+                    {
+                        var newMesh = _loader.RetextureEmissive(
+                            model.Meshes[ov.MeshIndex], ov.EmissiveTexturePath, brightness);
+                        if (newMesh is not null)
+                            model.Meshes[ov.MeshIndex] = newMesh;
+                        else
+                            warnings.Add($"Mesh {ov.MeshIndex}: failed to apply emissive texture.");
+                    }
+                    else
+                    {
+                        warnings.Add($"Mesh {ov.MeshIndex}: emissive texture not found: {ov.EmissiveTexturePath}");
+                    }
+                }
+            }
+        }
+
+        // Apply animation state
+        if (meta.Animation is not null && model.HasAnimations)
+        {
+            model.ActiveClipIndex = meta.Animation.ActiveClipIndex;
+            model.AnimationSpeed = meta.Animation.Speed;
+            if (meta.Animation.ActiveClipIndex.HasValue)
+                model.IsAnimating = true;
+        }
+
+        _registry.Add(model);
+        _registry.NotifyChanged();
+
+        int idx = _registry.Models.Count - 1;
+        string msg = $"Loaded [{idx}] from {Path.GetFileName(path)} — {model.Meshes.Count} meshes, {model.TotalVertices} vertices";
+        if (warnings.Count > 0)
+            msg += "\nWarnings:\n  " + string.Join("\n  ", warnings);
+
+        return CommandResult.Ok(msg);
+    }
+}

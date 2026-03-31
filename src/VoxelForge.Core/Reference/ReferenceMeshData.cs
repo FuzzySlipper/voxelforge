@@ -20,6 +20,8 @@ public sealed class ReferenceMeshData
     public required int[] Indices { get; init; }
     public string MaterialName { get; init; } = "default";
     public string? DiffuseTexturePath { get; init; }
+    public string? EmissiveTexturePath { get; init; }
+    public float EmissiveBrightness { get; init; }
 }
 
 /// <summary>
