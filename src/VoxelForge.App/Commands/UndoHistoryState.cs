@@ -15,6 +15,10 @@ public sealed class UndoHistoryState
 
     public int MaxDepth { get; }
 
+    public int UndoCount => UndoCommands.Count;
+
+    public int RedoCount => RedoCommands.Count;
+
     internal LinkedList<IEditorCommand> UndoCommands { get; } = new();
     internal Stack<IEditorCommand> RedoCommands { get; } = new();
 }

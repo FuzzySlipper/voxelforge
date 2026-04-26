@@ -3,8 +3,11 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using VoxelForge.App;
 using VoxelForge.App.Commands;
+using VoxelForge.App.Events;
+using VoxelForge.App.Services;
 using VoxelForge.App.Tools;
 using VoxelForge.Core;
+using VoxelForge.Core.Services;
 using VoxelForge.Engine.MonoGame.Rendering;
 
 namespace VoxelForge.Engine.MonoGame;
@@ -14,8 +17,20 @@ namespace VoxelForge.Engine.MonoGame;
 /// </summary>
 public sealed class InputHandler
 {
-    private readonly ToolRegistry _tools = new();
+    private readonly IEventPublisher _events;
+    private readonly VoxelEditingService _voxelEditingService;
+    private readonly ToolRegistry _tools;
     private bool _leftWasDown;
+
+    public InputHandler(
+        IEventPublisher events,
+        VoxelEditingService voxelEditingService,
+        RegionEditingService regionEditingService)
+    {
+        _events = events;
+        _voxelEditingService = voxelEditingService;
+        _tools = new ToolRegistry(voxelEditingService, regionEditingService);
+    }
 
     public void HandleInput(
         MouseState mouse,
@@ -27,7 +42,7 @@ public sealed class InputHandler
         OrbitalCamera camera,
         GraphicsDevice graphicsDevice)
     {
-        // Tool selection via number keys
+        // Tool selection via number keys.
         if (keyboard.IsKeyDown(Keys.D1) && previousKeyboard.IsKeyUp(Keys.D1))
             state.ActiveTool = EditorTool.Place;
         if (keyboard.IsKeyDown(Keys.D2) && previousKeyboard.IsKeyUp(Keys.D2))
@@ -41,20 +56,31 @@ public sealed class InputHandler
         if (keyboard.IsKeyDown(Keys.D6) && previousKeyboard.IsKeyUp(Keys.D6))
             state.ActiveTool = EditorTool.Label;
 
-        // Delete selected voxels
+        // Delete selected voxels.
         if (keyboard.IsKeyDown(Keys.Delete) && previousKeyboard.IsKeyUp(Keys.Delete))
         {
             if (state.SelectedVoxels.Count > 0)
             {
-                var commands = state.SelectedVoxels
-                    .Select(pos => (IEditorCommand)new RemoveVoxelCommand(state.ActiveModel, pos))
-                    .ToList();
-                undo.Execute(new CompoundCommand(commands, $"Delete {commands.Count} voxels"));
-                state.SelectedVoxels.Clear();
+                var assignments = new List<VoxelAssignment>(state.SelectedVoxels.Count);
+                foreach (var position in state.SelectedVoxels)
+                    assignments.Add(new VoxelAssignment(position, null));
+
+                var result = _voxelEditingService.ApplyMutationIntent(
+                    state.Document,
+                    undo,
+                    _events,
+                    new ApplyVoxelMutationIntentRequest(new VoxelMutationIntent
+                    {
+                        Assignments = assignments,
+                        Description = $"Delete {assignments.Count} voxels",
+                    }));
+
+                if (result.Success)
+                    state.SelectedVoxels.Clear();
             }
         }
 
-        // Left mouse button → tool dispatch
+        // Left mouse button → tool dispatch.
         bool leftDown = mouse.LeftButton == ButtonState.Pressed;
         var tool = _tools.Get(state.ActiveTool);
 
@@ -63,14 +89,14 @@ public sealed class InputHandler
             var hit = CastFromScreen(mouse.X, mouse.Y, state.ActiveModel, camera, graphicsDevice);
 
             if (!_leftWasDown)
-                tool.OnMouseDown(hit, state, undo);
+                tool.OnMouseDown(hit, state, undo, _events);
             else
                 tool.OnMouseMove(hit, state);
         }
         else if (_leftWasDown)
         {
             var hit = CastFromScreen(mouse.X, mouse.Y, state.ActiveModel, camera, graphicsDevice);
-            tool.OnMouseUp(hit, state, undo);
+            tool.OnMouseUp(hit, state, undo, _events);
         }
 
         _leftWasDown = leftDown;
@@ -87,7 +113,7 @@ public sealed class InputHandler
         var view = camera.GetView();
         var projection = camera.GetProjection(aspect);
 
-        // Unproject near and far points to get a world-space ray
+        // Unproject near and far points to get a world-space ray.
         var nearPoint = viewport.Unproject(
             new Vector3(screenX, screenY, 0f), projection, view, Matrix.Identity);
         var farPoint = viewport.Unproject(

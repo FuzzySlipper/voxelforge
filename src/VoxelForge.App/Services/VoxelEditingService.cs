@@ -9,6 +9,8 @@ public readonly record struct SetVoxelRequest(Point3 Position, byte PaletteIndex
 
 public readonly record struct RemoveVoxelRequest(Point3 Position);
 
+public readonly record struct PaintVoxelRequest(Point3 Position, byte PaletteIndex);
+
 public readonly record struct FillVoxelRegionRequest(Point3 Min, Point3 Max, byte PaletteIndex);
 
 public readonly record struct SetGridHintRequest(int Size);
@@ -58,12 +60,50 @@ public sealed class VoxelEditingService
         ArgumentNullException.ThrowIfNull(undoStack);
         ArgumentNullException.ThrowIfNull(events);
 
-        undoStack.Execute(new RemoveVoxelCommand(document.Model, request.Position));
-        var applicationEvents = new IApplicationEvent[]
+        var removedRegion = document.Labels.GetRegion(request.Position);
+        undoStack.Execute(new RemoveVoxelCommand(document.Model, document.Labels, request.Position));
+
+        var applicationEvents = new List<IApplicationEvent>
         {
             new VoxelModelChangedEvent(
                 VoxelModelChangeKind.RemoveVoxel,
                 $"Removed ({request.Position.X},{request.Position.Y},{request.Position.Z})",
+                1),
+        };
+        if (removedRegion.HasValue)
+        {
+            applicationEvents.Add(new LabelChangedEvent(
+                LabelChangeKind.RegionUnassigned,
+                $"Removed label from ({request.Position.X},{request.Position.Y},{request.Position.Z})",
+                removedRegion.Value,
+                1));
+        }
+        events.PublishAll(applicationEvents);
+
+        return new ApplicationServiceResult
+        {
+            Success = true,
+            Message = $"Removed ({request.Position.X},{request.Position.Y},{request.Position.Z})",
+            Events = applicationEvents,
+        };
+    }
+
+    public ApplicationServiceResult PaintVoxel(
+        EditorDocumentState document,
+        UndoStack undoStack,
+        IEventPublisher events,
+        PaintVoxelRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(undoStack);
+        ArgumentNullException.ThrowIfNull(events);
+
+        undoStack.Execute(new PaintVoxelCommand(document.Model, request.Position, request.PaletteIndex));
+        var applicationEvents = new IApplicationEvent[]
+        {
+            new VoxelModelChangedEvent(
+                VoxelModelChangeKind.SetVoxel,
+                $"Painted ({request.Position.X},{request.Position.Y},{request.Position.Z}) = {request.PaletteIndex}",
                 1),
         };
         events.PublishAll(applicationEvents);
@@ -71,7 +111,7 @@ public sealed class VoxelEditingService
         return new ApplicationServiceResult
         {
             Success = true,
-            Message = $"Removed ({request.Position.X},{request.Position.Y},{request.Position.Z})",
+            Message = $"Painted ({request.Position.X},{request.Position.Y},{request.Position.Z}) = {request.PaletteIndex}",
             Events = applicationEvents,
         };
     }
@@ -121,21 +161,36 @@ public sealed class VoxelEditingService
         foreach (var position in document.Model.Voxels.Keys)
             positions.Add(position);
 
+        int removedLabelCount = 0;
+        for (int i = 0; i < positions.Count; i++)
+        {
+            if (document.Labels.GetRegion(positions[i]).HasValue)
+                removedLabelCount++;
+        }
+
         if (positions.Count > 0)
         {
             var operations = new List<IEditorCommand>(positions.Count);
             for (int i = 0; i < positions.Count; i++)
-                operations.Add(new RemoveVoxelCommand(document.Model, positions[i]));
+                operations.Add(new RemoveVoxelCommand(document.Model, document.Labels, positions[i]));
             undoStack.Execute(new CompoundCommand(operations, $"Clear {positions.Count} voxels"));
         }
 
-        var applicationEvents = new IApplicationEvent[]
+        var applicationEvents = new List<IApplicationEvent>
         {
             new VoxelModelChangedEvent(
                 VoxelModelChangeKind.Clear,
                 $"Cleared {positions.Count} voxels",
                 positions.Count),
         };
+        if (removedLabelCount > 0)
+        {
+            applicationEvents.Add(new LabelChangedEvent(
+                LabelChangeKind.RegionUnassigned,
+                $"Cleared {removedLabelCount} label assignment(s)",
+                null,
+                removedLabelCount));
+        }
         events.PublishAll(applicationEvents);
 
         return new ApplicationServiceResult
@@ -198,6 +253,7 @@ public sealed class VoxelEditingService
         var operations = new List<IEditorCommand>(request.Intent.Assignments.Count);
         int setCount = 0;
         int removeCount = 0;
+        int removedLabelCount = 0;
         for (int i = 0; i < request.Intent.Assignments.Count; i++)
         {
             var assignment = request.Intent.Assignments[i];
@@ -208,7 +264,9 @@ public sealed class VoxelEditingService
             }
             else
             {
-                operations.Add(new RemoveVoxelCommand(document.Model, assignment.Position));
+                if (document.Labels.GetRegion(assignment.Position).HasValue)
+                    removedLabelCount++;
+                operations.Add(new RemoveVoxelCommand(document.Model, document.Labels, assignment.Position));
                 removeCount++;
             }
         }
@@ -221,10 +279,18 @@ public sealed class VoxelEditingService
             : removeCount > 0 && setCount == 0
                 ? VoxelModelChangeKind.RemoveVoxel
                 : VoxelModelChangeKind.MixedVoxelEdit;
-        var applicationEvents = new IApplicationEvent[]
+        var applicationEvents = new List<IApplicationEvent>
         {
             new VoxelModelChangedEvent(kind, request.Intent.Description, operations.Count),
         };
+        if (removedLabelCount > 0)
+        {
+            applicationEvents.Add(new LabelChangedEvent(
+                LabelChangeKind.RegionUnassigned,
+                $"Removed {removedLabelCount} label assignment(s)",
+                null,
+                removedLabelCount));
+        }
         events.PublishAll(applicationEvents);
 
         return new ApplicationServiceResult

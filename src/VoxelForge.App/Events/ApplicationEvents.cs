@@ -26,6 +26,7 @@ public enum LabelChangeKind
 {
     RegionCreated,
     RegionAssigned,
+    RegionUnassigned,
     LabelsRebuilt,
 }
 

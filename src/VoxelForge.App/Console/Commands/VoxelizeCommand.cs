@@ -102,16 +102,14 @@ public sealed class VoxelizeCommand : IConsoleCommand
         var service = new VoxelizeService(_loggerFactory);
         var result = service.Voxelize(triMesh, resolution, mode);
 
-        // Copy palette entries from the voxelization result into the context model
+        var paletteCommands = new List<IEditorCommand>();
         foreach (var (palIdx, matDef) in result.Palette.Entries)
-            context.Model.Palette.Set(palIdx, matDef);
-        if (result.Palette.Count > 0)
         {
-            context.Events.Publish(new PaletteChangedEvent(
-                PaletteChangeKind.EntriesChanged,
-                "Copied voxelized palette entries",
-                null,
-                result.Palette.Count));
+            paletteCommands.Add(new SetPaletteMaterialCommand(
+                context.Model.Palette,
+                palIdx,
+                matDef,
+                $"Copy voxelized palette[{palIdx}]"));
         }
 
         // Remap voxel positions from grid space [0, resolution) to world-integer space
@@ -130,10 +128,15 @@ public sealed class VoxelizeCommand : IConsoleCommand
         // 1) Remove existing voxels not present in the new result
         // 2) Set all new voxels (SetVoxelCommand handles overwrite via undo)
         var commands = new List<IEditorCommand>();
+        commands.AddRange(paletteCommands);
+        int removed = 0;
         foreach (var pos in context.Model.Voxels.Keys)
         {
             if (!newVoxels.ContainsKey(pos))
-                commands.Add(new RemoveVoxelCommand(context.Model, pos));
+            {
+                commands.Add(new RemoveVoxelCommand(context.Model, context.Labels, pos));
+                removed++;
+            }
         }
         foreach (var (pos, val) in newVoxels)
             commands.Add(new SetVoxelCommand(context.Model, pos, val));
@@ -141,13 +144,23 @@ public sealed class VoxelizeCommand : IConsoleCommand
         if (commands.Count > 0)
         {
             context.UndoStack.Execute(new CompoundCommand(commands, $"Voxelize ({newVoxels.Count} voxels)"));
-            context.Events.Publish(new VoxelModelChangedEvent(
-                VoxelModelChangeKind.Voxelized,
-                $"Voxelized reference model {refIdx} at resolution {resolution}",
-                newVoxels.Count));
+            if (paletteCommands.Count > 0)
+            {
+                context.Events.Publish(new PaletteChangedEvent(
+                    PaletteChangeKind.EntriesChanged,
+                    "Copied voxelized palette entries",
+                    null,
+                    paletteCommands.Count));
+            }
+            if (removed > 0 || newVoxels.Count > 0)
+            {
+                context.Events.Publish(new VoxelModelChangedEvent(
+                    VoxelModelChangeKind.Voxelized,
+                    $"Voxelized reference model {refIdx} at resolution {resolution}",
+                    newVoxels.Count));
+            }
         }
 
-        int removed = commands.Count - newVoxels.Count;
         string removeInfo = removed > 0 ? $", {removed} removed" : "";
         string colorInfo = hasColorVariation ? $", {result.Palette.Count} colors" : "";
         return CommandResult.Ok($"Voxelized: {newVoxels.Count} voxels at resolution {resolution} ({mode}{colorInfo}{removeInfo})");

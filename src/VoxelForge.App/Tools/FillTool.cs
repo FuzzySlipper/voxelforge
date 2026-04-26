@@ -1,11 +1,21 @@
 using VoxelForge.App.Commands;
+using VoxelForge.App.Events;
+using VoxelForge.App.Services;
 using VoxelForge.Core;
+using VoxelForge.Core.Services;
 
 namespace VoxelForge.App.Tools;
 
 public sealed class FillTool : IEditorTool
 {
-    public void OnMouseDown(RaycastHit? hit, EditorState state, UndoStack undo)
+    private readonly VoxelEditingService _editingService;
+
+    public FillTool(VoxelEditingService editingService)
+    {
+        _editingService = editingService;
+    }
+
+    public void OnMouseDown(RaycastHit? hit, EditorState state, UndoStack undo, IEventPublisher events)
     {
         if (hit is null) return;
 
@@ -16,10 +26,10 @@ public sealed class FillTool : IEditorTool
         var targetIndex = state.ActivePaletteIndex;
         if (startValue.Value == targetIndex) return;
 
-        // BFS flood fill — same palette index boundary
+        // BFS flood fill — same palette index boundary.
         var visited = new HashSet<Point3>();
         var queue = new Queue<Point3>();
-        var commands = new List<IEditorCommand>();
+        var assignments = new List<VoxelAssignment>();
 
         queue.Enqueue(startPos);
         visited.Add(startPos);
@@ -34,7 +44,7 @@ public sealed class FillTool : IEditorTool
         while (queue.Count > 0)
         {
             var pos = queue.Dequeue();
-            commands.Add(new SetVoxelCommand(state.ActiveModel, pos, targetIndex));
+            assignments.Add(new VoxelAssignment(pos, targetIndex));
 
             foreach (var offset in neighbors)
             {
@@ -48,10 +58,20 @@ public sealed class FillTool : IEditorTool
             }
         }
 
-        if (commands.Count > 0)
-            undo.Execute(new CompoundCommand(commands, $"Fill {commands.Count} voxels"));
+        if (assignments.Count == 0)
+            return;
+
+        _editingService.ApplyMutationIntent(
+            state.Document,
+            undo,
+            events,
+            new ApplyVoxelMutationIntentRequest(new VoxelMutationIntent
+            {
+                Assignments = assignments,
+                Description = $"Fill {assignments.Count} voxels",
+            }));
     }
 
     public void OnMouseMove(RaycastHit? hit, EditorState state) { }
-    public void OnMouseUp(RaycastHit? hit, EditorState state, UndoStack undo) { }
+    public void OnMouseUp(RaycastHit? hit, EditorState state, UndoStack undo, IEventPublisher events) { }
 }

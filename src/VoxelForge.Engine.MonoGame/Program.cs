@@ -24,7 +24,8 @@ var referenceModelState = new ReferenceModelState();
 var referenceImageState = new ReferenceImageState();
 
 var editorState = new EditorState(documentState, sessionState);
-var undoStack = new UndoStack(undoHistoryState, NullLogger<UndoStack>.Instance, events);
+var undoHistoryService = new UndoHistoryService(NullLogger<UndoHistoryService>.Instance);
+var undoStack = new UndoStack(undoHistoryState, undoHistoryService, events);
 var refLoader = new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance);
 
 // Game reference (set after construction, screenshot provider available after LoadContent)

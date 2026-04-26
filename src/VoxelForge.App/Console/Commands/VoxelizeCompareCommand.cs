@@ -107,8 +107,9 @@ public sealed class VoxelizeCompareCommand : IConsoleCommand
         var aabbSize = aabbMax - aabbMin;
         float maxDim = MathF.Max(aabbSize.X, MathF.Max(aabbSize.Y, aabbSize.Z));
 
-        // Voxelize at each resolution and collect results offset along X
+        // Voxelize at each resolution and collect results offset along X.
         var allVoxels = new Dictionary<Point3, byte>();
+        var paletteCommands = new List<IEditorCommand>();
         var service = new VoxelizeService(_loggerFactory);
         int xOffset = 0;
         int padding = (int)MathF.Ceiling(maxDim * 0.2f) + 2;
@@ -119,16 +120,13 @@ public sealed class VoxelizeCompareCommand : IConsoleCommand
             float cellSize = maxDim / resolution;
             var result = service.Voxelize(triMesh, resolution, mode);
 
-            // Copy palette entries
             foreach (var (palIdx, matDef) in result.Palette.Entries)
-                context.Model.Palette.Set(palIdx, matDef);
-            if (result.Palette.Count > 0)
             {
-                context.Events.Publish(new PaletteChangedEvent(
-                    PaletteChangeKind.EntriesChanged,
-                    "Copied comparison voxelization palette entries",
-                    null,
-                    result.Palette.Count));
+                paletteCommands.Add(new SetPaletteMaterialCommand(
+                    context.Model.Palette,
+                    palIdx,
+                    matDef,
+                    $"Copy comparison voxelized palette[{palIdx}]"));
             }
 
             // Remap to world-integer space with X offset
@@ -153,10 +151,15 @@ public sealed class VoxelizeCompareCommand : IConsoleCommand
 
         // Build compound command to replace the model
         var commands = new List<IEditorCommand>();
+        commands.AddRange(paletteCommands);
+        int removed = 0;
         foreach (var pos in context.Model.Voxels.Keys)
         {
             if (!allVoxels.ContainsKey(pos))
-                commands.Add(new RemoveVoxelCommand(context.Model, pos));
+            {
+                commands.Add(new RemoveVoxelCommand(context.Model, context.Labels, pos));
+                removed++;
+            }
         }
         foreach (var (pos, val) in allVoxels)
             commands.Add(new SetVoxelCommand(context.Model, pos, val));
@@ -165,10 +168,21 @@ public sealed class VoxelizeCompareCommand : IConsoleCommand
         {
             context.UndoStack.Execute(new CompoundCommand(commands,
                 $"Voxelize compare ({resolutions.Count} resolutions)"));
-            context.Events.Publish(new VoxelModelChangedEvent(
-                VoxelModelChangeKind.VoxelizeComparison,
-                $"Voxelized {resolutions.Count} comparison resolution(s)",
-                allVoxels.Count));
+            if (paletteCommands.Count > 0)
+            {
+                context.Events.Publish(new PaletteChangedEvent(
+                    PaletteChangeKind.EntriesChanged,
+                    "Copied comparison voxelization palette entries",
+                    null,
+                    paletteCommands.Count));
+            }
+            if (removed > 0 || allVoxels.Count > 0)
+            {
+                context.Events.Publish(new VoxelModelChangedEvent(
+                    VoxelModelChangeKind.VoxelizeComparison,
+                    $"Voxelized {resolutions.Count} comparison resolution(s)",
+                    allVoxels.Count));
+            }
         }
 
         return CommandResult.Ok(

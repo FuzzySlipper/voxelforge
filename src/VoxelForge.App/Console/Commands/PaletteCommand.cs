@@ -42,6 +42,7 @@ public sealed class PaletteCommand : IConsoleCommand
             byte a = args.Length >= 7 && byte.TryParse(args[6], out byte alpha) ? alpha : (byte)255;
             var result = _paletteMaterialService.AddMaterial(
                 context.Model,
+                context.UndoStack,
                 context.Events,
                 new AddPaletteMaterialRequest(idx, args[2], r, g, b, a));
             return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);

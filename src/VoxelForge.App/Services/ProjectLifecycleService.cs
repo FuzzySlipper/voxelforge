@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
 using VoxelForge.Core.Serialization;
 
@@ -56,10 +57,12 @@ public sealed class ProjectLifecycleService
 
     public ApplicationServiceResult Load(
         EditorDocumentState document,
+        UndoStack undoStack,
         IEventPublisher events,
         LoadProjectRequest request)
     {
         ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(undoStack);
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(request.NameOrPath);
 
@@ -77,23 +80,16 @@ public sealed class ProjectLifecycleService
         var serializer = new ProjectSerializer(_loggerFactory);
         var (model, labels, clips, meta) = serializer.Deserialize(json);
 
-        foreach (var position in document.Model.Voxels.Keys.ToList())
-            document.Model.RemoveVoxel(position);
+        undoStack.Execute(new ReplaceDocumentCommand(
+            document,
+            model,
+            labels,
+            clips,
+            $"Load project '{meta.Name}'"));
 
-        foreach (var entry in model.Palette.Entries)
-            document.Model.Palette.Set(entry.Key, entry.Value);
-
-        foreach (var entry in model.Voxels)
-            document.Model.SetVoxel(entry.Key, entry.Value);
-
-        document.Model.GridHint = model.GridHint;
-        document.Labels.Rebuild(labels.Regions.Values);
-        document.Clips.Clear();
-        document.Clips.AddRange(clips);
-
-        int voxelCount = model.GetVoxelCount();
-        int regionCount = labels.Regions.Count;
-        int clipCount = clips.Count;
+        int voxelCount = document.Model.GetVoxelCount();
+        int regionCount = document.Labels.Regions.Count;
+        int clipCount = document.Clips.Count;
         var applicationEvents = new IApplicationEvent[]
         {
             new ProjectLoadedEvent(path, meta.Name, voxelCount, regionCount, clipCount),
@@ -110,7 +106,7 @@ public sealed class ProjectLifecycleService
                 PaletteChangeKind.EntriesChanged,
                 "Loaded project palette",
                 null,
-                model.Palette.Count),
+                document.Model.Palette.Count),
         };
         events.PublishAll(applicationEvents);
 

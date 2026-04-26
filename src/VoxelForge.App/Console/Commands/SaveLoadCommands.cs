@@ -50,6 +50,7 @@ public sealed class LoadCommand : IConsoleCommand
 
         var result = _projectLifecycleService.Load(
             context.Document,
+            context.UndoStack,
             context.Events,
             new LoadProjectRequest(args[0]));
         return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);

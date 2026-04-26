@@ -1,7 +1,9 @@
 using Myra.Graphics2D.UI;
 using VoxelForge.App;
+using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
+using VoxelForge.App.Services;
 using VoxelForge.Engine.MonoGame.UI.Panels;
 
 namespace VoxelForge.Engine.MonoGame.UI;
@@ -27,19 +29,22 @@ public sealed class EditorLayout
     public VerticalStackPanel RightSidebar { get; private set; } = null!;
     public Widget Root { get; }
 
-    public EditorLayout(EditorState state, IEventDispatcher events, MenuCommandDispatcher? dispatcher = null,
+    public EditorLayout(EditorState state, UndoStack undoStack, IEventDispatcher events, MenuCommandDispatcher? dispatcher = null,
         ReferenceModelState? referenceModelState = null)
     {
+        var regionEditingService = new RegionEditingService();
+        var paletteMaterialService = new PaletteMaterialService();
+
         DragDrop = new ContentDragDrop();
         ToolPanel = new ToolPanel(state);
         PalettePanel = new PalettePanel(state);
         ContentBrowser = new ContentBrowserPanel(DragDrop);
-        RegionPanel = new RegionPanel(state);
+        RegionPanel = new RegionPanel(state, undoStack, events, regionEditingService);
         AnimationPanel = new AnimationPanel(state);
         PropertiesPanel = new PropertiesPanel(state);
         LlmPanel = new LlmPanel(state);
 
-        MaterialPanel = new MaterialPanel(state, DragDrop, events);
+        MaterialPanel = new MaterialPanel(state, DragDrop, events, undoStack, paletteMaterialService);
 
         if (dispatcher is not null && referenceModelState is not null)
             RefModelPanel = new ReferenceModelPanel(referenceModelState, dispatcher, events);
@@ -124,6 +129,7 @@ public sealed class EditorLayout
     {
         PropertiesPanel.Refresh();
         RefModelPanel?.Refresh();
+        RegionPanel.Refresh();
         MaterialPanel.Refresh();
     }
 }

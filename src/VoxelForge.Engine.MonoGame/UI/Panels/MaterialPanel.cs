@@ -3,7 +3,9 @@ using Myra.Graphics2D;
 using Myra.Graphics2D.Brushes;
 using Myra.Graphics2D.UI;
 using VoxelForge.App;
+using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
+using VoxelForge.App.Services;
 using VoxelForge.Core;
 
 namespace VoxelForge.Engine.MonoGame.UI.Panels;
@@ -22,6 +24,8 @@ public sealed class MaterialPanel
 
     private readonly EditorState _state;
     private readonly IEventPublisher _events;
+    private readonly UndoStack _undoStack;
+    private readonly PaletteMaterialService _paletteMaterialService;
     private readonly VerticalStackPanel _root;
     private readonly VerticalStackPanel _propsSection;
     private readonly Label _headerLabel;
@@ -32,14 +36,22 @@ public sealed class MaterialPanel
     private readonly List<TextureSlot> _slots = [];
 
     private byte _displayedIndex;
+    private string _displayedMaterialSignature = string.Empty;
     private bool _updating;
 
     public Widget Root => _root;
 
-    public MaterialPanel(EditorState state, ContentDragDrop dragDrop, IEventPublisher events)
+    public MaterialPanel(
+        EditorState state,
+        ContentDragDrop dragDrop,
+        IEventPublisher events,
+        UndoStack undoStack,
+        PaletteMaterialService paletteMaterialService)
     {
         _state = state;
         _events = events;
+        _undoStack = undoStack;
+        _paletteMaterialService = paletteMaterialService;
 
         _root = new VerticalStackPanel { Spacing = 4 };
 
@@ -51,7 +63,7 @@ public sealed class MaterialPanel
 
         _propsSection = new VerticalStackPanel { Spacing = 4, Visible = false };
 
-        // -- Name
+        // -- Name.
         var nameRow = new HorizontalStackPanel { Spacing = 4 };
         nameRow.Widgets.Add(new Label { Text = "Name", Width = 38 });
         _nameField = new TextBox { Width = 105 };
@@ -59,7 +71,7 @@ public sealed class MaterialPanel
         nameRow.Widgets.Add(_nameField);
         _propsSection.Widgets.Add(nameRow);
 
-        // -- Color
+        // -- Color.
         var colorRow = new HorizontalStackPanel { Spacing = 2 };
         _colorSwatch = new Panel
         {
@@ -84,7 +96,7 @@ public sealed class MaterialPanel
         colorRow.Widgets.Add(_bField);
         _propsSection.Widgets.Add(colorRow);
 
-        // -- Texture slots
+        // -- Texture slots.
         _propsSection.Widgets.Add(new Label { Text = "Textures", TextColor = new Color(180, 180, 180) });
         AddTextureSlot(dragDrop, "tex_albedo", "Albedo");
         AddTextureSlot(dragDrop, "tex_normal", "Normal");
@@ -135,6 +147,7 @@ public sealed class MaterialPanel
             _propsSection.Visible = false;
             _noSelectionLabel.Visible = true;
             _headerLabel.Text = "Material";
+            _displayedMaterialSignature = string.Empty;
             return;
         }
 
@@ -142,8 +155,10 @@ public sealed class MaterialPanel
         _propsSection.Visible = true;
         _headerLabel.Text = $"Material [{index}]";
 
-        if (index == _displayedIndex) return;
+        var materialSignature = BuildMaterialSignature(mat);
+        if (index == _displayedIndex && materialSignature == _displayedMaterialSignature) return;
         _displayedIndex = index;
+        _displayedMaterialSignature = materialSignature;
 
         _updating = true;
 
@@ -171,13 +186,12 @@ public sealed class MaterialPanel
         var mat = GetCurrentMaterial();
         if (mat == null) return;
 
-        _state.ActiveModel.Palette.Set(_state.ActivePaletteIndex, new MaterialDef
+        SetCurrentMaterial(new MaterialDef
         {
             Name = _nameField.Text ?? mat.Name,
             Color = mat.Color,
             Metadata = new Dictionary<string, string>(mat.Metadata),
-        });
-        PublishPaletteChanged(PaletteChangeKind.EntryUpdated, "Material name changed");
+        }, PaletteChangeKind.EntryUpdated, "Material name changed");
     }
 
     private void OnColorChanged()
@@ -193,13 +207,12 @@ public sealed class MaterialPanel
 
         _colorSwatch.Background = new SolidBrush(new Color(r, g, b));
 
-        _state.ActiveModel.Palette.Set(_state.ActivePaletteIndex, new MaterialDef
+        SetCurrentMaterial(new MaterialDef
         {
             Name = mat.Name,
             Color = new RgbaColor(r, g, b, mat.Color.A),
             Metadata = new Dictionary<string, string>(mat.Metadata),
-        });
-        PublishPaletteChanged(PaletteChangeKind.EntryUpdated, "Material color changed");
+        }, PaletteChangeKind.EntryUpdated, "Material color changed");
     }
 
     private void SetTexture(string metadataKey, string filePath)
@@ -208,12 +221,12 @@ public sealed class MaterialPanel
         if (mat == null) return;
 
         var meta = new Dictionary<string, string>(mat.Metadata) { [metadataKey] = filePath };
-        _state.ActiveModel.Palette.Set(_state.ActivePaletteIndex, new MaterialDef
+        SetCurrentMaterial(new MaterialDef
         {
             Name = mat.Name,
             Color = mat.Color,
             Metadata = meta,
-        });
+        }, PaletteChangeKind.TextureChanged, $"Material texture {metadataKey} set");
 
         foreach (var slot in _slots)
         {
@@ -223,8 +236,6 @@ public sealed class MaterialPanel
                 break;
             }
         }
-
-        PublishPaletteChanged(PaletteChangeKind.TextureChanged, $"Material texture {metadataKey} set");
     }
 
     private void ClearTexture(string metadataKey)
@@ -234,12 +245,12 @@ public sealed class MaterialPanel
 
         var meta = new Dictionary<string, string>(mat.Metadata);
         meta.Remove(metadataKey);
-        _state.ActiveModel.Palette.Set(_state.ActivePaletteIndex, new MaterialDef
+        SetCurrentMaterial(new MaterialDef
         {
             Name = mat.Name,
             Color = mat.Color,
             Metadata = meta,
-        });
+        }, PaletteChangeKind.TextureChanged, $"Material texture {metadataKey} cleared");
 
         foreach (var slot in _slots)
         {
@@ -249,17 +260,41 @@ public sealed class MaterialPanel
                 break;
             }
         }
-
-        PublishPaletteChanged(PaletteChangeKind.TextureChanged, $"Material texture {metadataKey} cleared");
     }
 
-    private void PublishPaletteChanged(PaletteChangeKind kind, string description)
+    private void SetCurrentMaterial(MaterialDef material, PaletteChangeKind kind, string description)
     {
-        _events.Publish(new PaletteChangedEvent(kind, description, _state.ActivePaletteIndex, 1));
+        _paletteMaterialService.SetMaterial(
+            _state.ActiveModel,
+            _undoStack,
+            _events,
+            new SetPaletteMaterialRequest(_state.ActivePaletteIndex, material, kind, description));
     }
 
     private MaterialDef? GetCurrentMaterial()
         => _state.ActiveModel.Palette.Get(_state.ActivePaletteIndex);
+
+    private static string BuildMaterialSignature(MaterialDef material)
+    {
+        var parts = new List<string>
+        {
+            material.Name,
+            material.Color.R.ToString(),
+            material.Color.G.ToString(),
+            material.Color.B.ToString(),
+            material.Color.A.ToString(),
+        };
+        var keys = new List<string>(material.Metadata.Keys);
+        keys.Sort(StringComparer.Ordinal);
+        for (int i = 0; i < keys.Count; i++)
+        {
+            var key = keys[i];
+            parts.Add(key);
+            parts.Add(material.Metadata[key]);
+        }
+
+        return string.Join("|", parts);
+    }
 
     private static TextBox SmallField() => new() { Width = 30 };
 }

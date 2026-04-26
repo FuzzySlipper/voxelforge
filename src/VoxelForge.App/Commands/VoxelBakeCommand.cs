@@ -42,6 +42,8 @@ public sealed class VoxelBakeCommand : IEditorCommand
         {
             if (oldDef != null)
                 _model.Palette.Set(idx, oldDef);
+            else
+                _model.Palette.Remove(idx);
         }
     }
 }

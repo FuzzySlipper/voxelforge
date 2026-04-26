@@ -1,11 +1,12 @@
 using VoxelForge.App.Commands;
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Tools;
 
 public sealed class SelectTool : IEditorTool
 {
-    public void OnMouseDown(RaycastHit? hit, EditorState state, UndoStack undo)
+    public void OnMouseDown(RaycastHit? hit, EditorState state, UndoStack undo, IEventPublisher events)
     {
         if (hit is null)
         {
@@ -17,10 +18,10 @@ public sealed class SelectTool : IEditorTool
 
     public void OnMouseMove(RaycastHit? hit, EditorState state)
     {
-        // Accumulate during drag
+        // Accumulate during drag.
         if (hit is not null)
             state.SelectedVoxels.Add(hit.Value.VoxelPos);
     }
 
-    public void OnMouseUp(RaycastHit? hit, EditorState state, UndoStack undo) { }
+    public void OnMouseUp(RaycastHit? hit, EditorState state, UndoStack undo, IEventPublisher events) { }
 }

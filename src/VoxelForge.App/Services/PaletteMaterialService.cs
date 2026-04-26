@@ -1,9 +1,16 @@
+using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Services;
 
 public readonly record struct AddPaletteMaterialRequest(byte PaletteIndex, string Name, byte Red, byte Green, byte Blue, byte Alpha);
+
+public readonly record struct SetPaletteMaterialRequest(
+    byte PaletteIndex,
+    MaterialDef Material,
+    PaletteChangeKind ChangeKind,
+    string Description);
 
 public readonly record struct PaletteMaterialListEntry(byte PaletteIndex, string Name, RgbaColor Color);
 
@@ -31,24 +38,85 @@ public sealed class PaletteMaterialService
 
     public ApplicationServiceResult AddMaterial(
         VoxelModel model,
+        UndoStack undoStack,
         IEventPublisher events,
         AddPaletteMaterialRequest request)
     {
         ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(undoStack);
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(request.Name);
 
-        model.Palette.Set(request.PaletteIndex, new MaterialDef
+        if (request.PaletteIndex == 0)
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = "Palette index 0 is reserved for air.",
+            };
+        }
+
+        bool existed = model.Palette.Contains(request.PaletteIndex);
+        var material = new MaterialDef
         {
             Name = request.Name,
             Color = new RgbaColor(request.Red, request.Green, request.Blue, request.Alpha),
-        });
+        };
+        var changeKind = existed ? PaletteChangeKind.EntryUpdated : PaletteChangeKind.EntryAdded;
+        var result = SetMaterial(
+            model,
+            undoStack,
+            events,
+            new SetPaletteMaterialRequest(
+                request.PaletteIndex,
+                material,
+                changeKind,
+                $"Set palette[{request.PaletteIndex}] = {request.Name}"));
+
+        if (!result.Success)
+            return result;
+
+        string action = existed ? "Updated" : "Added";
+        return new ApplicationServiceResult
+        {
+            Success = true,
+            Message = $"{action} palette[{request.PaletteIndex}] = {request.Name} ({request.Red},{request.Green},{request.Blue},{request.Alpha})",
+            Events = result.Events,
+        };
+    }
+
+    public ApplicationServiceResult SetMaterial(
+        VoxelModel model,
+        UndoStack undoStack,
+        IEventPublisher events,
+        SetPaletteMaterialRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(undoStack);
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(request.Material);
+        ArgumentNullException.ThrowIfNull(request.Description);
+
+        if (request.PaletteIndex == 0)
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = "Palette index 0 is reserved for air.",
+            };
+        }
+
+        undoStack.Execute(new SetPaletteMaterialCommand(
+            model.Palette,
+            request.PaletteIndex,
+            request.Material,
+            request.Description));
 
         var applicationEvents = new IApplicationEvent[]
         {
             new PaletteChangedEvent(
-                PaletteChangeKind.EntryAdded,
-                $"Added palette[{request.PaletteIndex}] = {request.Name}",
+                request.ChangeKind,
+                request.Description,
                 request.PaletteIndex,
                 1),
         };
@@ -57,7 +125,7 @@ public sealed class PaletteMaterialService
         return new ApplicationServiceResult
         {
             Success = true,
-            Message = $"Added palette[{request.PaletteIndex}] = {request.Name} ({request.Red},{request.Green},{request.Blue},{request.Alpha})",
+            Message = request.Description,
             Events = applicationEvents,
         };
     }

@@ -8,6 +8,7 @@ using VoxelForge.App.Commands;
 using VoxelForge.App.Console;
 using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
+using VoxelForge.App.Services;
 using VoxelForge.Core.Screenshot;
 using VoxelForge.Core.Meshing;
 using VoxelForge.Engine.MonoGame.Rendering;
@@ -120,12 +121,12 @@ public sealed class VoxelForgeGame : Game
         _screenshotCapture = new ScreenshotCapture(
             GraphicsDevice, _editorState, _camera, _voxelRenderer,
             _refRenderer, _gridFloor, _effect, _config);
-        _inputHandler = new InputHandler();
+        _inputHandler = new InputHandler(_events, new VoxelEditingService(), new RegionEditingService());
 
         // Myra UI
         MyraEnvironment.Game = this;
         _desktop = new Desktop();
-        _editorLayout = new EditorLayout(_editorState, _events, _menuDispatcher, _referenceModelState);
+        _editorLayout = new EditorLayout(_editorState, _undoStack, _events, _menuDispatcher, _referenceModelState);
         _imagePanel = new ReferenceImagePanel(_referenceImageState, GraphicsDevice, _events);
         _editorLayout.RightSidebar.Widgets.Add(_imagePanel.Root);
         _desktop.Root = _editorLayout.Root;

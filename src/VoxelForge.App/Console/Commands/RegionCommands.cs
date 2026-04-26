@@ -57,7 +57,8 @@ public sealed class LabelVoxelCommand : IConsoleCommand
             return CommandResult.Fail("Invalid coordinates.");
 
         var result = _regionEditingService.AssignVoxel(
-            context.Labels,
+            context.Document,
+            context.UndoStack,
             context.Events,
             new AssignVoxelRegionRequest(args[0], new Point3(x, y, z)));
         return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);

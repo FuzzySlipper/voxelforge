@@ -1,9 +1,12 @@
+using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Services;
 
 public readonly record struct RegionListEntry(string Name, int VoxelCount, RegionId? ParentId);
+
+public readonly record struct CreateRegionRequest(string RegionName);
 
 public readonly record struct AssignVoxelRegionRequest(string RegionName, Point3 Position);
 
@@ -28,24 +31,87 @@ public sealed class RegionEditingService
         };
     }
 
-    public ApplicationServiceResult AssignVoxel(
+    public ApplicationServiceResult CreateRegion(
         LabelIndex labels,
+        UndoStack undoStack,
         IEventPublisher events,
-        AssignVoxelRegionRequest request)
+        CreateRegionRequest request)
     {
         ArgumentNullException.ThrowIfNull(labels);
+        ArgumentNullException.ThrowIfNull(undoStack);
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(request.RegionName);
 
-        var regionId = new RegionId(request.RegionName);
-        bool createdRegion = false;
-        if (!labels.Regions.ContainsKey(regionId))
+        if (string.IsNullOrWhiteSpace(request.RegionName))
         {
-            labels.AddOrUpdateRegion(new RegionDef { Id = regionId, Name = request.RegionName });
-            createdRegion = true;
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = "Region name cannot be empty.",
+            };
         }
 
-        labels.AssignRegion(regionId, [request.Position]);
+        var regionId = new RegionId(request.RegionName);
+        if (labels.Regions.ContainsKey(regionId))
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = $"Region '{request.RegionName}' already exists.",
+            };
+        }
+
+        undoStack.Execute(new CreateRegionCommand(labels, new RegionDef
+        {
+            Id = regionId,
+            Name = request.RegionName,
+        }));
+
+        var applicationEvents = new IApplicationEvent[]
+        {
+            new LabelChangedEvent(
+                LabelChangeKind.RegionCreated,
+                $"Created region '{request.RegionName}'",
+                regionId,
+                0),
+        };
+        events.PublishAll(applicationEvents);
+
+        return new ApplicationServiceResult
+        {
+            Success = true,
+            Message = $"Created region '{request.RegionName}'",
+            Events = applicationEvents,
+        };
+    }
+
+    public ApplicationServiceResult AssignVoxel(
+        EditorDocumentState document,
+        UndoStack undoStack,
+        IEventPublisher events,
+        AssignVoxelRegionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(undoStack);
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(request.RegionName);
+
+        if (document.Model.GetVoxel(request.Position) is null)
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = $"Cannot label air at ({request.Position.X},{request.Position.Y},{request.Position.Z}).",
+            };
+        }
+
+        var regionId = new RegionId(request.RegionName);
+        bool createdRegion = !document.Labels.Regions.ContainsKey(regionId);
+        undoStack.Execute(new AssignLabelCommand(
+            document.Labels,
+            regionId,
+            request.RegionName,
+            [request.Position]));
 
         var applicationEvents = new List<IApplicationEvent>();
         if (createdRegion)

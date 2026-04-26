@@ -46,11 +46,12 @@ internal static class BakeHelper
             }
         }
 
-        // Allocate new slot — find first index not in palette.
+        // Allocate new slot — find first index not already in the palette or reserved
+        // by this pending bake command.
         for (int i = 1; i <= 255; i++)
         {
             byte candidate = (byte)i;
-            if (!palette.Contains(candidate))
+            if (!palette.Contains(candidate) && !IsReserved(candidate, paletteChanges))
             {
                 var newDef = new MaterialDef
                 {
@@ -58,14 +59,27 @@ internal static class BakeHelper
                     Color = color,
                 };
                 paletteChanges.Add((candidate, null, newDef));
-                palette.Set(candidate, newDef); // Set immediately so next lookup finds it.
                 colorCache[color] = candidate;
                 index = candidate;
                 return true;
             }
         }
 
+
         index = 0;
+        return false;
+    }
+
+    private static bool IsReserved(
+        byte index,
+        List<(byte Index, MaterialDef? OldDef, MaterialDef NewDef)> paletteChanges)
+    {
+        for (int i = 0; i < paletteChanges.Count; i++)
+        {
+            if (paletteChanges[i].Index == index)
+                return true;
+        }
+
         return false;
     }
 }

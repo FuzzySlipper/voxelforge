@@ -114,6 +114,101 @@ public sealed class VoxelEditingServiceTests
         Assert.Equal(2, model.GetVoxelCount());
     }
 
+    [Fact]
+    public void RemoveVoxel_ClearsLabelAndUndoRestoresIt()
+    {
+        var model = CreateModel();
+        var labels = CreateLabels();
+        var position = new Point3(0, 0, 0);
+        var regionId = new RegionId("body");
+        model.SetVoxel(position, 1);
+        labels.AddOrUpdateRegion(new RegionDef { Id = regionId, Name = "body" });
+        labels.AssignRegion(regionId, [position]);
+        var document = new EditorDocumentState(model, labels);
+        var events = new ApplicationEventDispatcher();
+        var undoStack = CreateUndoStack(events);
+
+        var result = new VoxelEditingService().RemoveVoxel(
+            document,
+            undoStack,
+            events,
+            new RemoveVoxelRequest(position));
+
+        Assert.True(result.Success);
+        Assert.Null(model.GetVoxel(position));
+        Assert.Null(labels.GetRegion(position));
+
+        undoStack.Undo();
+
+        Assert.Equal((byte)1, model.GetVoxel(position));
+        Assert.Equal(regionId, labels.GetRegion(position));
+    }
+
+    [Fact]
+    public void Clear_ClearsLabelsAndUndoRestoresThem()
+    {
+        var model = CreateModel();
+        var labels = CreateLabels();
+        var first = new Point3(0, 0, 0);
+        var second = new Point3(1, 0, 0);
+        var regionId = new RegionId("body");
+        model.SetVoxel(first, 1);
+        model.SetVoxel(second, 1);
+        labels.AddOrUpdateRegion(new RegionDef { Id = regionId, Name = "body" });
+        labels.AssignRegion(regionId, [first, second]);
+        var document = new EditorDocumentState(model, labels);
+        var events = new ApplicationEventDispatcher();
+        var undoStack = CreateUndoStack(events);
+
+        var result = new VoxelEditingService().Clear(document, undoStack, events);
+
+        Assert.True(result.Success);
+        Assert.Equal(0, model.GetVoxelCount());
+        Assert.Null(labels.GetRegion(first));
+        Assert.Null(labels.GetRegion(second));
+
+        undoStack.Undo();
+
+        Assert.Equal(2, model.GetVoxelCount());
+        Assert.Equal(regionId, labels.GetRegion(first));
+        Assert.Equal(regionId, labels.GetRegion(second));
+    }
+
+    [Fact]
+    public void ApplyMutationIntent_RemoveAssignmentClearsLabelAndUndoRestoresIt()
+    {
+        var model = CreateModel();
+        var labels = CreateLabels();
+        var position = new Point3(2, 0, 0);
+        var regionId = new RegionId("arm");
+        model.SetVoxel(position, 3);
+        labels.AddOrUpdateRegion(new RegionDef { Id = regionId, Name = "arm" });
+        labels.AssignRegion(regionId, [position]);
+        var document = new EditorDocumentState(model, labels);
+        var events = new ApplicationEventDispatcher();
+        var undoStack = CreateUndoStack(events);
+        var intent = new VoxelMutationIntent
+        {
+            Assignments = [new VoxelAssignment(position, null)],
+            Description = "Remove one",
+        };
+
+        var result = new VoxelEditingService().ApplyMutationIntent(
+            document,
+            undoStack,
+            events,
+            new ApplyVoxelMutationIntentRequest(intent));
+
+        Assert.True(result.Success);
+        Assert.Null(model.GetVoxel(position));
+        Assert.Null(labels.GetRegion(position));
+
+        undoStack.Undo();
+
+        Assert.Equal((byte)3, model.GetVoxel(position));
+        Assert.Equal(regionId, labels.GetRegion(position));
+    }
+
     private static VoxelModel CreateModel() => new(NullLogger<VoxelModel>.Instance);
 
     private static LabelIndex CreateLabels() => new(NullLogger<LabelIndex>.Instance);
