@@ -54,6 +54,43 @@ public sealed class VoxelEditingServiceTests
     }
 
     [Fact]
+    public void ApplyMutationIntent_ReportsMixedKindForSetAndRemoveAssignments()
+    {
+        var model = CreateModel();
+        model.SetVoxel(new Point3(1, 0, 0), 1);
+        var document = new EditorDocumentState(model, CreateLabels());
+        var events = new ApplicationEventDispatcher();
+        var modelEvents = new RecordingModelChangedHandler();
+        events.Register<VoxelModelChangedEvent>(modelEvents);
+        var undoStack = CreateUndoStack(events);
+        var intent = new VoxelMutationIntent
+        {
+            Assignments =
+            [
+                new VoxelAssignment(new Point3(0, 0, 0), 1),
+                new VoxelAssignment(new Point3(1, 0, 0), null),
+            ],
+            Description = "Mixed edit",
+        };
+
+        var result = new VoxelEditingService().ApplyMutationIntent(
+            document,
+            undoStack,
+            events,
+            new ApplyVoxelMutationIntentRequest(intent));
+
+        Assert.True(result.Success);
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(0, 0, 0)));
+        Assert.Null(model.GetVoxel(new Point3(1, 0, 0)));
+        Assert.Single(modelEvents.Events);
+        Assert.Equal(VoxelModelChangeKind.MixedVoxelEdit, modelEvents.Events[0].Kind);
+
+        undoStack.Undo();
+        Assert.Null(model.GetVoxel(new Point3(0, 0, 0)));
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(1, 0, 0)));
+    }
+
+    [Fact]
     public void Clear_RemovesVoxelsThroughSingleUndoableOperation()
     {
         var model = CreateModel();

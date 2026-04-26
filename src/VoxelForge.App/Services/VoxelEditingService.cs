@@ -218,7 +218,9 @@ public sealed class VoxelEditingService
 
         var kind = setCount > 0 && removeCount == 0
             ? VoxelModelChangeKind.SetVoxel
-            : VoxelModelChangeKind.RemoveVoxel;
+            : removeCount > 0 && setCount == 0
+                ? VoxelModelChangeKind.RemoveVoxel
+                : VoxelModelChangeKind.MixedVoxelEdit;
         var applicationEvents = new IApplicationEvent[]
         {
             new VoxelModelChangedEvent(kind, request.Intent.Description, operations.Count),
