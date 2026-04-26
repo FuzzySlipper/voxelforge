@@ -238,6 +238,22 @@ public sealed class ApplyVoxelPrimitivesRequest
     public bool PreviewOnly { get; init; }
 }
 
+public sealed class VoxelPrimitiveBounds
+{
+    public required Point3 Min { get; init; }
+    public required Point3 Max { get; init; }
+}
+
+public sealed class VoxelPrimitiveSummary
+{
+    public string? Id { get; init; }
+    public required VoxelPrimitiveKind Kind { get; init; }
+    public required int PaletteIndex { get; init; }
+    public required int GeneratedVoxelCount { get; init; }
+    public required int UniqueVoxelCountAfterBatchMerge { get; init; }
+    public VoxelPrimitiveBounds? Bounds { get; init; }
+}
+
 public sealed class VoxelPrimitiveGenerationResult
 {
     public required bool Success { get; init; }
