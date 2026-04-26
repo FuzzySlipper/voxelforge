@@ -122,6 +122,43 @@ public sealed class EssArchitectureTests
     }
 
     [Fact]
+    public void EssArchitectureDocuments_ReferenceExistingStateAndFacadeTypes()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var architectureDocs = string.Join(
+            Environment.NewLine,
+            File.ReadAllText(Path.Combine(root, "docs", "architecture", "events-states-services.md")),
+            File.ReadAllText(Path.Combine(root, "docs", "architecture", "state-boundaries.md")));
+
+        var appAssembly = typeof(VoxelEditingService).Assembly;
+        var documentedTypes = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["EditorDocumentState"] = "VoxelForge.App.EditorDocumentState",
+            ["EditorSessionState"] = "VoxelForge.App.EditorSessionState",
+            ["EditorConfigState"] = "VoxelForge.App.EditorConfigState",
+            ["UndoHistoryState"] = "VoxelForge.App.Commands.UndoHistoryState",
+            ["ReferenceModelState"] = "VoxelForge.App.Reference.ReferenceModelState",
+            ["ReferenceImageState"] = "VoxelForge.App.Reference.ReferenceImageState",
+            ["EditorState"] = "VoxelForge.App.EditorState",
+            ["UndoStack"] = "VoxelForge.App.Commands.UndoStack",
+        };
+
+        var violations = new List<string>();
+        foreach (var documentedType in documentedTypes)
+        {
+            if (!architectureDocs.Contains($"`{documentedType.Key}`", StringComparison.Ordinal))
+                violations.Add($"Architecture docs no longer mention `{documentedType.Key}`.");
+
+            var resolvedType = appAssembly.GetType(documentedType.Value, throwOnError: false);
+            if (resolvedType is null)
+                violations.Add($"Documented type `{documentedType.Key}` no longer resolves as {documentedType.Value}.");
+        }
+
+        Assert.True(violations.Count == 0,
+            "ESS architecture doc drift detected:\n" + string.Join(Environment.NewLine, violations));
+    }
+
+    [Fact]
     public void Source_DoesNotIntroduceStaticSingletonsOrServiceLocators()
     {
         var root = FindRepoRoot(AppContext.BaseDirectory);
