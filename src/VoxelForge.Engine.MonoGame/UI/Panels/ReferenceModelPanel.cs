@@ -14,7 +14,7 @@ namespace VoxelForge.Engine.MonoGame.UI.Panels;
 /// </summary>
 public sealed class ReferenceModelPanel
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly MenuCommandDispatcher _dispatcher;
 
     private readonly VerticalStackPanel _modelList;
@@ -42,9 +42,9 @@ public sealed class ReferenceModelPanel
 
     public Widget Root { get; }
 
-    public ReferenceModelPanel(ReferenceModelRegistry registry, MenuCommandDispatcher dispatcher)
+    public ReferenceModelPanel(ReferenceModelState referenceModelState, MenuCommandDispatcher dispatcher)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _dispatcher = dispatcher;
 
         var root = new VerticalStackPanel { Spacing = 4 };
@@ -237,8 +237,8 @@ public sealed class ReferenceModelPanel
         WireTransformField(_rotY, () => CommitTransform());
         WireTransformField(_rotZ, () => CommitTransform());
 
-        // Listen for registry changes
-        _registry.Changed += Refresh;
+        // Listen for referenceModelState changes
+        _referenceModelState.Changed += Refresh;
     }
 
     public void SetDesktop(Desktop desktop) => _desktop = desktop;
@@ -247,9 +247,9 @@ public sealed class ReferenceModelPanel
     {
         _modelList.Widgets.Clear();
 
-        for (int i = 0; i < _registry.Models.Count; i++)
+        for (int i = 0; i < _referenceModelState.Models.Count; i++)
         {
-            var model = _registry.Models[i];
+            var model = _referenceModelState.Models[i];
             var name = Path.GetFileName(model.FilePath);
             var idx = i;
 
@@ -266,10 +266,10 @@ public sealed class ReferenceModelPanel
             _modelList.Widgets.Add(btn);
         }
 
-        if (_selectedIndex >= 0 && _selectedIndex < _registry.Models.Count)
+        if (_selectedIndex >= 0 && _selectedIndex < _referenceModelState.Models.Count)
         {
             _propertiesSection.Visible = true;
-            LoadPropertiesFromModel(_registry.Models[_selectedIndex]);
+            LoadPropertiesFromModel(_referenceModelState.Models[_selectedIndex]);
         }
         else
         {
@@ -344,7 +344,7 @@ public sealed class ReferenceModelPanel
             float.TryParse(_rotY.Text, out float ry) &&
             float.TryParse(_rotZ.Text, out float rz))
         {
-            var scale = _registry.Get(_selectedIndex)?.Scale ?? 1f;
+            var scale = _referenceModelState.Get(_selectedIndex)?.Scale ?? 1f;
             _dispatcher.Dispatch($"reftransform {_selectedIndex} {px} {py} {pz} {rx} {ry} {rz} {scale}");
         }
     }
@@ -384,7 +384,7 @@ public sealed class ReferenceModelPanel
         if (_updatingFields || _selectedIndex < 0) return;
         var clipIdx = _clipCombo.SelectedIndex ?? 0;
         // If currently animating, switch to the new clip
-        var model = _registry.Get(_selectedIndex);
+        var model = _referenceModelState.Get(_selectedIndex);
         if (model?.IsAnimating == true)
             _dispatcher.Dispatch($"refanim {_selectedIndex} play {clipIdx}");
     }
@@ -393,7 +393,7 @@ public sealed class ReferenceModelPanel
     {
         if (_updatingFields || _selectedIndex < 0) return;
         _dispatcher.Dispatch($"refanim {_selectedIndex} frame {_timelineSlider.Value:F3}");
-        var model = _registry.Get(_selectedIndex);
+        var model = _referenceModelState.Get(_selectedIndex);
         if (model is not null)
         {
             var clip = model.AnimationClips?[model.ActiveClipIndex ?? 0];
@@ -420,7 +420,7 @@ public sealed class ReferenceModelPanel
     private void StepFrame(int direction)
     {
         if (_selectedIndex < 0) return;
-        var model = _registry.Get(_selectedIndex);
+        var model = _referenceModelState.Get(_selectedIndex);
         if (model is null || !model.HasAnimations) return;
 
         var clip = model.AnimationClips![model.ActiveClipIndex ?? 0];
@@ -437,7 +437,7 @@ public sealed class ReferenceModelPanel
     public void UpdateAnimationDisplay()
     {
         if (_selectedIndex < 0 || _updatingFields) return;
-        var model = _registry.Get(_selectedIndex);
+        var model = _referenceModelState.Get(_selectedIndex);
         if (model is null || !model.HasAnimations || !model.IsAnimating) return;
 
         _updatingFields = true;
@@ -469,7 +469,7 @@ public sealed class ReferenceModelPanel
             {
                 _dispatcher.Dispatch("refload", dlg.FilePath);
                 // Select the newly loaded model
-                _selectedIndex = _registry.Models.Count - 1;
+                _selectedIndex = _referenceModelState.Models.Count - 1;
                 Refresh();
             }
         };

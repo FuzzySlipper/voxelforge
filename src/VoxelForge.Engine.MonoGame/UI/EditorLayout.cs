@@ -27,7 +27,7 @@ public sealed class EditorLayout
     public Widget Root { get; }
 
     public EditorLayout(EditorState state, MenuCommandDispatcher? dispatcher = null,
-        ReferenceModelRegistry? refRegistry = null)
+        ReferenceModelState? referenceModelState = null)
     {
         DragDrop = new ContentDragDrop();
         ToolPanel = new ToolPanel(state);
@@ -40,8 +40,8 @@ public sealed class EditorLayout
 
         MaterialPanel = new MaterialPanel(state, DragDrop);
 
-        if (dispatcher is not null && refRegistry is not null)
-            RefModelPanel = new ReferenceModelPanel(refRegistry, dispatcher);
+        if (dispatcher is not null && referenceModelState is not null)
+            RefModelPanel = new ReferenceModelPanel(referenceModelState, dispatcher);
 
         // Main grid: 2 rows (menu bar + main area)
         var outerGrid = new Grid();

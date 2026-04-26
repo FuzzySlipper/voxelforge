@@ -32,7 +32,7 @@ public sealed class ReferenceModelMeta
 
     public List<MeshOverride>? MeshOverrides { get; set; }
 
-    public AnimationState? Animation { get; set; }
+    public AnimationSnapshot? Animation { get; set; }
 
     public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
 
@@ -79,10 +79,10 @@ public sealed class ReferenceModelMeta
         if (overrides.Count > 0)
             meta.MeshOverrides = overrides;
 
-        // Capture animation state
+        // Capture animation snapshot
         if (model.HasAnimations)
         {
-            meta.Animation = new AnimationState
+            meta.Animation = new AnimationSnapshot
             {
                 ActiveClipIndex = model.ActiveClipIndex,
                 Speed = model.AnimationSpeed,
@@ -138,7 +138,7 @@ public sealed class MeshOverride
     public float? EmissiveBrightness { get; set; }
 }
 
-public sealed class AnimationState
+public sealed class AnimationSnapshot
 {
     public int? ActiveClipIndex { get; set; }
     public float Speed { get; set; } = 1f;

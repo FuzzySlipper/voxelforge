@@ -9,16 +9,16 @@ namespace VoxelForge.App.Console.Commands;
 
 public sealed class VoxelizeCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly ILoggerFactory _loggerFactory;
 
     public string Name => "voxelize";
     public string[] Aliases => ["vox"];
     public string HelpText => "Convert reference model to voxels. Usage: voxelize <refIndex> <resolution> [surface|solid]";
 
-    public VoxelizeCommand(ReferenceModelRegistry registry, ILoggerFactory loggerFactory)
+    public VoxelizeCommand(ReferenceModelState referenceModelState, ILoggerFactory loggerFactory)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _loggerFactory = loggerFactory;
     }
 
@@ -27,7 +27,7 @@ public sealed class VoxelizeCommand : IConsoleCommand
         if (args.Length < 2 || !int.TryParse(args[0], out int refIdx) || !int.TryParse(args[1], out int resolution))
             return CommandResult.Fail("Usage: voxelize <refIndex> <resolution> [surface|solid]");
 
-        var refModel = _registry.Get(refIdx);
+        var refModel = _referenceModelState.Get(refIdx);
         if (refModel is null)
             return CommandResult.Fail($"No reference model at index {refIdx}.");
 

@@ -4,30 +4,28 @@ namespace VoxelForge.App.Commands;
 
 public sealed class UndoStack
 {
-    private readonly LinkedList<IEditorCommand> _undoStack = new();
-    private readonly Stack<IEditorCommand> _redoStack = new();
-    private readonly int _maxDepth;
+    private readonly UndoHistoryState _history;
     private readonly ILogger<UndoStack> _logger;
 
     public event Action? StateChanged;
 
-    public bool CanUndo => _undoStack.Count > 0;
-    public bool CanRedo => _redoStack.Count > 0;
+    public bool CanUndo => _history.UndoCommands.Count > 0;
+    public bool CanRedo => _history.RedoCommands.Count > 0;
 
-    public UndoStack(int maxDepth, ILogger<UndoStack> logger)
+    public UndoStack(UndoHistoryState history, ILogger<UndoStack> logger)
     {
-        _maxDepth = maxDepth;
+        _history = history;
         _logger = logger;
     }
 
     public void Execute(IEditorCommand cmd)
     {
         cmd.Execute();
-        _undoStack.AddLast(cmd);
-        _redoStack.Clear();
+        _history.UndoCommands.AddLast(cmd);
+        _history.RedoCommands.Clear();
 
-        if (_undoStack.Count > _maxDepth)
-            _undoStack.RemoveFirst();
+        if (_history.UndoCommands.Count > _history.MaxDepth)
+            _history.UndoCommands.RemoveFirst();
 
         _logger.LogDebug("Executed: {Description}", cmd.Description);
         StateChanged?.Invoke();
@@ -35,12 +33,12 @@ public sealed class UndoStack
 
     public void Undo()
     {
-        if (_undoStack.Count == 0) return;
+        if (_history.UndoCommands.Count == 0) return;
 
-        var cmd = _undoStack.Last!.Value;
-        _undoStack.RemoveLast();
+        var cmd = _history.UndoCommands.Last!.Value;
+        _history.UndoCommands.RemoveLast();
         cmd.Undo();
-        _redoStack.Push(cmd);
+        _history.RedoCommands.Push(cmd);
 
         _logger.LogDebug("Undo: {Description}", cmd.Description);
         StateChanged?.Invoke();
@@ -48,11 +46,11 @@ public sealed class UndoStack
 
     public void Redo()
     {
-        if (_redoStack.Count == 0) return;
+        if (_history.RedoCommands.Count == 0) return;
 
-        var cmd = _redoStack.Pop();
+        var cmd = _history.RedoCommands.Pop();
         cmd.Execute();
-        _undoStack.AddLast(cmd);
+        _history.UndoCommands.AddLast(cmd);
 
         _logger.LogDebug("Redo: {Description}", cmd.Description);
         StateChanged?.Invoke();

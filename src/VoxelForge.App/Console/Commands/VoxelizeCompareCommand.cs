@@ -13,16 +13,16 @@ namespace VoxelForge.App.Console.Commands;
 /// </summary>
 public sealed class VoxelizeCompareCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly ILoggerFactory _loggerFactory;
 
     public string Name => "voxcompare";
     public string[] Aliases => ["vcomp"];
     public string HelpText => "Compare voxelizations. Usage: voxcompare <refIndex> <res1,res2,...> [surface|solid]";
 
-    public VoxelizeCompareCommand(ReferenceModelRegistry registry, ILoggerFactory loggerFactory)
+    public VoxelizeCompareCommand(ReferenceModelState referenceModelState, ILoggerFactory loggerFactory)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _loggerFactory = loggerFactory;
     }
 
@@ -34,7 +34,7 @@ public sealed class VoxelizeCompareCommand : IConsoleCommand
         if (!int.TryParse(args[0], out int refIdx))
             return CommandResult.Fail("Invalid model index.");
 
-        var refModel = _registry.Get(refIdx);
+        var refModel = _referenceModelState.Get(refIdx);
         if (refModel is null)
             return CommandResult.Fail($"No reference model at index {refIdx}.");
 

@@ -5,7 +5,7 @@ namespace VoxelForge.App.Console.Commands;
 /// </summary>
 public sealed class MeasureCommand : IConsoleCommand
 {
-    private readonly EditorConfig _config;
+    private readonly EditorConfigState _config;
 
     public string Name => "measure";
     public string[] Aliases => [];
@@ -13,7 +13,7 @@ public sealed class MeasureCommand : IConsoleCommand
         "Measurement grid. Usage: measure [on|off|toggle] | measure scale <voxelsPerMeter>\n" +
         "  Shows wireframe cubes at 1-meter intervals using the configured scale.";
 
-    public MeasureCommand(EditorConfig config) => _config = config;
+    public MeasureCommand(EditorConfigState config) => _config = config;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {

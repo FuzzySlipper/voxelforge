@@ -11,7 +11,7 @@ namespace VoxelForge.Engine.MonoGame.UI.Panels;
 /// </summary>
 public sealed class ReferenceImagePanel : IDisposable
 {
-    private readonly ReferenceImageStore _store;
+    private readonly ReferenceImageState _referenceImageState;
     private readonly GraphicsDevice _graphicsDevice;
     private readonly VerticalStackPanel _root;
     private readonly VerticalStackPanel _tabContent;
@@ -21,9 +21,9 @@ public sealed class ReferenceImagePanel : IDisposable
 
     public Widget Root => _root;
 
-    public ReferenceImagePanel(ReferenceImageStore store, GraphicsDevice graphicsDevice)
+    public ReferenceImagePanel(ReferenceImageState referenceImageState, GraphicsDevice graphicsDevice)
     {
-        _store = store;
+        _referenceImageState = referenceImageState;
         _graphicsDevice = graphicsDevice;
 
         _root = new VerticalStackPanel { Spacing = 4 };
@@ -40,7 +40,7 @@ public sealed class ReferenceImagePanel : IDisposable
         };
         _root.Widgets.Add(scroll);
 
-        _store.Changed += Rebuild;
+        _referenceImageState.Changed += Rebuild;
     }
 
     public void Rebuild()
@@ -53,9 +53,9 @@ public sealed class ReferenceImagePanel : IDisposable
         _tabContent.Widgets.Clear();
 
         // Build textures and tabs
-        for (int i = 0; i < _store.Images.Count; i++)
+        for (int i = 0; i < _referenceImageState.Images.Count; i++)
         {
-            var entry = _store.Images[i];
+            var entry = _referenceImageState.Images[i];
             try
             {
                 using var ms = new MemoryStream(entry.RawBytes);
@@ -80,7 +80,7 @@ public sealed class ReferenceImagePanel : IDisposable
             _tabBar.Widgets.Add(btn);
         }
 
-        if (_store.Images.Count > 0)
+        if (_referenceImageState.Images.Count > 0)
             ShowImage(0);
         else
             _activeIndex = -1;

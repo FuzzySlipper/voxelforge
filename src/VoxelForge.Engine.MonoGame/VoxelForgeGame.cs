@@ -20,9 +20,9 @@ public sealed class VoxelForgeGame : Game
     private readonly GraphicsDeviceManager _graphics;
     private readonly EditorState _editorState;
     private readonly UndoStack _undoStack;
-    private readonly EditorConfig _config;
-    private readonly ReferenceModelRegistry _refRegistry;
-    private readonly ReferenceImageStore _imageStore;
+    private readonly EditorConfigState _config;
+    private readonly ReferenceModelState _referenceModelState;
+    private readonly ReferenceImageState _referenceImageState;
     private readonly CancellationTokenSource _cts;
     private readonly MenuCommandDispatcher? _menuDispatcher;
 
@@ -54,16 +54,16 @@ public sealed class VoxelForgeGame : Game
     private KeyboardState _previousKeyboard;
     private Point? _dragPendingStart;
 
-    public VoxelForgeGame(EditorState editorState, UndoStack undoStack, EditorConfig config,
-        ReferenceModelRegistry refRegistry, ReferenceImageStore imageStore,
+    public VoxelForgeGame(EditorState editorState, UndoStack undoStack, EditorConfigState config,
+        ReferenceModelState referenceModelState, ReferenceImageState referenceImageState,
         CancellationTokenSource cts, CommandRouter? router = null, CommandContext? context = null)
     {
         _editorState = editorState;
         _undoStack = undoStack;
         _config = config;
         _camera.MaxDistance = config.MaxZoomDistance;
-        _refRegistry = refRegistry;
-        _imageStore = imageStore;
+        _referenceModelState = referenceModelState;
+        _referenceImageState = referenceImageState;
         _cts = cts;
         _menuDispatcher = router is not null && context is not null
             ? new MenuCommandDispatcher(router, context)
@@ -106,7 +106,7 @@ public sealed class VoxelForgeGame : Game
         _undoStack.StateChanged += () => _voxelRenderer?.MarkDirty();
         _editorState.ModelChanged += () => _voxelRenderer?.MarkDirty();
 
-        _refRenderer = new ReferenceModelRenderer(GraphicsDevice, _refRegistry);
+        _refRenderer = new ReferenceModelRenderer(GraphicsDevice, _referenceModelState);
         _gridFloor = new GridFloor(GraphicsDevice);
         _measureGrid = new MeasureGrid(GraphicsDevice);
         _axisIndicator = new AxisIndicator(GraphicsDevice);
@@ -119,8 +119,8 @@ public sealed class VoxelForgeGame : Game
         // Myra UI
         MyraEnvironment.Game = this;
         _desktop = new Desktop();
-        _editorLayout = new EditorLayout(_editorState, _menuDispatcher, _refRegistry);
-        _imagePanel = new ReferenceImagePanel(_imageStore, GraphicsDevice);
+        _editorLayout = new EditorLayout(_editorState, _menuDispatcher, _referenceModelState);
+        _imagePanel = new ReferenceImagePanel(_referenceImageState, GraphicsDevice);
         _editorLayout.RightSidebar.Widgets.Add(_imagePanel.Root);
         _desktop.Root = _editorLayout.Root;
         _editorLayout.RefModelPanel?.SetDesktop(_desktop);

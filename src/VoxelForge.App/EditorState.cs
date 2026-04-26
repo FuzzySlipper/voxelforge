@@ -4,21 +4,45 @@ using VoxelForge.Core;
 namespace VoxelForge.App;
 
 /// <summary>
-/// Central editor state. All panels read from and write to this.
-/// No static access — passed via constructor injection.
+/// Transitional aggregate for editor state. Existing panels and tools read through this facade
+/// while durable mutable data lives in explicit state objects.
 /// </summary>
 public sealed class EditorState
 {
     private readonly ILogger<EditorState> _logger;
 
-    public VoxelModel ActiveModel { get; set; }
-    public LabelIndex Labels { get; set; }
-    public List<AnimationClip> Clips { get; set; } = [];
-    public byte ActivePaletteIndex { get; set; } = 1;
-    public EditorTool ActiveTool { get; set; } = EditorTool.Place;
-    public RegionId? ActiveRegion { get; set; }
-    public int ActiveFrameIndex { get; set; } = -1; // -1 = base model
-    public HashSet<Point3> SelectedVoxels { get; set; } = [];
+    public EditorDocumentState Document { get; }
+    public EditorSessionState Session { get; }
+
+    public VoxelModel ActiveModel => Document.Model;
+    public LabelIndex Labels => Document.Labels;
+    public List<AnimationClip> Clips => Document.Clips;
+
+    public byte ActivePaletteIndex
+    {
+        get => Session.ActivePaletteIndex;
+        set => Session.ActivePaletteIndex = value;
+    }
+
+    public EditorTool ActiveTool
+    {
+        get => Session.ActiveTool;
+        set => Session.ActiveTool = value;
+    }
+
+    public RegionId? ActiveRegion
+    {
+        get => Session.ActiveRegion;
+        set => Session.ActiveRegion = value;
+    }
+
+    public int ActiveFrameIndex
+    {
+        get => Session.ActiveFrameIndex;
+        set => Session.ActiveFrameIndex = value;
+    }
+
+    public HashSet<Point3> SelectedVoxels => Session.SelectedVoxels;
 
     /// <summary>
     /// Fired when the model data changes (voxel set/remove, label change, etc.).
@@ -26,11 +50,16 @@ public sealed class EditorState
     /// </summary>
     public event Action? ModelChanged;
 
-    public EditorState(VoxelModel model, LabelIndex labels, ILogger<EditorState> logger)
+    public EditorState(EditorDocumentState document, EditorSessionState session, ILogger<EditorState> logger)
     {
-        ActiveModel = model;
-        Labels = labels;
+        Document = document;
+        Session = session;
         _logger = logger;
+    }
+
+    public EditorState(VoxelModel model, LabelIndex labels, ILogger<EditorState> logger)
+        : this(new EditorDocumentState(model, labels), new EditorSessionState(), logger)
+    {
     }
 
     public void NotifyModelChanged()

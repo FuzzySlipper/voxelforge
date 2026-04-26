@@ -19,7 +19,7 @@ public sealed class ScreenshotCapture : IScreenshotProvider
     private readonly ReferenceModelRenderer _refRenderer;
     private readonly GridFloor _gridFloor;
     private readonly BasicEffect _effect;
-    private readonly EditorConfig _config;
+    private readonly EditorConfigState _config;
 
     public ScreenshotCapture(
         GraphicsDevice graphicsDevice,
@@ -29,7 +29,7 @@ public sealed class ScreenshotCapture : IScreenshotProvider
         ReferenceModelRenderer refRenderer,
         GridFloor gridFloor,
         BasicEffect effect,
-        EditorConfig config)
+        EditorConfigState config)
     {
         _graphicsDevice = graphicsDevice;
         _editorState = editorState;

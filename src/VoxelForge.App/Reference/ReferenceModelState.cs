@@ -5,7 +5,7 @@ namespace VoxelForge.App.Reference;
 /// <summary>
 /// Holds loaded reference models. Injected into commands and the renderer.
 /// </summary>
-public sealed class ReferenceModelRegistry
+public sealed class ReferenceModelState
 {
     private readonly List<ReferenceModelData> _models = [];
 

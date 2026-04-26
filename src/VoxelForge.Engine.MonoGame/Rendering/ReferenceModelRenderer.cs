@@ -13,15 +13,15 @@ namespace VoxelForge.Engine.MonoGame.Rendering;
 public sealed class ReferenceModelRenderer : IDisposable
 {
     private readonly GraphicsDevice _graphicsDevice;
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly List<GpuMesh> _gpuMeshes = [];
     private bool _dirty = true;
 
-    public ReferenceModelRenderer(GraphicsDevice graphicsDevice, ReferenceModelRegistry registry)
+    public ReferenceModelRenderer(GraphicsDevice graphicsDevice, ReferenceModelState referenceModelState)
     {
         _graphicsDevice = graphicsDevice;
-        _registry = registry;
-        _registry.Changed += () => _dirty = true;
+        _referenceModelState = referenceModelState;
+        _referenceModelState.Changed += () => _dirty = true;
     }
 
     /// <summary>
@@ -29,7 +29,7 @@ public sealed class ReferenceModelRenderer : IDisposable
     /// </summary>
     public void UpdateAnimations(float deltaSeconds)
     {
-        foreach (var model in _registry.Models)
+        foreach (var model in _referenceModelState.Models)
             model.UpdateAnimation(deltaSeconds);
     }
 
@@ -45,7 +45,7 @@ public sealed class ReferenceModelRenderer : IDisposable
         UpdateAnimatedBuffers();
 
         int meshIndex = 0;
-        foreach (var model in _registry.Models)
+        foreach (var model in _referenceModelState.Models)
         {
             if (!model.IsVisible)
             {
@@ -127,7 +127,7 @@ public sealed class ReferenceModelRenderer : IDisposable
     private void UpdateAnimatedBuffers()
     {
         int meshIndex = 0;
-        foreach (var model in _registry.Models)
+        foreach (var model in _referenceModelState.Models)
         {
             bool animating = model.IsAnimating
                 && model.ActiveClipIndex is { } clipIdx
@@ -175,7 +175,7 @@ public sealed class ReferenceModelRenderer : IDisposable
             gpu.Dispose();
         _gpuMeshes.Clear();
 
-        foreach (var model in _registry.Models)
+        foreach (var model in _referenceModelState.Models)
         {
             bool hasAnimation = model.HasAnimations;
 

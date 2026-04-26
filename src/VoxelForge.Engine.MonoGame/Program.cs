@@ -11,29 +11,31 @@ using VoxelForge.Engine.MonoGame;
 var headless = args.Contains("--headless");
 var loggerFactory = NullLoggerFactory.Instance;
 
-// Load config
-var config = EditorConfig.Load();
-
-// Create shared state
-var model = new VoxelModel(NullLogger<VoxelModel>.Instance) { GridHint = config.DefaultGridHint };
+// Create durable state first, then wire services and adapters around it.
+var configState = EditorConfigState.Load();
+var model = new VoxelModel(NullLogger<VoxelModel>.Instance) { GridHint = configState.DefaultGridHint };
 var labels = new LabelIndex(NullLogger<LabelIndex>.Instance);
-var editorState = new EditorState(model, labels, NullLogger<EditorState>.Instance);
-var undoStack = new UndoStack(config.MaxUndoDepth, NullLogger<UndoStack>.Instance);
-var refRegistry = new ReferenceModelRegistry();
+var documentState = new EditorDocumentState(model, labels);
+var sessionState = new EditorSessionState();
+var undoHistoryState = new UndoHistoryState(configState.MaxUndoDepth);
+var referenceModelState = new ReferenceModelState();
+var referenceImageState = new ReferenceImageState();
+
+var editorState = new EditorState(documentState, sessionState, NullLogger<EditorState>.Instance);
+var undoStack = new UndoStack(undoHistoryState, NullLogger<UndoStack>.Instance);
 var refLoader = new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance);
-var imageStore = new ReferenceImageStore();
 
 // Game reference (set after construction, screenshot provider available after LoadContent)
 VoxelForgeGame? game = null;
 
 // Build console — screenshot provider resolves lazily from the game
-var router = CommandRegistry.Build(loggerFactory, config, refRegistry, refLoader, imageStore,
+var router = CommandRegistry.Build(loggerFactory, configState, referenceModelState, refLoader, referenceImageState,
     screenshotFactory: () => game?.ScreenshotProvider);
 var context = new CommandContext
 {
-    Model = model,
-    Labels = labels,
-    Clips = editorState.Clips,
+    Model = documentState.Model,
+    Labels = documentState.Labels,
+    Clips = documentState.Clips,
     UndoStack = undoStack,
 };
 
@@ -60,7 +62,8 @@ else
 {
     context.OnModelChanged = () => editorState.NotifyModelChanged();
 
-    game = new VoxelForgeGame(editorState, undoStack, config, refRegistry, imageStore, cts, router, context);
+    game = new VoxelForgeGame(editorState, undoStack, configState, referenceModelState, referenceImageState,
+        cts, router, context);
 
     var consoleThread = new Thread(() =>
     {

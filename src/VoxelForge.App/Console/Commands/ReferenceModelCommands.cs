@@ -7,16 +7,16 @@ namespace VoxelForge.App.Console.Commands;
 
 public sealed class RefLoadCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly ReferenceModelLoader _loader;
 
     public string Name => "refload";
     public string[] Aliases => [];
     public string HelpText => "Load a reference model. Usage: refload <filepath>";
 
-    public RefLoadCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    public RefLoadCommand(ReferenceModelState referenceModelState, ReferenceModelLoader loader)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _loader = loader;
     }
 
@@ -28,9 +28,9 @@ public sealed class RefLoadCommand : IConsoleCommand
         try
         {
             var model = _loader.Load(args[0]);
-            _registry.Add(model);
-            _registry.NotifyChanged();
-            int idx = _registry.Models.Count - 1;
+            _referenceModelState.Add(model);
+            _referenceModelState.NotifyChanged();
+            int idx = _referenceModelState.Models.Count - 1;
             return CommandResult.Ok(
                 $"Loaded [{idx}] {model.Format} — {model.Meshes.Count} meshes, {model.TotalVertices} vertices, {model.TotalTriangles} triangles");
         }
@@ -43,23 +43,23 @@ public sealed class RefLoadCommand : IConsoleCommand
 
 public sealed class RefListCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "reflist";
     public string[] Aliases => [];
     public string HelpText => "List loaded reference models.";
 
-    public RefListCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefListCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
-        if (_registry.Models.Count == 0)
+        if (_referenceModelState.Models.Count == 0)
             return CommandResult.Ok("No reference models loaded.");
 
         var lines = new List<string>();
-        for (int i = 0; i < _registry.Models.Count; i++)
+        for (int i = 0; i < _referenceModelState.Models.Count; i++)
         {
-            var m = _registry.Models[i];
+            var m = _referenceModelState.Models[i];
             var vis = m.IsVisible ? "visible" : "hidden";
             lines.Add($"  [{i}] {Path.GetFileName(m.FilePath)} — {m.Format}, {m.TotalVertices} verts, {m.RenderMode}, {vis}");
         }
@@ -70,66 +70,66 @@ public sealed class RefListCommand : IConsoleCommand
 
 public sealed class RefRemoveCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "refremove";
     public string[] Aliases => [];
     public string HelpText => "Remove a reference model. Usage: refremove <index>";
 
-    public RefRemoveCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefRemoveCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 1 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: refremove <index>");
 
-        if (_registry.Get(idx) is null)
+        if (_referenceModelState.Get(idx) is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
-        _registry.RemoveAt(idx);
-        _registry.NotifyChanged();
+        _referenceModelState.RemoveAt(idx);
+        _referenceModelState.NotifyChanged();
         return CommandResult.Ok($"Removed reference model [{idx}].");
     }
 }
 
 public sealed class RefClearCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "refclear";
     public string[] Aliases => [];
     public string HelpText => "Remove all loaded reference models.";
 
-    public RefClearCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefClearCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
-        int count = _registry.Models.Count;
+        int count = _referenceModelState.Models.Count;
         if (count == 0)
             return CommandResult.Ok("No reference models to remove.");
 
-        _registry.Clear();
-        _registry.NotifyChanged();
+        _referenceModelState.Clear();
+        _referenceModelState.NotifyChanged();
         return CommandResult.Ok($"Removed {count} reference model(s).");
     }
 }
 
 public sealed class RefTransformCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "reftransform";
     public string[] Aliases => ["refmove"];
     public string HelpText => "Transform a reference model. Usage: reftransform <index> <x> <y> <z> [rx] [ry] [rz] [scale]";
 
-    public RefTransformCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefTransformCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 4 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: reftransform <index> <x> <y> <z> [rx] [ry] [rz] [scale]");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -158,20 +158,20 @@ public sealed class RefTransformCommand : IConsoleCommand
 
 public sealed class RefModeCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "refmode";
     public string[] Aliases => [];
     public string HelpText => "Set render mode. Usage: refmode <index> <wireframe|solid|transparent>";
 
-    public RefModeCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefModeCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 2 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: refmode <index> <wireframe|solid|transparent>");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -185,16 +185,16 @@ public sealed class RefModeCommand : IConsoleCommand
 
 public sealed class RefVisibilityCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly bool _show;
 
     public string Name => _show ? "refshow" : "refhide";
     public string[] Aliases => [];
     public string HelpText => _show ? "Show a reference model. Usage: refshow <index>" : "Hide a reference model. Usage: refhide <index>";
 
-    public RefVisibilityCommand(ReferenceModelRegistry registry, bool show)
+    public RefVisibilityCommand(ReferenceModelState referenceModelState, bool show)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _show = show;
     }
 
@@ -203,7 +203,7 @@ public sealed class RefVisibilityCommand : IConsoleCommand
         if (args.Length < 1 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail($"Usage: {Name} <index>");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -214,20 +214,20 @@ public sealed class RefVisibilityCommand : IConsoleCommand
 
 public sealed class RefScaleCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "refscale";
     public string[] Aliases => [];
     public string HelpText => "Set scale of a reference model. Usage: refscale <index> <scale>";
 
-    public RefScaleCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefScaleCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 2 || !int.TryParse(args[0], out int idx) || !float.TryParse(args[1], out float scale))
             return CommandResult.Fail("Usage: refscale <index> <scale>");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -238,20 +238,20 @@ public sealed class RefScaleCommand : IConsoleCommand
 
 public sealed class RefRotateCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "refrotate";
     public string[] Aliases => ["refrot"];
     public string HelpText => "Quick rotate a reference model on one axis. Usage: refrotate <index> <x|y|z> [degrees=90]";
 
-    public RefRotateCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefRotateCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 2 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: refrotate <index> <x|y|z> [degrees=90]");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -273,20 +273,20 @@ public sealed class RefRotateCommand : IConsoleCommand
 
 public sealed class RefOrientCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "reforient";
     public string[] Aliases => ["refautopose"];
     public string HelpText => "Auto-orient a reference model: upright (Y+), feet at Y=0, facing Z+. Usage: reforient <index>";
 
-    public RefOrientCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefOrientCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 1 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: reforient <index>");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -398,16 +398,16 @@ public sealed class RefOrientCommand : IConsoleCommand
 
 public sealed class RefInfoCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly ReferenceModelLoader _loader;
 
     public string Name => "refinfo";
     public string[] Aliases => [];
     public string HelpText => "Inspect material/texture/UV info for a loaded reference model. Usage: refinfo <index>";
 
-    public RefInfoCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    public RefInfoCommand(ReferenceModelState referenceModelState, ReferenceModelLoader loader)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _loader = loader;
     }
 
@@ -416,7 +416,7 @@ public sealed class RefInfoCommand : IConsoleCommand
         if (args.Length < 1 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: refinfo <index>");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -434,20 +434,20 @@ public sealed class RefInfoCommand : IConsoleCommand
 
 public sealed class RefAnimCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "refanim";
     public string[] Aliases => [];
     public string HelpText => "Control reference model animation. Usage: refanim <index> <list|play|stop|pause|frame|speed> [args]";
 
-    public RefAnimCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefAnimCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 2 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: refanim <index> <list|play|stop|pause|frame|speed> [args]");
 
-        var model = _registry.Get(idx);
+        var model = _referenceModelState.Get(idx);
         if (model is null)
             return CommandResult.Fail($"No reference model at index {idx}.");
 
@@ -566,7 +566,7 @@ public sealed class RefAnimCommand : IConsoleCommand
 
 public sealed class RefTexCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly ReferenceModelLoader _loader;
 
     public string Name => "reftex";
@@ -574,9 +574,9 @@ public sealed class RefTexCommand : IConsoleCommand
     public string HelpText => "Swap texture on a reference model. Usage: reftex <modelIndex> <texturePath> [meshIndex]\n" +
         "  Omit meshIndex to apply to all meshes.";
 
-    public RefTexCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    public RefTexCommand(ReferenceModelState referenceModelState, ReferenceModelLoader loader)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _loader = loader;
     }
 
@@ -588,7 +588,7 @@ public sealed class RefTexCommand : IConsoleCommand
         if (!int.TryParse(args[0], out int modelIdx))
             return CommandResult.Fail("Invalid model index.");
 
-        var model = _registry.Get(modelIdx);
+        var model = _referenceModelState.Get(modelIdx);
         if (model is null)
             return CommandResult.Fail($"No model at index {modelIdx}.");
 
@@ -625,14 +625,14 @@ public sealed class RefTexCommand : IConsoleCommand
         if (updated == 0)
             return CommandResult.Fail("Failed to apply texture — check file format.");
 
-        _registry.NotifyChanged();
+        _referenceModelState.NotifyChanged();
         return CommandResult.Ok($"Retextured {updated} mesh(es) on model [{modelIdx}] with {Path.GetFileName(texPath)}");
     }
 }
 
 public sealed class RefTexEmissiveCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly ReferenceModelLoader _loader;
 
     public string Name => "reftex-emissive";
@@ -640,9 +640,9 @@ public sealed class RefTexEmissiveCommand : IConsoleCommand
     public string HelpText => "Apply emissive texture to a reference model. Usage: reftex-emissive <modelIndex> <texturePath> [brightness] [meshIndex]\n" +
         "  brightness: emissive multiplier (default 1.0). Omit meshIndex for all meshes.";
 
-    public RefTexEmissiveCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    public RefTexEmissiveCommand(ReferenceModelState referenceModelState, ReferenceModelLoader loader)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _loader = loader;
     }
 
@@ -654,7 +654,7 @@ public sealed class RefTexEmissiveCommand : IConsoleCommand
         if (!int.TryParse(args[0], out int modelIdx))
             return CommandResult.Fail("Invalid model index.");
 
-        var model = _registry.Get(modelIdx);
+        var model = _referenceModelState.Get(modelIdx);
         if (model is null)
             return CommandResult.Fail($"No model at index {modelIdx}.");
 
@@ -695,20 +695,20 @@ public sealed class RefTexEmissiveCommand : IConsoleCommand
         if (updated == 0)
             return CommandResult.Fail("Failed to apply emissive texture — check file format.");
 
-        _registry.NotifyChanged();
+        _referenceModelState.NotifyChanged();
         return CommandResult.Ok($"Applied emissive to {updated} mesh(es) on model [{modelIdx}] (brightness={brightness:F1})");
     }
 }
 
 public sealed class RefSaveMetaCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
 
     public string Name => "refsave";
     public string[] Aliases => [];
     public string HelpText => "Save ref model config to .refmeta file. Usage: refsave <modelIndex> <path>";
 
-    public RefSaveMetaCommand(ReferenceModelRegistry registry) => _registry = registry;
+    public RefSaveMetaCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
@@ -718,7 +718,7 @@ public sealed class RefSaveMetaCommand : IConsoleCommand
         if (!int.TryParse(args[0], out int modelIdx))
             return CommandResult.Fail("Invalid model index.");
 
-        var model = _registry.Get(modelIdx);
+        var model = _referenceModelState.Get(modelIdx);
         if (model is null)
             return CommandResult.Fail($"No model at index {modelIdx}.");
 
@@ -738,16 +738,16 @@ public sealed class RefSaveMetaCommand : IConsoleCommand
 
 public sealed class RefLoadMetaCommand : IConsoleCommand
 {
-    private readonly ReferenceModelRegistry _registry;
+    private readonly ReferenceModelState _referenceModelState;
     private readonly ReferenceModelLoader _loader;
 
     public string Name => "refloadmeta";
     public string[] Aliases => ["refmeta"];
     public string HelpText => "Load ref model from .refmeta file. Usage: refloadmeta <path>";
 
-    public RefLoadMetaCommand(ReferenceModelRegistry registry, ReferenceModelLoader loader)
+    public RefLoadMetaCommand(ReferenceModelState referenceModelState, ReferenceModelLoader loader)
     {
-        _registry = registry;
+        _referenceModelState = referenceModelState;
         _loader = loader;
     }
 
@@ -850,10 +850,10 @@ public sealed class RefLoadMetaCommand : IConsoleCommand
                 model.IsAnimating = true;
         }
 
-        _registry.Add(model);
-        _registry.NotifyChanged();
+        _referenceModelState.Add(model);
+        _referenceModelState.NotifyChanged();
 
-        int idx = _registry.Models.Count - 1;
+        int idx = _referenceModelState.Models.Count - 1;
         string msg = $"Loaded [{idx}] from {Path.GetFileName(path)} — {model.Meshes.Count} meshes, {model.TotalVertices} vertices";
         if (warnings.Count > 0)
             msg += "\nWarnings:\n  " + string.Join("\n  ", warnings);

@@ -13,7 +13,7 @@ public sealed class ReferenceImageEntry
 /// <summary>
 /// Holds loaded reference images for display in the editor.
 /// </summary>
-public sealed class ReferenceImageStore
+public sealed class ReferenceImageState
 {
     private readonly List<ReferenceImageEntry> _images = [];
 

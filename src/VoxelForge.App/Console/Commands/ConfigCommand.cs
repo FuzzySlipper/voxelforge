@@ -2,13 +2,13 @@ namespace VoxelForge.App.Console.Commands;
 
 public sealed class ConfigCommand : IConsoleCommand
 {
-    private readonly EditorConfig _config;
+    private readonly EditorConfigState _config;
 
     public string Name => "config";
     public string[] Aliases => ["cfg"];
     public string HelpText => "View or set config. Usage: config | config <key> <value> | config save";
 
-    public ConfigCommand(EditorConfig config) => _config = config;
+    public ConfigCommand(EditorConfigState config) => _config = config;
 
     public CommandResult Execute(string[] args, CommandContext context)
     {

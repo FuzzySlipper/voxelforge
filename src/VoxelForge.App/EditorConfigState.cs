@@ -6,7 +6,7 @@ namespace VoxelForge.App;
 /// <summary>
 /// Persistent editor configuration. Saved to config.json in the working directory.
 /// </summary>
-public sealed class EditorConfig
+public sealed class EditorConfigState
 {
     private const string ConfigPath = "config.json";
 
@@ -73,19 +73,19 @@ public sealed class EditorConfig
     /// </summary>
     public int[] BackgroundColor { get; set; } = [40, 40, 45];
 
-    public static EditorConfig Load()
+    public static EditorConfigState Load()
     {
         if (!File.Exists(ConfigPath))
-            return new EditorConfig();
+            return new EditorConfigState();
 
         try
         {
             var json = File.ReadAllText(ConfigPath);
-            return JsonSerializer.Deserialize<EditorConfig>(json, JsonOptions) ?? new EditorConfig();
+            return JsonSerializer.Deserialize<EditorConfigState>(json, JsonOptions) ?? new EditorConfigState();
         }
         catch
         {
-            return new EditorConfig();
+            return new EditorConfigState();
         }
     }
 

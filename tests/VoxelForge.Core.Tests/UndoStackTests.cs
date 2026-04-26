@@ -8,7 +8,8 @@ public sealed class UndoStackTests
 {
     private static VoxelModel CreateModel() => new(NullLogger<VoxelModel>.Instance);
     private static LabelIndex CreateIndex() => new(NullLogger<LabelIndex>.Instance);
-    private static UndoStack CreateStack(int maxDepth = 100) => new(maxDepth, NullLogger<UndoStack>.Instance);
+    private static UndoStack CreateStack(int maxDepth = 100) =>
+        new(new UndoHistoryState(maxDepth), NullLogger<UndoStack>.Instance);
 
     [Fact]
     public void SetVoxel_UndoThreeTimes_ModelEmpty()
