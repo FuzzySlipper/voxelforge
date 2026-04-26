@@ -1,12 +1,20 @@
 using VoxelForge.Core;
+using VoxelForge.Core.Services;
 
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class GetVoxelCommand : IConsoleCommand
 {
+    private readonly VoxelQueryService _queryService;
+
     public string Name => "get";
     public string[] Aliases => ["g"];
     public string HelpText => "Get voxel at position. Usage: get <x> <y> <z>";
+
+    public GetVoxelCommand(VoxelQueryService queryService)
+    {
+        _queryService = queryService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
@@ -17,14 +25,10 @@ public sealed class GetVoxelCommand : IConsoleCommand
             !int.TryParse(args[2], out int z))
             return CommandResult.Fail("Invalid arguments. Expected integers for x,y,z.");
 
-        var pos = new Point3(x, y, z);
-        var value = context.Model.GetVoxel(pos);
-
-        if (value is null)
+        var result = _queryService.GetVoxel(context.Model, new Point3(x, y, z));
+        if (result.PaletteIndex is null)
             return CommandResult.Ok($"({x},{y},{z}) = air");
 
-        var mat = context.Model.Palette.Get(value.Value);
-        var name = mat?.Name ?? "unknown";
-        return CommandResult.Ok($"({x},{y},{z}) = {value.Value} ({name})");
+        return CommandResult.Ok($"({x},{y},{z}) = {result.PaletteIndex.Value} ({result.MaterialName})");
     }
 }

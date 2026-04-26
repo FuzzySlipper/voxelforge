@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using VoxelForge.Core.Services;
 
 namespace VoxelForge.Core.LLM;
 
@@ -37,7 +38,7 @@ public sealed class ToolLoop
             new() { Role = "user", TextContent = userMessage },
         };
 
-        var applyActions = new List<Action>();
+        var mutationIntents = new List<VoxelMutationIntent>();
         string? finalText = null;
 
         for (int round = 0; round < maxRounds; round++)
@@ -87,8 +88,8 @@ public sealed class ToolLoop
                 try
                 {
                     var result = handler.Handle(call.Arguments, model, labels, clips);
-                    if (result.ApplyAction is not null)
-                        applyActions.Add(result.ApplyAction);
+                    if (result.MutationIntent is not null)
+                        mutationIntents.Add(result.MutationIntent);
 
                     toolResults.Add(new ToolResultContent
                     {
@@ -122,7 +123,7 @@ public sealed class ToolLoop
         return new ToolLoopResult
         {
             ResponseText = finalText,
-            ApplyActions = applyActions,
+            MutationIntents = mutationIntents,
         };
     }
 }
@@ -130,5 +131,5 @@ public sealed class ToolLoop
 public sealed class ToolLoopResult
 {
     public string? ResponseText { get; init; }
-    public List<Action> ApplyActions { get; init; } = [];
+    public List<VoxelMutationIntent> MutationIntents { get; init; } = [];
 }

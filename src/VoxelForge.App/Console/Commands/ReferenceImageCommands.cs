@@ -1,60 +1,63 @@
-using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
+using VoxelForge.App.Services;
 
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class ImgLoadCommand : IConsoleCommand
 {
     private readonly ReferenceImageState _referenceImageState;
+    private readonly ReferenceAssetService _referenceAssetService;
 
     public string Name => "imgload";
     public string[] Aliases => [];
     public string HelpText => "Load a reference image. Usage: imgload <filepath>";
 
-    public ImgLoadCommand(ReferenceImageState referenceImageState) => _referenceImageState = referenceImageState;
+    public ImgLoadCommand(ReferenceImageState referenceImageState, ReferenceAssetService referenceAssetService)
+    {
+        _referenceImageState = referenceImageState;
+        _referenceAssetService = referenceAssetService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 1)
             return CommandResult.Fail("Usage: imgload <filepath>");
 
-        var path = args[0];
-        if (!File.Exists(path))
-            return CommandResult.Fail($"File not found: {path}");
-
-        var bytes = File.ReadAllBytes(path);
-        _referenceImageState.Add(new ReferenceImageEntry { FilePath = path, RawBytes = bytes });
-
-        int idx = _referenceImageState.Images.Count - 1;
-        context.Events.Publish(new ReferenceImageChangedEvent(
-            ReferenceImageChangeKind.Loaded,
-            $"Loaded image {Path.GetFileName(path)}",
-            idx));
-        return CommandResult.Ok($"Loaded image [{idx}] {Path.GetFileName(path)} ({bytes.Length} bytes)");
+        var result = _referenceAssetService.LoadImage(
+            _referenceImageState,
+            context.Events,
+            new LoadReferenceAssetRequest(args[0]));
+        return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
     }
 }
 
 public sealed class ImgListCommand : IConsoleCommand
 {
     private readonly ReferenceImageState _referenceImageState;
+    private readonly ReferenceAssetService _referenceAssetService;
 
     public string Name => "imglist";
     public string[] Aliases => [];
     public string HelpText => "List loaded reference images.";
 
-    public ImgListCommand(ReferenceImageState referenceImageState) => _referenceImageState = referenceImageState;
+    public ImgListCommand(ReferenceImageState referenceImageState, ReferenceAssetService referenceAssetService)
+    {
+        _referenceImageState = referenceImageState;
+        _referenceAssetService = referenceAssetService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
-        if (_referenceImageState.Images.Count == 0)
-            return CommandResult.Ok("No reference images loaded.");
+        var result = _referenceAssetService.ListImages(_referenceImageState);
+        if (result.Data is null || result.Data.Count == 0)
+            return CommandResult.Ok(result.Message);
 
         var lines = new List<string>();
-        for (int i = 0; i < _referenceImageState.Images.Count; i++)
+        for (int i = 0; i < result.Data.Count; i++)
         {
-            var img = _referenceImageState.Images[i];
-            var size = img.RawBytes.Length < 1024 ? $"{img.RawBytes.Length} B" : $"{img.RawBytes.Length / 1024} KB";
-            lines.Add($"  [{i}] {img.Label} ({size})");
+            var image = result.Data[i];
+            var size = image.ByteCount < 1024 ? $"{image.ByteCount} B" : $"{image.ByteCount / 1024} KB";
+            lines.Add($"  [{image.Position}] {image.Label} ({size})");
         }
 
         return CommandResult.Ok(string.Join("\n", lines));
@@ -64,26 +67,27 @@ public sealed class ImgListCommand : IConsoleCommand
 public sealed class ImgRemoveCommand : IConsoleCommand
 {
     private readonly ReferenceImageState _referenceImageState;
+    private readonly ReferenceAssetService _referenceAssetService;
 
     public string Name => "imgremove";
     public string[] Aliases => [];
     public string HelpText => "Remove a reference image. Usage: imgremove <index>";
 
-    public ImgRemoveCommand(ReferenceImageState referenceImageState) => _referenceImageState = referenceImageState;
+    public ImgRemoveCommand(ReferenceImageState referenceImageState, ReferenceAssetService referenceAssetService)
+    {
+        _referenceImageState = referenceImageState;
+        _referenceAssetService = referenceAssetService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 1 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: imgremove <index>");
 
-        if (_referenceImageState.Get(idx) is null)
-            return CommandResult.Fail($"No image at index {idx}.");
-
-        _referenceImageState.RemoveAt(idx);
-        context.Events.Publish(new ReferenceImageChangedEvent(
-            ReferenceImageChangeKind.Removed,
-            $"Removed image [{idx}]",
-            idx));
-        return CommandResult.Ok($"Removed image [{idx}].");
+        var result = _referenceAssetService.RemoveImage(
+            _referenceImageState,
+            context.Events,
+            new RemoveReferenceAssetRequest(idx));
+        return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
     }
 }

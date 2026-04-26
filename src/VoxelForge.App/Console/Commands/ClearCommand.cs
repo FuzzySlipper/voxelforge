@@ -1,23 +1,23 @@
-using VoxelForge.App.Events;
+using VoxelForge.App.Services;
 
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class ClearCommand : IConsoleCommand
 {
+    private readonly VoxelEditingService _editingService;
+
     public string Name => "clear";
     public string[] Aliases => ["cls"];
     public string HelpText => "Remove all voxels from the model.";
 
+    public ClearCommand(VoxelEditingService editingService)
+    {
+        _editingService = editingService;
+    }
+
     public CommandResult Execute(string[] args, CommandContext context)
     {
-        var positions = context.Model.Voxels.Keys.ToList();
-        foreach (var pos in positions)
-            context.Model.RemoveVoxel(pos);
-
-        context.Events.Publish(new VoxelModelChangedEvent(
-            VoxelModelChangeKind.Clear,
-            $"Cleared {positions.Count} voxels",
-            positions.Count));
-        return CommandResult.Ok($"Cleared {positions.Count} voxels.");
+        var result = _editingService.Clear(context.Document, context.UndoStack, context.Events);
+        return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
     }
 }

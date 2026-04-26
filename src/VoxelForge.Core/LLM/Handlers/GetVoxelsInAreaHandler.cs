@@ -1,10 +1,18 @@
 using System.Text.Json;
+using VoxelForge.Core.Services;
 
 namespace VoxelForge.Core.LLM.Handlers;
 
 public sealed class GetVoxelsInAreaHandler : IToolHandler
 {
+    private readonly VoxelQueryService _queryService;
+
     public string ToolName => "get_voxels_in_area";
+
+    public GetVoxelsInAreaHandler(VoxelQueryService queryService)
+    {
+        _queryService = queryService;
+    }
 
     public ToolDefinition GetDefinition() => new()
     {
@@ -31,20 +39,14 @@ public sealed class GetVoxelsInAreaHandler : IToolHandler
         int maxY = arguments.GetProperty("max_y").GetInt32();
         int maxZ = arguments.GetProperty("max_z").GetInt32();
 
-        var results = new List<object>();
-        foreach (var (pos, idx) in model.Voxels)
-        {
-            if (pos.X >= minX && pos.X <= maxX &&
-                pos.Y >= minY && pos.Y <= maxY &&
-                pos.Z >= minZ && pos.Z <= maxZ)
-            {
-                results.Add(new { x = pos.X, y = pos.Y, z = pos.Z, i = idx });
-            }
-        }
+        var request = new VoxelBoxQueryRequest(
+            new Point3(minX, minY, minZ),
+            new Point3(maxX, maxY, maxZ));
+        var result = _queryService.GetVoxelsInArea(model, request);
 
         return new ToolHandlerResult
         {
-            Content = JsonSerializer.Serialize(new { voxels = results, count = results.Count }),
+            Content = JsonSerializer.Serialize(result),
         };
     }
 }

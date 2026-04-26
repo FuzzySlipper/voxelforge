@@ -1,13 +1,20 @@
-using VoxelForge.App.Events;
+using VoxelForge.App.Services;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class FillCommand : IConsoleCommand
 {
+    private readonly VoxelEditingService _editingService;
+
     public string Name => "fill";
     public string[] Aliases => ["f"];
     public string HelpText => "Fill a region. Usage: fill <x1> <y1> <z1> <x2> <y2> <z2> <paletteIndex>";
+
+    public FillCommand(VoxelEditingService editingService)
+    {
+        _editingService = editingService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
@@ -22,14 +29,12 @@ public sealed class FillCommand : IConsoleCommand
 
         var min = new Point3(Math.Min(x1, x2), Math.Min(y1, y2), Math.Min(z1, z2));
         var max = new Point3(Math.Max(x1, x2), Math.Max(y1, y2), Math.Max(z1, z2));
-        var cmd = new App.Commands.FillRegionCommand(context.Model, min, max, idx);
-        context.UndoStack.Execute(cmd);
+        var result = _editingService.FillRegion(
+            context.Document,
+            context.UndoStack,
+            context.Events,
+            new FillVoxelRegionRequest(min, max, idx));
 
-        int count = (max.X - min.X + 1) * (max.Y - min.Y + 1) * (max.Z - min.Z + 1);
-        context.Events.Publish(new VoxelModelChangedEvent(
-            VoxelModelChangeKind.FillRegion,
-            $"Filled region with index {idx}",
-            count));
-        return CommandResult.Ok($"Filled {count} voxels from ({min.X},{min.Y},{min.Z}) to ({max.X},{max.Y},{max.Z}) with index {idx}");
+        return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
     }
 }

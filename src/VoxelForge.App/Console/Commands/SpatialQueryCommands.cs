@@ -1,12 +1,20 @@
 using VoxelForge.Core;
+using VoxelForge.Core.Services;
 
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class GetCubeCommand : IConsoleCommand
 {
+    private readonly VoxelQueryService _queryService;
+
     public string Name => "getcube";
     public string[] Aliases => ["gc"];
     public string HelpText => "Get voxels in a cube region. Usage: getcube <x1> <y1> <z1> <x2> <y2> <z2>";
+
+    public GetCubeCommand(VoxelQueryService queryService)
+    {
+        _queryService = queryService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
@@ -16,26 +24,21 @@ public sealed class GetCubeCommand : IConsoleCommand
         if (!TryParseBox(args, out var min, out var max))
             return CommandResult.Fail("Invalid coordinates. Expected integers.");
 
-        var results = new List<string>();
-        int count = 0;
-        for (int x = min.X; x <= max.X; x++)
-        for (int y = min.Y; y <= max.Y; y++)
-        for (int z = min.Z; z <= max.Z; z++)
-        {
-            var val = context.Model.GetVoxel(new Point3(x, y, z));
-            if (val.HasValue)
-            {
-                var name = context.Model.Palette.Get(val.Value)?.Name ?? "?";
-                results.Add($"  ({x},{y},{z}) = {val.Value} ({name})");
-                count++;
-            }
-        }
-
-        if (count == 0)
+        var queryResult = _queryService.QueryBox(context.Model, new VoxelBoxQueryRequest(min, max));
+        if (queryResult.Count == 0)
             return CommandResult.Ok($"No voxels in ({min.X},{min.Y},{min.Z}) to ({max.X},{max.Y},{max.Z})");
 
-        results.Insert(0, $"{count} voxels in ({min.X},{min.Y},{min.Z}) to ({max.X},{max.Y},{max.Z}):");
-        return CommandResult.Ok(string.Join("\n", results));
+        var lines = new List<string>
+        {
+            $"{queryResult.Count} voxels in ({min.X},{min.Y},{min.Z}) to ({max.X},{max.Y},{max.Z}):",
+        };
+        for (int i = 0; i < queryResult.Voxels.Count; i++)
+        {
+            var voxel = queryResult.Voxels[i];
+            lines.Add($"  ({voxel.Position.X},{voxel.Position.Y},{voxel.Position.Z}) = {voxel.PaletteIndex} ({voxel.MaterialName})");
+        }
+
+        return CommandResult.Ok(string.Join("\n", lines));
     }
 
     private static bool TryParseBox(string[] args, out Point3 min, out Point3 max)
@@ -54,9 +57,16 @@ public sealed class GetCubeCommand : IConsoleCommand
 
 public sealed class GetSphereCommand : IConsoleCommand
 {
+    private readonly VoxelQueryService _queryService;
+
     public string Name => "getsphere";
     public string[] Aliases => ["gs"];
     public string HelpText => "Get voxels in a sphere. Usage: getsphere <cx> <cy> <cz> <radius>";
+
+    public GetSphereCommand(VoxelQueryService queryService)
+    {
+        _queryService = queryService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
@@ -67,45 +77,42 @@ public sealed class GetSphereCommand : IConsoleCommand
             !int.TryParse(args[2], out int cz) || !float.TryParse(args[3], out float radius))
             return CommandResult.Fail("Invalid arguments.");
 
-        float r2 = radius * radius;
-        int ir = (int)MathF.Ceiling(radius);
-        var results = new List<string>();
-        int count = 0;
-
-        for (int x = cx - ir; x <= cx + ir; x++)
-        for (int y = cy - ir; y <= cy + ir; y++)
-        for (int z = cz - ir; z <= cz + ir; z++)
-        {
-            float dx = x - cx, dy = y - cy, dz = z - cz;
-            if (dx * dx + dy * dy + dz * dz > r2) continue;
-
-            var val = context.Model.GetVoxel(new Point3(x, y, z));
-            if (val.HasValue)
-            {
-                var name = context.Model.Palette.Get(val.Value)?.Name ?? "?";
-                results.Add($"  ({x},{y},{z}) = {val.Value} ({name})");
-                count++;
-            }
-        }
-
-        if (count == 0)
+        var center = new Point3(cx, cy, cz);
+        var queryResult = _queryService.QuerySphere(context.Model, new VoxelSphereQueryRequest(center, radius));
+        if (queryResult.Count == 0)
             return CommandResult.Ok($"No voxels within radius {radius} of ({cx},{cy},{cz})");
 
-        results.Insert(0, $"{count} voxels within radius {radius} of ({cx},{cy},{cz}):");
-        return CommandResult.Ok(string.Join("\n", results));
+        var lines = new List<string>
+        {
+            $"{queryResult.Count} voxels within radius {radius} of ({cx},{cy},{cz}):",
+        };
+        for (int i = 0; i < queryResult.Voxels.Count; i++)
+        {
+            var voxel = queryResult.Voxels[i];
+            lines.Add($"  ({voxel.Position.X},{voxel.Position.Y},{voxel.Position.Z}) = {voxel.PaletteIndex} ({voxel.MaterialName})");
+        }
+
+        return CommandResult.Ok(string.Join("\n", lines));
     }
 }
 
 public sealed class CountCommand : IConsoleCommand
 {
+    private readonly VoxelQueryService _queryService;
+
     public string Name => "count";
     public string[] Aliases => [];
     public string HelpText => "Count voxels, optionally filtered. Usage: count | count <paletteIndex> | count cube <x1> <y1> <z1> <x2> <y2> <z2>";
 
+    public CountCommand(VoxelQueryService queryService)
+    {
+        _queryService = queryService;
+    }
+
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length == 0)
-            return CommandResult.Ok($"Total voxels: {context.Model.GetVoxelCount()}");
+            return CommandResult.Ok($"Total voxels: {_queryService.CountVoxels(context.Model)}");
 
         if (args[0] == "cube" && args.Length >= 7)
         {
@@ -116,18 +123,14 @@ public sealed class CountCommand : IConsoleCommand
 
             var min = new Point3(Math.Min(x1, x2), Math.Min(y1, y2), Math.Min(z1, z2));
             var max = new Point3(Math.Max(x1, x2), Math.Max(y1, y2), Math.Max(z1, z2));
-            int count = 0;
-            for (int x = min.X; x <= max.X; x++)
-            for (int y = min.Y; y <= max.Y; y++)
-            for (int z = min.Z; z <= max.Z; z++)
-                if (context.Model.GetVoxel(new Point3(x, y, z)).HasValue) count++;
+            int count = _queryService.CountVoxelsInBox(context.Model, new VoxelBoxQueryRequest(min, max));
 
             return CommandResult.Ok($"Voxels in region: {count}");
         }
 
         if (byte.TryParse(args[0], out byte idx))
         {
-            int count = context.Model.Voxels.Values.Count(v => v == idx);
+            int count = _queryService.CountVoxelsByPalette(context.Model, idx);
             var name = context.Model.Palette.Get(idx)?.Name ?? "?";
             return CommandResult.Ok($"Voxels with palette {idx} ({name}): {count}");
         }

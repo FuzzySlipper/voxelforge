@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
+using VoxelForge.App.Services;
 using VoxelForge.Content;
 using VoxelForge.Core.Reference;
 
@@ -9,16 +10,16 @@ namespace VoxelForge.App.Console.Commands;
 public sealed class RefLoadCommand : IConsoleCommand
 {
     private readonly ReferenceModelState _referenceModelState;
-    private readonly ReferenceModelLoader _loader;
+    private readonly ReferenceAssetService _referenceAssetService;
 
     public string Name => "refload";
     public string[] Aliases => [];
     public string HelpText => "Load a reference model. Usage: refload <filepath>";
 
-    public RefLoadCommand(ReferenceModelState referenceModelState, ReferenceModelLoader loader)
+    public RefLoadCommand(ReferenceModelState referenceModelState, ReferenceAssetService referenceAssetService)
     {
         _referenceModelState = referenceModelState;
-        _loader = loader;
+        _referenceAssetService = referenceAssetService;
     }
 
     public CommandResult Execute(string[] args, CommandContext context)
@@ -26,46 +27,41 @@ public sealed class RefLoadCommand : IConsoleCommand
         if (args.Length < 1)
             return CommandResult.Fail("Usage: refload <filepath>");
 
-        try
-        {
-            var model = _loader.Load(args[0]);
-            _referenceModelState.Add(model);
-            int idx = _referenceModelState.Models.Count - 1;
-            context.Events.Publish(new ReferenceModelChangedEvent(
-                ReferenceModelChangeKind.Loaded,
-                $"Loaded reference model {Path.GetFileName(model.FilePath)}",
-                idx));
-            return CommandResult.Ok(
-                $"Loaded [{idx}] {model.Format} — {model.Meshes.Count} meshes, {model.TotalVertices} vertices, {model.TotalTriangles} triangles");
-        }
-        catch (Exception ex)
-        {
-            return CommandResult.Fail($"Failed to load: {ex.Message}");
-        }
+        var result = _referenceAssetService.LoadModel(
+            _referenceModelState,
+            context.Events,
+            new LoadReferenceAssetRequest(args[0]));
+        return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
     }
 }
 
 public sealed class RefListCommand : IConsoleCommand
 {
     private readonly ReferenceModelState _referenceModelState;
+    private readonly ReferenceAssetService _referenceAssetService;
 
     public string Name => "reflist";
     public string[] Aliases => [];
     public string HelpText => "List loaded reference models.";
 
-    public RefListCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
+    public RefListCommand(ReferenceModelState referenceModelState, ReferenceAssetService referenceAssetService)
+    {
+        _referenceModelState = referenceModelState;
+        _referenceAssetService = referenceAssetService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
-        if (_referenceModelState.Models.Count == 0)
-            return CommandResult.Ok("No reference models loaded.");
+        var result = _referenceAssetService.ListModels(_referenceModelState);
+        if (result.Data is null || result.Data.Count == 0)
+            return CommandResult.Ok(result.Message);
 
         var lines = new List<string>();
-        for (int i = 0; i < _referenceModelState.Models.Count; i++)
+        for (int i = 0; i < result.Data.Count; i++)
         {
-            var m = _referenceModelState.Models[i];
-            var vis = m.IsVisible ? "visible" : "hidden";
-            lines.Add($"  [{i}] {Path.GetFileName(m.FilePath)} — {m.Format}, {m.TotalVertices} verts, {m.RenderMode}, {vis}");
+            var model = result.Data[i];
+            var visibility = model.IsVisible ? "visible" : "hidden";
+            lines.Add($"  [{model.Position}] {model.FileName} — {model.Format}, {model.TotalVertices} verts, {model.RenderMode}, {visibility}");
         }
 
         return CommandResult.Ok(string.Join("\n", lines));
@@ -75,52 +71,50 @@ public sealed class RefListCommand : IConsoleCommand
 public sealed class RefRemoveCommand : IConsoleCommand
 {
     private readonly ReferenceModelState _referenceModelState;
+    private readonly ReferenceAssetService _referenceAssetService;
 
     public string Name => "refremove";
     public string[] Aliases => [];
     public string HelpText => "Remove a reference model. Usage: refremove <index>";
 
-    public RefRemoveCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
+    public RefRemoveCommand(ReferenceModelState referenceModelState, ReferenceAssetService referenceAssetService)
+    {
+        _referenceModelState = referenceModelState;
+        _referenceAssetService = referenceAssetService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length < 1 || !int.TryParse(args[0], out int idx))
             return CommandResult.Fail("Usage: refremove <index>");
 
-        if (_referenceModelState.Get(idx) is null)
-            return CommandResult.Fail($"No reference model at index {idx}.");
-
-        _referenceModelState.RemoveAt(idx);
-        context.Events.Publish(new ReferenceModelChangedEvent(
-            ReferenceModelChangeKind.Removed,
-            $"Removed reference model [{idx}]",
-            idx));
-        return CommandResult.Ok($"Removed reference model [{idx}].");
+        var result = _referenceAssetService.RemoveModel(
+            _referenceModelState,
+            context.Events,
+            new RemoveReferenceAssetRequest(idx));
+        return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
     }
 }
 
 public sealed class RefClearCommand : IConsoleCommand
 {
     private readonly ReferenceModelState _referenceModelState;
+    private readonly ReferenceAssetService _referenceAssetService;
 
     public string Name => "refclear";
     public string[] Aliases => [];
     public string HelpText => "Remove all loaded reference models.";
 
-    public RefClearCommand(ReferenceModelState referenceModelState) => _referenceModelState = referenceModelState;
+    public RefClearCommand(ReferenceModelState referenceModelState, ReferenceAssetService referenceAssetService)
+    {
+        _referenceModelState = referenceModelState;
+        _referenceAssetService = referenceAssetService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
-        int count = _referenceModelState.Models.Count;
-        if (count == 0)
-            return CommandResult.Ok("No reference models to remove.");
-
-        _referenceModelState.Clear();
-        context.Events.Publish(new ReferenceModelChangedEvent(
-            ReferenceModelChangeKind.Cleared,
-            $"Removed {count} reference model(s)",
-            null));
-        return CommandResult.Ok($"Removed {count} reference model(s).");
+        var result = _referenceAssetService.ClearModels(_referenceModelState, context.Events);
+        return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
     }
 }
 

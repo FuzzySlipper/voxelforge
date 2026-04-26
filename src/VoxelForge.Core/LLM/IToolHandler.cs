@@ -1,4 +1,5 @@
 using System.Text.Json;
+using VoxelForge.Core.Services;
 
 namespace VoxelForge.Core.LLM;
 
@@ -13,15 +14,11 @@ public interface IToolHandler
 }
 
 /// <summary>
-/// Result of a tool handler invocation: content for the LLM and an action to apply.
+/// Result of a tool handler invocation: content for the LLM and an optional typed mutation intent.
 /// </summary>
 public sealed class ToolHandlerResult
 {
     public required string Content { get; init; }
     public bool IsError { get; init; }
-    /// <summary>
-    /// Optional action that modifies the model. Called by ToolLoop after generating the result.
-    /// Null if the tool is read-only (query/describe).
-    /// </summary>
-    public Action? ApplyAction { get; init; }
+    public VoxelMutationIntent? MutationIntent { get; init; }
 }

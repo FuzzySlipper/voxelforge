@@ -44,9 +44,10 @@ public enum ExecutionMode
 /// </summary>
 public sealed class CommandContext
 {
-    public required VoxelForge.Core.VoxelModel Model { get; init; }
-    public required VoxelForge.Core.LabelIndex Labels { get; init; }
-    public required List<VoxelForge.Core.AnimationClip> Clips { get; init; }
+    public required EditorDocumentState Document { get; init; }
+    public VoxelForge.Core.VoxelModel Model => Document.Model;
+    public VoxelForge.Core.LabelIndex Labels => Document.Labels;
+    public List<VoxelForge.Core.AnimationClip> Clips => Document.Clips;
     public required VoxelForge.App.Commands.UndoStack UndoStack { get; init; }
     public required IEventPublisher Events { get; init; }
     public ExecutionMode Mode { get; set; } = ExecutionMode.Interactive;

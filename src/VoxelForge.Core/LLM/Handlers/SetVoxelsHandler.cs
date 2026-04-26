@@ -1,10 +1,18 @@
 using System.Text.Json;
+using VoxelForge.Core.Services;
 
 namespace VoxelForge.Core.LLM.Handlers;
 
 public sealed class SetVoxelsHandler : IToolHandler
 {
+    private readonly VoxelMutationIntentService _intentService;
+
     public string ToolName => "set_voxels";
+
+    public SetVoxelsHandler(VoxelMutationIntentService intentService)
+    {
+        _intentService = intentService;
+    }
 
     public ToolDefinition GetDefinition() => new()
     {
@@ -36,28 +44,23 @@ public sealed class SetVoxelsHandler : IToolHandler
     public ToolHandlerResult Handle(JsonElement arguments, VoxelModel model, LabelIndex labels, List<AnimationClip> clips)
     {
         var voxels = arguments.GetProperty("voxels");
-        int count = 0;
+        var requests = new List<VoxelAssignmentRequest>();
 
-        // Capture for deferred apply
-        var toSet = new List<(Point3 Pos, byte Index)>();
-        foreach (var v in voxels.EnumerateArray())
+        foreach (var voxel in voxels.EnumerateArray())
         {
-            int x = v.GetProperty("x").GetInt32();
-            int y = v.GetProperty("y").GetInt32();
-            int z = v.GetProperty("z").GetInt32();
-            byte i = (byte)v.GetProperty("i").GetInt32();
-            toSet.Add((new Point3(x, y, z), i));
-            count++;
+            int x = voxel.GetProperty("x").GetInt32();
+            int y = voxel.GetProperty("y").GetInt32();
+            int z = voxel.GetProperty("z").GetInt32();
+            int paletteIndex = voxel.GetProperty("i").GetInt32();
+            requests.Add(new VoxelAssignmentRequest(new Point3(x, y, z), paletteIndex));
         }
 
+        var result = _intentService.BuildSetIntent(requests);
         return new ToolHandlerResult
         {
-            Content = $"Set {count} voxel(s).",
-            ApplyAction = () =>
-            {
-                foreach (var (pos, idx) in toSet)
-                    model.SetVoxel(pos, idx);
-            },
+            Content = result.Message,
+            IsError = !result.Success,
+            MutationIntent = result.Intent,
         };
     }
 }

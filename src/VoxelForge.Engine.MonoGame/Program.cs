@@ -35,9 +35,7 @@ var router = CommandRegistry.Build(loggerFactory, configState, referenceModelSta
     screenshotFactory: () => game?.ScreenshotProvider);
 var context = new CommandContext
 {
-    Model = documentState.Model,
-    Labels = documentState.Labels,
-    Clips = documentState.Clips,
+    Document = documentState,
     UndoStack = undoStack,
     Events = events,
 };

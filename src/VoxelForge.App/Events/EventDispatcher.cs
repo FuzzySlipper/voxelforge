@@ -13,6 +13,8 @@ public interface IApplicationEvent
 public interface IEventPublisher
 {
     void Publish<TEvent>(TEvent applicationEvent) where TEvent : IApplicationEvent;
+    void Publish(IApplicationEvent applicationEvent);
+    void PublishAll(IReadOnlyList<IApplicationEvent> applicationEvents);
 }
 
 /// <summary>
@@ -37,7 +39,7 @@ public interface IEventDispatcher : IEventPublisher
 /// </summary>
 public sealed class ApplicationEventDispatcher : IEventDispatcher
 {
-    private readonly Dictionary<Type, List<object>> _handlers = [];
+    private readonly Dictionary<Type, List<IApplicationEventHandlerInvoker>> _handlers = [];
 
     public void Register<TEvent>(IEventHandler<TEvent> handler) where TEvent : IApplicationEvent
     {
@@ -50,19 +52,53 @@ public sealed class ApplicationEventDispatcher : IEventDispatcher
             _handlers[eventType] = handlers;
         }
 
-        handlers.Add(handler);
+        handlers.Add(new ApplicationEventHandlerInvoker<TEvent>(handler));
     }
 
     public void Publish<TEvent>(TEvent applicationEvent) where TEvent : IApplicationEvent
     {
+        Publish((IApplicationEvent)applicationEvent);
+    }
+
+    public void Publish(IApplicationEvent applicationEvent)
+    {
         ArgumentNullException.ThrowIfNull(applicationEvent);
 
-        var eventType = typeof(TEvent);
+        var eventType = applicationEvent.GetType();
         if (!_handlers.TryGetValue(eventType, out var handlers))
             return;
 
         var snapshot = handlers.ToArray();
         for (int i = 0; i < snapshot.Length; i++)
-            ((IEventHandler<TEvent>)snapshot[i]).Handle(applicationEvent);
+            snapshot[i].Handle(applicationEvent);
+    }
+
+    public void PublishAll(IReadOnlyList<IApplicationEvent> applicationEvents)
+    {
+        ArgumentNullException.ThrowIfNull(applicationEvents);
+
+        for (int i = 0; i < applicationEvents.Count; i++)
+            Publish(applicationEvents[i]);
+    }
+
+    private interface IApplicationEventHandlerInvoker
+    {
+        void Handle(IApplicationEvent applicationEvent);
+    }
+
+    private sealed class ApplicationEventHandlerInvoker<TEvent> : IApplicationEventHandlerInvoker
+        where TEvent : IApplicationEvent
+    {
+        private readonly IEventHandler<TEvent> _handler;
+
+        public ApplicationEventHandlerInvoker(IEventHandler<TEvent> handler)
+        {
+            _handler = handler;
+        }
+
+        public void Handle(IApplicationEvent applicationEvent)
+        {
+            _handler.Handle((TEvent)applicationEvent);
+        }
     }
 }

@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
 using VoxelForge.App.Console.Commands;
 using VoxelForge.App.Reference;
+using VoxelForge.App.Services;
 using VoxelForge.Content;
+using VoxelForge.Core.Services;
 using VoxelForge.Core.Screenshot;
 
 namespace VoxelForge.App.Console;
@@ -20,38 +22,44 @@ public static class CommandRegistry
         Func<IScreenshotProvider?>? screenshotFactory = null)
     {
         var logger = loggerFactory.CreateLogger<CommandRouter>();
+        var voxelEditingService = new VoxelEditingService();
+        var voxelQueryService = new VoxelQueryService();
+        var regionEditingService = new RegionEditingService();
+        var paletteMaterialService = new PaletteMaterialService();
+        var projectLifecycleService = new ProjectLifecycleService(loggerFactory);
+        var referenceAssetService = new ReferenceAssetService(refLoader);
 
         var commands = new List<IConsoleCommand>
         {
-            new DescribeCommand(),
-            new SetVoxelConsoleCommand(),
-            new RemoveVoxelConsoleCommand(),
-            new FillCommand(),
-            new GetVoxelCommand(),
-            new GetCubeCommand(),
-            new GetSphereCommand(),
-            new CountCommand(),
+            new DescribeCommand(voxelQueryService),
+            new SetVoxelConsoleCommand(voxelEditingService),
+            new RemoveVoxelConsoleCommand(voxelEditingService),
+            new FillCommand(voxelEditingService),
+            new GetVoxelCommand(voxelQueryService),
+            new GetCubeCommand(voxelQueryService),
+            new GetSphereCommand(voxelQueryService),
+            new CountCommand(voxelQueryService),
             new UndoCommand(),
             new RedoCommand(),
-            new ListRegionsCommand(),
-            new LabelVoxelCommand(),
-            new PaletteCommand(),
+            new ListRegionsCommand(regionEditingService),
+            new LabelVoxelCommand(regionEditingService),
+            new PaletteCommand(paletteMaterialService),
             new PaletteMapConsoleCommand(),
             new PaletteReduceConsoleCommand(),
             new AoBakeConsoleCommand(),
             new EdgeDarkenConsoleCommand(),
             new LightBakeConsoleCommand(),
-            new SaveCommand(loggerFactory),
-            new LoadCommand(loggerFactory),
+            new SaveCommand(projectLifecycleService),
+            new LoadCommand(projectLifecycleService),
             new ListFilesCommand(),
-            new ClearCommand(),
-            new GridCommand(),
+            new ClearCommand(voxelEditingService),
+            new GridCommand(voxelEditingService),
             new ConfigCommand(config),
             new MeasureCommand(config),
-            new RefLoadCommand(referenceModelState, refLoader),
-            new RefListCommand(referenceModelState),
-            new RefRemoveCommand(referenceModelState),
-            new RefClearCommand(referenceModelState),
+            new RefLoadCommand(referenceModelState, referenceAssetService),
+            new RefListCommand(referenceModelState, referenceAssetService),
+            new RefRemoveCommand(referenceModelState, referenceAssetService),
+            new RefClearCommand(referenceModelState, referenceAssetService),
             new RefTransformCommand(referenceModelState),
             new RefModeCommand(referenceModelState),
             new RefVisibilityCommand(referenceModelState, show: true),
@@ -65,9 +73,9 @@ public static class CommandRegistry
             new RefTexEmissiveCommand(referenceModelState, refLoader),
             new RefSaveMetaCommand(referenceModelState),
             new RefLoadMetaCommand(referenceModelState, refLoader),
-            new ImgLoadCommand(referenceImageState),
-            new ImgListCommand(referenceImageState),
-            new ImgRemoveCommand(referenceImageState),
+            new ImgLoadCommand(referenceImageState, referenceAssetService),
+            new ImgListCommand(referenceImageState, referenceAssetService),
+            new ImgRemoveCommand(referenceImageState, referenceAssetService),
             new ScreenshotCommand(screenshotFactory ?? (() => null)),
             new VoxelizeCommand(referenceModelState, loggerFactory),
             new VoxelizeCompareCommand(referenceModelState, loggerFactory),
