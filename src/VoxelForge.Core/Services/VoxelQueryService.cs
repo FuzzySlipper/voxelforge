@@ -109,6 +109,12 @@ public sealed class VoxelAreaEntryInfo
 
     [JsonPropertyName("i")]
     public required byte PaletteIndex { get; init; }
+
+    [JsonPropertyName("regionId")]
+    public string? RegionId { get; init; }
+
+    [JsonPropertyName("regionName")]
+    public string? RegionName { get; init; }
 }
 
 /// <summary>
@@ -229,6 +235,11 @@ public sealed class VoxelQueryService
 
     public VoxelAreaInfo GetVoxelsInArea(VoxelModel model, VoxelBoxQueryRequest request)
     {
+        return GetVoxelsInArea(model, labels: null, request: request);
+    }
+
+    public VoxelAreaInfo GetVoxelsInArea(VoxelModel model, LabelIndex? labels, VoxelBoxQueryRequest request)
+    {
         ArgumentNullException.ThrowIfNull(model);
 
         var voxels = new List<VoxelAreaEntryInfo>();
@@ -239,12 +250,24 @@ public sealed class VoxelQueryService
                 position.Y >= request.Min.Y && position.Y <= request.Max.Y &&
                 position.Z >= request.Min.Z && position.Z <= request.Max.Z)
             {
+                string? regionId = null;
+                string? regionName = null;
+                var region = labels?.GetRegion(position);
+                if (region.HasValue)
+                {
+                    regionId = region.Value.Value;
+                    if (labels?.Regions.TryGetValue(region.Value, out var regionDef) == true)
+                        regionName = regionDef.Name;
+                }
+
                 voxels.Add(new VoxelAreaEntryInfo
                 {
                     X = position.X,
                     Y = position.Y,
                     Z = position.Z,
                     PaletteIndex = entry.Value,
+                    RegionId = regionId,
+                    RegionName = regionName,
                 });
             }
         }

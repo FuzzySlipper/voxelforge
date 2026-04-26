@@ -7,6 +7,7 @@ public interface IVoxelForgeMcpTool
     string Name { get; }
     string Description { get; }
     JsonElement InputSchema { get; }
+    bool IsReadOnly { get; }
     McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken);
 }
 

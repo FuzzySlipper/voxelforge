@@ -20,7 +20,7 @@ public abstract class VoxelForgeMcpServerTool : McpServerTool
             InputSchema = tool.InputSchema,
             Annotations = new ToolAnnotations
             {
-                ReadOnlyHint = true,
+                ReadOnlyHint = tool.IsReadOnly,
                 OpenWorldHint = false,
             },
         };

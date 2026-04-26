@@ -42,6 +42,8 @@ public abstract class ConsoleCommandMcpTool : IVoxelForgeMcpTool
 
     public JsonElement InputSchema => _inputSchema;
 
+    public bool IsReadOnly => true;
+
     public McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

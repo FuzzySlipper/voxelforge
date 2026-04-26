@@ -9,7 +9,7 @@ public sealed class DescribeModelMcpTool : LlmToolMcpTool
         DescribeModelHandler handler,
         VoxelForgeMcpSession session,
         LlmToolApplicationService applicationService)
-        : base(handler, session, applicationService)
+        : base(handler, session, applicationService, isReadOnly: true)
     {
     }
 }

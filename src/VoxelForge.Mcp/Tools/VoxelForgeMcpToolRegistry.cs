@@ -20,12 +20,51 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<LlmToolApplicationService>();
 
         services.AddSingleton<DescribeModelHandler>();
-        services.AddSingleton<DescribeModelMcpTool>();
-        services.AddSingleton<McpServerTool, DescribeModelServerTool>();
+        services.AddSingleton<GetModelInfoHandler>();
+        services.AddSingleton<SetVoxelsHandler>();
+        services.AddSingleton<RemoveVoxelsHandler>();
+        services.AddSingleton<GetVoxelsInAreaHandler>();
 
+        services.AddSingleton<DescribeModelMcpTool>();
+        services.AddSingleton<GetModelInfoMcpTool>();
+        services.AddSingleton<SetVoxelsMcpTool>();
+        services.AddSingleton<RemoveVoxelsMcpTool>();
+        services.AddSingleton<GetVoxelsInAreaMcpTool>();
+        services.AddSingleton<ViewModelMcpTool>();
+        services.AddSingleton<ViewFromAngleMcpTool>();
+        services.AddSingleton<CompareReferenceMcpTool>();
+
+        services.AddSingleton<McpServerTool, DescribeModelServerTool>();
+        services.AddSingleton<McpServerTool, GetModelInfoServerTool>();
+        services.AddSingleton<McpServerTool, SetVoxelsServerTool>();
+        services.AddSingleton<McpServerTool, RemoveVoxelsServerTool>();
+        services.AddSingleton<McpServerTool, GetVoxelsInAreaServerTool>();
+        services.AddSingleton<McpServerTool, ViewModelServerTool>();
+        services.AddSingleton<McpServerTool, ViewFromAngleServerTool>();
+        services.AddSingleton<McpServerTool, CompareReferenceServerTool>();
+
+        services.AddSingleton<FillCommand>();
+        services.AddSingleton<GetVoxelCommand>();
         services.AddSingleton<CountCommand>();
+        services.AddSingleton<ClearCommand>();
+        services.AddSingleton<UndoCommand>();
+        services.AddSingleton<RedoCommand>();
+
         services.AddSingleton<ConsoleCountMcpTool>();
+        services.AddSingleton<FillBoxMcpTool>();
+        services.AddSingleton<GetVoxelMcpTool>();
+        services.AddSingleton<CountVoxelsMcpTool>();
+        services.AddSingleton<ClearModelMcpTool>();
+        services.AddSingleton<UndoMcpTool>();
+        services.AddSingleton<RedoMcpTool>();
+
         services.AddSingleton<McpServerTool, ConsoleCountServerTool>();
+        services.AddSingleton<McpServerTool, FillBoxServerTool>();
+        services.AddSingleton<McpServerTool, GetVoxelServerTool>();
+        services.AddSingleton<McpServerTool, CountVoxelsServerTool>();
+        services.AddSingleton<McpServerTool, ClearModelServerTool>();
+        services.AddSingleton<McpServerTool, UndoServerTool>();
+        services.AddSingleton<McpServerTool, RedoServerTool>();
 
         return services;
     }

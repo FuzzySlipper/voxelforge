@@ -18,7 +18,8 @@ public abstract class LlmToolMcpTool : IVoxelForgeMcpTool
     protected LlmToolMcpTool(
         IToolHandler handler,
         VoxelForgeMcpSession session,
-        LlmToolApplicationService applicationService)
+        LlmToolApplicationService applicationService,
+        bool isReadOnly)
     {
         ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(session);
@@ -28,6 +29,7 @@ public abstract class LlmToolMcpTool : IVoxelForgeMcpTool
         _session = session;
         _applicationService = applicationService;
         _definition = handler.GetDefinition();
+        IsReadOnly = isReadOnly;
     }
 
     public string Name => _definition.Name;
@@ -35,6 +37,8 @@ public abstract class LlmToolMcpTool : IVoxelForgeMcpTool
     public string Description => _definition.Description;
 
     public JsonElement InputSchema => _definition.ParametersSchema;
+
+    public bool IsReadOnly { get; }
 
     public McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken)
     {

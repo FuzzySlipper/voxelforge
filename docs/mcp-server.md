@@ -45,9 +45,24 @@ Add an HTTP MCP server entry pointing at the `/mcp` endpoint. Example:
 
 Start `VoxelForge.Mcp` first, then launch or reload the MCP client.
 
-## Initial tools
+## Tools
 
-- `describe_model` — read-only LLM-tool adapter that describes the current in-memory voxel document.
-- `console_count` — compatibility adapter over the headless console `count` command using already-tokenized argument arrays; it does not rebuild command-line strings.
+Core LLM-handler adapters:
+
+- `describe_model` — text summary of the current in-memory voxel document.
+- `get_model_info` — JSON model stats, bounds, palette entries, labels, and animation clips.
+- `set_voxels` — batch set voxel coordinates to palette indices through undoable App services.
+- `remove_voxels` — batch remove voxel coordinates through undoable App services.
+- `get_voxels_in_area` — query voxels in a bounding box, including region label id/name when present.
+- `view_model`, `view_from_angle`, `compare_reference` — registered visual tool names that return a clear headless-mode error because screenshots require the FNA renderer.
+
+Typed console-command adapters:
+
+- `fill_box` — fill an inclusive cuboid with a palette index.
+- `get_voxel` — read one coordinate.
+- `count_voxels` — count all voxels, by palette index, or inside an inclusive cuboid.
+- `clear_model` — remove all voxels.
+- `undo` / `redo` — edit history for the MCP session.
+- `console_count` — legacy compatibility adapter over the headless console `count` command using already-tokenized argument arrays; it does not rebuild command-line strings.
 
 Future MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.

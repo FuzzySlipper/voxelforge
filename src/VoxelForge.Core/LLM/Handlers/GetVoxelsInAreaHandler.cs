@@ -42,7 +42,7 @@ public sealed class GetVoxelsInAreaHandler : IToolHandler
         var request = new VoxelBoxQueryRequest(
             new Point3(minX, minY, minZ),
             new Point3(maxX, maxY, maxZ));
-        var result = _queryService.GetVoxelsInArea(model, request);
+        var result = _queryService.GetVoxelsInArea(model, labels, request);
 
         return new ToolHandlerResult
         {
