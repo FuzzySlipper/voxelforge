@@ -7,7 +7,6 @@ using VoxelForge.App.Events;
 using VoxelForge.App.Services;
 using VoxelForge.App.Tools;
 using VoxelForge.Core;
-using VoxelForge.Core.Services;
 using VoxelForge.Engine.MonoGame.Rendering;
 
 namespace VoxelForge.Engine.MonoGame;
@@ -61,19 +60,15 @@ public sealed class InputHandler
         {
             if (state.SelectedVoxels.Count > 0)
             {
-                var assignments = new List<VoxelAssignment>(state.SelectedVoxels.Count);
+                var positions = new List<Point3>(state.SelectedVoxels.Count);
                 foreach (var position in state.SelectedVoxels)
-                    assignments.Add(new VoxelAssignment(position, null));
+                    positions.Add(position);
 
-                var result = _voxelEditingService.ApplyMutationIntent(
+                var result = _voxelEditingService.RemoveVoxels(
                     state.Document,
                     undo,
                     _events,
-                    new ApplyVoxelMutationIntentRequest(new VoxelMutationIntent
-                    {
-                        Assignments = assignments,
-                        Description = $"Delete {assignments.Count} voxels",
-                    }));
+                    new RemoveVoxelsRequest(positions, $"Delete {positions.Count} voxels"));
 
                 if (result.Success)
                     state.SelectedVoxels.Clear();

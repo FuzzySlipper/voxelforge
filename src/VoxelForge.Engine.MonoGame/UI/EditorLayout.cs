@@ -34,13 +34,14 @@ public sealed class EditorLayout
     {
         var regionEditingService = new RegionEditingService();
         var paletteMaterialService = new PaletteMaterialService();
+        var animationEditingService = new AnimationEditingService();
 
         DragDrop = new ContentDragDrop();
         ToolPanel = new ToolPanel(state);
         PalettePanel = new PalettePanel(state);
         ContentBrowser = new ContentBrowserPanel(DragDrop);
         RegionPanel = new RegionPanel(state, undoStack, events, regionEditingService);
-        AnimationPanel = new AnimationPanel(state);
+        AnimationPanel = new AnimationPanel(state, events, animationEditingService);
         PropertiesPanel = new PropertiesPanel(state);
         LlmPanel = new LlmPanel(state);
 

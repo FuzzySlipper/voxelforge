@@ -17,7 +17,7 @@ using VoxelForge.Engine.MonoGame.UI.Panels;
 
 namespace VoxelForge.Engine.MonoGame;
 
-public sealed class VoxelForgeGame : Game
+public sealed class VoxelForgeGame : Game, IEditorMenuActions
 {
     private readonly GraphicsDeviceManager _graphics;
     private readonly EditorState _editorState;
@@ -132,33 +132,39 @@ public sealed class VoxelForgeGame : Game
         _desktop.Root = _editorLayout.Root;
         _editorLayout.RefModelPanel?.SetDesktop(_desktop);
 
-        // Log menu-dispatched command results to console for visibility
-        if (_menuDispatcher is not null)
-        {
-            _menuDispatcher.CommandExecuted += result =>
-            {
-                var prefix = result.Success ? "[OK]" : "[FAIL]";
-                System.Console.Error.WriteLine($"{prefix} {result.Message}");
-            };
-        }
-
         if (_editorLayout.MenuBar is { } menuBar)
-        {
-            menuBar.Initialize(_desktop, Exit);
-            menuBar.OnSnapFront = () => _camera.SnapToFront();
-            menuBar.OnSnapSide = () => _camera.SnapToSide();
-            menuBar.OnSnapTop = () => _camera.SnapToTop();
-            menuBar.OnToggleWireframe = () =>
-            {
-                if (_voxelRenderer is not null)
-                    _voxelRenderer.WireframeEnabled = !_voxelRenderer.WireframeEnabled;
-            };
-        }
+            menuBar.Initialize(_desktop, this);
 
         _previousMouse = Mouse.GetState();
         _previousKeyboard = Keyboard.GetState();
 
         Ready.Set();
+    }
+
+    public void ExitApplication()
+    {
+        Exit();
+    }
+
+    public void SnapFront()
+    {
+        _camera.SnapToFront();
+    }
+
+    public void SnapSide()
+    {
+        _camera.SnapToSide();
+    }
+
+    public void SnapTop()
+    {
+        _camera.SnapToTop();
+    }
+
+    public void ToggleWireframe()
+    {
+        if (_voxelRenderer is not null)
+            _voxelRenderer.WireframeEnabled = !_voxelRenderer.WireframeEnabled;
     }
 
     protected override void Update(GameTime gameTime)

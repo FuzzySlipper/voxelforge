@@ -67,11 +67,8 @@ public sealed class StdioHost
                 }
                 else
                 {
-                    var input = request.Args is { Length: > 0 }
-                        ? $"{request.Command} {string.Join(" ", request.Args)}"
-                        : request.Command;
-
-                    var result = _router.Execute(input, _context);
+                    var args = request.Args ?? [];
+                    var result = _router.Execute(request.Command, args, _context);
                     response = new StdioResponse
                     {
                         Ok = result.Success,

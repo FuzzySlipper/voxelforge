@@ -92,9 +92,9 @@ public sealed class ReferenceModelPanel
 
         // Quick rotate buttons
         var rotBtnRow = new HorizontalStackPanel { Spacing = 2 };
-        rotBtnRow.Widgets.Add(MakeButton("X+90", () => DispatchAndRefresh($"refrotate {_selectedIndex} x")));
-        rotBtnRow.Widgets.Add(MakeButton("Y+90", () => DispatchAndRefresh($"refrotate {_selectedIndex} y")));
-        rotBtnRow.Widgets.Add(MakeButton("Z+90", () => DispatchAndRefresh($"refrotate {_selectedIndex} z")));
+        rotBtnRow.Widgets.Add(MakeButton("X+90", () => DispatchAndRefresh("refrotate", _selectedIndex.ToString(), "x")));
+        rotBtnRow.Widgets.Add(MakeButton("Y+90", () => DispatchAndRefresh("refrotate", _selectedIndex.ToString(), "y")));
+        rotBtnRow.Widgets.Add(MakeButton("Z+90", () => DispatchAndRefresh("refrotate", _selectedIndex.ToString(), "z")));
         _propertiesSection.Widgets.Add(rotBtnRow);
 
         // -- Scale
@@ -113,7 +113,7 @@ public sealed class ReferenceModelPanel
         orientBtn.Click += (_, _) =>
         {
             if (_selectedIndex >= 0)
-                DispatchAndRefresh($"reforient {_selectedIndex}");
+                DispatchAndRefresh("reforient", _selectedIndex.ToString());
         };
         _propertiesSection.Widgets.Add(orientBtn);
 
@@ -144,7 +144,7 @@ public sealed class ReferenceModelPanel
         {
             if (_selectedIndex >= 0)
             {
-                _dispatcher.Dispatch($"refremove {_selectedIndex}");
+                _dispatcher.Dispatch("refremove", _selectedIndex.ToString());
                 _selectedIndex = -1;
                 Refresh();
             }
@@ -179,17 +179,17 @@ public sealed class ReferenceModelPanel
         {
             if (_selectedIndex < 0) return;
             var clipIdx = _clipCombo.SelectedIndex ?? 0;
-            _dispatcher.Dispatch($"refanim {_selectedIndex} play {clipIdx}");
+            _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "play", clipIdx.ToString());
         }));
         transportRow.Widgets.Add(MakeButton("Pause", () =>
         {
             if (_selectedIndex >= 0)
-                _dispatcher.Dispatch($"refanim {_selectedIndex} pause");
+                _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "pause");
         }));
         transportRow.Widgets.Add(MakeButton("Stop", () =>
         {
             if (_selectedIndex >= 0)
-                _dispatcher.Dispatch($"refanim {_selectedIndex} stop");
+                _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "stop");
         }));
         _animSection.Widgets.Add(transportRow);
 
@@ -346,7 +346,16 @@ public sealed class ReferenceModelPanel
             float.TryParse(_rotZ.Text, out float rz))
         {
             var scale = _referenceModelState.Get(_selectedIndex)?.Scale ?? 1f;
-            _dispatcher.Dispatch($"reftransform {_selectedIndex} {px} {py} {pz} {rx} {ry} {rz} {scale}");
+            _dispatcher.Dispatch(
+                "reftransform",
+                _selectedIndex.ToString(),
+                px.ToString(),
+                py.ToString(),
+                pz.ToString(),
+                rx.ToString(),
+                ry.ToString(),
+                rz.ToString(),
+                scale.ToString());
         }
     }
 
@@ -354,7 +363,7 @@ public sealed class ReferenceModelPanel
     {
         if (_updatingFields || _selectedIndex < 0) return;
         if (float.TryParse(_scaleField.Text, out float s))
-            _dispatcher.Dispatch($"refscale {_selectedIndex} {s}");
+            _dispatcher.Dispatch("refscale", _selectedIndex.ToString(), s.ToString());
     }
 
     private void SetScale(float value)
@@ -363,21 +372,21 @@ public sealed class ReferenceModelPanel
         _updatingFields = true;
         _scaleField.Text = value.ToString("F2");
         _updatingFields = false;
-        _dispatcher.Dispatch($"refscale {_selectedIndex} {value}");
+        _dispatcher.Dispatch("refscale", _selectedIndex.ToString(), value.ToString());
     }
 
     private void OnRenderModeChanged()
     {
         if (_updatingFields || _selectedIndex < 0) return;
         var mode = (_renderModeCombo.SelectedItem as Label)?.Tag as string ?? "solid";
-        _dispatcher.Dispatch($"refmode {_selectedIndex} {mode}");
+        _dispatcher.Dispatch("refmode", _selectedIndex.ToString(), mode);
     }
 
     private void OnVisibilityChanged()
     {
         if (_updatingFields || _selectedIndex < 0) return;
         var cmd = _visibilityCheck.IsChecked ? "refshow" : "refhide";
-        _dispatcher.Dispatch($"{cmd} {_selectedIndex}");
+        _dispatcher.Dispatch(cmd, _selectedIndex.ToString());
     }
 
     private void OnClipSelected()
@@ -387,13 +396,13 @@ public sealed class ReferenceModelPanel
         // If currently animating, switch to the new clip
         var model = _referenceModelState.Get(_selectedIndex);
         if (model?.IsAnimating == true)
-            _dispatcher.Dispatch($"refanim {_selectedIndex} play {clipIdx}");
+            _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "play", clipIdx.ToString());
     }
 
     private void OnTimelineScrubbed()
     {
         if (_updatingFields || _selectedIndex < 0) return;
-        _dispatcher.Dispatch($"refanim {_selectedIndex} frame {_timelineSlider.Value:F3}");
+        _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "frame", _timelineSlider.Value.ToString("F3"));
         var model = _referenceModelState.Get(_selectedIndex);
         if (model is not null)
         {
@@ -406,7 +415,7 @@ public sealed class ReferenceModelPanel
     {
         if (_updatingFields || _selectedIndex < 0) return;
         if (float.TryParse(_speedField.Text, out float speed))
-            _dispatcher.Dispatch($"refanim {_selectedIndex} speed {speed}");
+            _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "speed", speed.ToString());
     }
 
     private void SetSpeed(float value)
@@ -415,7 +424,7 @@ public sealed class ReferenceModelPanel
         _updatingFields = true;
         _speedField.Text = value.ToString("F1");
         _updatingFields = false;
-        _dispatcher.Dispatch($"refanim {_selectedIndex} speed {value}");
+        _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "speed", value.ToString());
     }
 
     private void StepFrame(int direction)
@@ -428,7 +437,7 @@ public sealed class ReferenceModelPanel
         float fps = clip.TicksPerSecond > 0 ? clip.TicksPerSecond : 25f;
         float frameTime = 1f / fps;
         float newTime = Math.Clamp(model.AnimationTime + direction * frameTime, 0, clip.Duration);
-        _dispatcher.Dispatch($"refanim {_selectedIndex} frame {newTime:F3}");
+        _dispatcher.Dispatch("refanim", _selectedIndex.ToString(), "frame", newTime.ToString("F3"));
     }
 
     /// <summary>
@@ -449,9 +458,9 @@ public sealed class ReferenceModelPanel
         _updatingFields = false;
     }
 
-    private void DispatchAndRefresh(string command)
+    private void DispatchAndRefresh(string commandName, params string[] args)
     {
-        _dispatcher.Dispatch(command);
+        _dispatcher.Dispatch(commandName, args);
         Refresh();
     }
 

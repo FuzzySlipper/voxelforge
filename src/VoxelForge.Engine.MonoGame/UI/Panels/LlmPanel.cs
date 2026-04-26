@@ -13,11 +13,6 @@ public sealed class LlmPanel
 
     public Widget Root => _root;
 
-    /// <summary>
-    /// Fired when the user submits a message. The string is the user input.
-    /// </summary>
-    public event Action<string>? MessageSubmitted;
-
     public LlmPanel(EditorState state)
     {
         _root = new VerticalStackPanel { Spacing = 4 };
@@ -57,7 +52,6 @@ public sealed class LlmPanel
         _historyLabel.Text = string.Join("\n", _messages);
         _inputBox.Text = "";
 
-        MessageSubmitted?.Invoke(text);
     }
 
     public void AppendResponse(string response)

@@ -209,6 +209,65 @@ public sealed class VoxelEditingServiceTests
         Assert.Equal(regionId, labels.GetRegion(position));
     }
 
+    [Fact]
+    public void RemoveVoxels_RemovesSelectionAsSingleUndoableOperation()
+    {
+        var model = CreateModel();
+        var first = new Point3(0, 0, 0);
+        var second = new Point3(1, 0, 0);
+        model.SetVoxel(first, 1);
+        model.SetVoxel(second, 2);
+        var document = new EditorDocumentState(model, CreateLabels());
+        var events = new ApplicationEventDispatcher();
+        var undoStack = CreateUndoStack(events);
+
+        var result = new VoxelEditingService().RemoveVoxels(
+            document,
+            undoStack,
+            events,
+            new RemoveVoxelsRequest([first, second], "Delete 2 voxels"));
+
+        Assert.True(result.Success);
+        Assert.Equal(0, model.GetVoxelCount());
+
+        undoStack.Undo();
+
+        Assert.Equal((byte)1, model.GetVoxel(first));
+        Assert.Equal((byte)2, model.GetVoxel(second));
+    }
+
+    [Fact]
+    public void FloodFill_FillsConnectedSamePaletteOnlyThroughService()
+    {
+        var model = CreateModel();
+        var start = new Point3(0, 0, 0);
+        var connected = new Point3(1, 0, 0);
+        var separate = new Point3(4, 0, 0);
+        model.SetVoxel(start, 1);
+        model.SetVoxel(connected, 1);
+        model.SetVoxel(separate, 1);
+        var document = new EditorDocumentState(model, CreateLabels());
+        var events = new ApplicationEventDispatcher();
+        var undoStack = CreateUndoStack(events);
+
+        var result = new VoxelEditingService().FloodFill(
+            document,
+            undoStack,
+            events,
+            new FloodFillVoxelRequest(start, 3));
+
+        Assert.True(result.Success);
+        Assert.Equal((byte)3, model.GetVoxel(start));
+        Assert.Equal((byte)3, model.GetVoxel(connected));
+        Assert.Equal((byte)1, model.GetVoxel(separate));
+
+        undoStack.Undo();
+
+        Assert.Equal((byte)1, model.GetVoxel(start));
+        Assert.Equal((byte)1, model.GetVoxel(connected));
+        Assert.Equal((byte)1, model.GetVoxel(separate));
+    }
+
     private static VoxelModel CreateModel() => new(NullLogger<VoxelModel>.Instance);
 
     private static LabelIndex CreateLabels() => new(NullLogger<LabelIndex>.Instance);

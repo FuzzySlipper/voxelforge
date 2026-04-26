@@ -53,6 +53,17 @@ public sealed record PaletteChangedEvent(
     byte? PaletteIndex,
     int AffectedEntryCount) : IApplicationEvent;
 
+public enum AnimationChangeKind
+{
+    FrameAdded,
+}
+
+public sealed record AnimationChangedEvent(
+    AnimationChangeKind Kind,
+    string Description,
+    int? ClipIndex,
+    int? FrameIndex) : IApplicationEvent;
+
 public sealed record ProjectSavedEvent(
     string Path,
     int ByteCount) : IApplicationEvent;

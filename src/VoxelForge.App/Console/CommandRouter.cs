@@ -33,23 +33,36 @@ public sealed class CommandRouter
         var name = tokens[0];
         var args = tokens.Length > 1 ? tokens[1..] : [];
 
-        if (!_commands.TryGetValue(name, out var command))
+        return Execute(name, args, context);
+    }
+
+    public CommandResult Execute(string commandName, IReadOnlyList<string> args, CommandContext context)
+    {
+        ArgumentNullException.ThrowIfNull(commandName);
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (!_commands.TryGetValue(commandName, out var command))
         {
-            _logger.LogDebug("Unknown command: {Name}", name);
-            return CommandResult.Fail($"Unknown command: '{name}'. Type 'help' for available commands.");
+            _logger.LogDebug("Unknown command: {Name}", commandName);
+            return CommandResult.Fail($"Unknown command: '{commandName}'. Type 'help' for available commands.");
         }
 
         try
         {
-            _logger.LogDebug("Executing: {Input}", input);
-            var result = command.Execute(args, context);
+            var commandArgs = new string[args.Count];
+            for (int i = 0; i < args.Count; i++)
+                commandArgs[i] = args[i];
+
+            _logger.LogDebug("Executing: {CommandName} ({ArgCount} args)", commandName, commandArgs.Length);
+            var result = command.Execute(commandArgs, context);
             _logger.LogDebug("Result: {Success} — {Message}", result.Success,
                 result.Message.Length > 200 ? result.Message[..200] + "..." : result.Message);
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Command '{Name}' threw an exception", name);
+            _logger.LogError(ex, "Command '{Name}' threw an exception", commandName);
             return CommandResult.Fail($"Error: {ex.Message}");
         }
     }

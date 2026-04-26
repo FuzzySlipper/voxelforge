@@ -9,7 +9,11 @@ public readonly record struct SetVoxelRequest(Point3 Position, byte PaletteIndex
 
 public readonly record struct RemoveVoxelRequest(Point3 Position);
 
+public readonly record struct RemoveVoxelsRequest(IReadOnlyCollection<Point3> Positions, string Description);
+
 public readonly record struct PaintVoxelRequest(Point3 Position, byte PaletteIndex);
+
+public readonly record struct FloodFillVoxelRequest(Point3 Start, byte PaletteIndex);
 
 public readonly record struct FillVoxelRegionRequest(Point3 Min, Point3 Max, byte PaletteIndex);
 
@@ -88,6 +92,55 @@ public sealed class VoxelEditingService
         };
     }
 
+    public ApplicationServiceResult RemoveVoxels(
+        EditorDocumentState document,
+        UndoStack undoStack,
+        IEventPublisher events,
+        RemoveVoxelsRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(undoStack);
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(request.Positions);
+        ArgumentNullException.ThrowIfNull(request.Description);
+
+        var operations = new List<IEditorCommand>(request.Positions.Count);
+        int removedLabelCount = 0;
+        foreach (var position in request.Positions)
+        {
+            if (document.Labels.GetRegion(position).HasValue)
+                removedLabelCount++;
+            operations.Add(new RemoveVoxelCommand(document.Model, document.Labels, position));
+        }
+
+        if (operations.Count > 0)
+            undoStack.Execute(new CompoundCommand(operations, request.Description));
+
+        var applicationEvents = new List<IApplicationEvent>
+        {
+            new VoxelModelChangedEvent(
+                VoxelModelChangeKind.RemoveVoxel,
+                request.Description,
+                operations.Count),
+        };
+        if (removedLabelCount > 0)
+        {
+            applicationEvents.Add(new LabelChangedEvent(
+                LabelChangeKind.RegionUnassigned,
+                $"Removed {removedLabelCount} label assignment(s)",
+                null,
+                removedLabelCount));
+        }
+        events.PublishAll(applicationEvents);
+
+        return new ApplicationServiceResult
+        {
+            Success = true,
+            Message = request.Description,
+            Events = applicationEvents,
+        };
+    }
+
     public ApplicationServiceResult PaintVoxel(
         EditorDocumentState document,
         UndoStack undoStack,
@@ -114,6 +167,77 @@ public sealed class VoxelEditingService
             Message = $"Painted ({request.Position.X},{request.Position.Y},{request.Position.Z}) = {request.PaletteIndex}",
             Events = applicationEvents,
         };
+    }
+
+    public ApplicationServiceResult FloodFill(
+        EditorDocumentState document,
+        UndoStack undoStack,
+        IEventPublisher events,
+        FloodFillVoxelRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(undoStack);
+        ArgumentNullException.ThrowIfNull(events);
+
+        var startValue = document.Model.GetVoxel(request.Start);
+        if (!startValue.HasValue)
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = $"Cannot flood fill air at ({request.Start.X},{request.Start.Y},{request.Start.Z}).",
+            };
+        }
+
+        if (startValue.Value == request.PaletteIndex)
+        {
+            return new ApplicationServiceResult
+            {
+                Success = true,
+                Message = "Flood fill target already has the requested palette index.",
+            };
+        }
+
+        var visited = new HashSet<Point3>();
+        var queue = new Queue<Point3>();
+        var assignments = new List<VoxelAssignment>();
+
+        queue.Enqueue(request.Start);
+        visited.Add(request.Start);
+
+        Point3[] neighbors =
+        [
+            new(1, 0, 0), new(-1, 0, 0),
+            new(0, 1, 0), new(0, -1, 0),
+            new(0, 0, 1), new(0, 0, -1),
+        ];
+
+        while (queue.Count > 0)
+        {
+            var position = queue.Dequeue();
+            assignments.Add(new VoxelAssignment(position, request.PaletteIndex));
+
+            foreach (var offset in neighbors)
+            {
+                var neighbor = new Point3(position.X + offset.X, position.Y + offset.Y, position.Z + offset.Z);
+                if (visited.Contains(neighbor)) continue;
+                visited.Add(neighbor);
+
+                var neighborValue = document.Model.GetVoxel(neighbor);
+                if (neighborValue.HasValue && neighborValue.Value == startValue.Value)
+                    queue.Enqueue(neighbor);
+            }
+        }
+
+        return ApplyMutationIntent(
+            document,
+            undoStack,
+            events,
+            new ApplyVoxelMutationIntentRequest(new VoxelMutationIntent
+            {
+                Assignments = assignments,
+                Description = $"Fill {assignments.Count} voxels",
+            }));
     }
 
     public ApplicationServiceResult FillRegion(

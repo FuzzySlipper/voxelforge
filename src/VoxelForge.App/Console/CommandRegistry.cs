@@ -28,6 +28,7 @@ public static class CommandRegistry
         var paletteMaterialService = new PaletteMaterialService();
         var projectLifecycleService = new ProjectLifecycleService(loggerFactory);
         var referenceAssetService = new ReferenceAssetService(refLoader);
+        var editorConfigService = new EditorConfigService();
 
         var commands = new List<IConsoleCommand>
         {
@@ -54,8 +55,8 @@ public static class CommandRegistry
             new ListFilesCommand(),
             new ClearCommand(voxelEditingService),
             new GridCommand(voxelEditingService),
-            new ConfigCommand(config),
-            new MeasureCommand(config),
+            new ConfigCommand(config, editorConfigService),
+            new MeasureCommand(config, editorConfigService),
             new RefLoadCommand(referenceModelState, referenceAssetService),
             new RefListCommand(referenceModelState, referenceAssetService),
             new RefRemoveCommand(referenceModelState, referenceAssetService),

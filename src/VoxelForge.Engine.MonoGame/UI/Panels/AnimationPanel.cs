@@ -2,25 +2,34 @@ using Microsoft.Xna.Framework;
 using Myra.Graphics2D.Brushes;
 using Myra.Graphics2D.UI;
 using VoxelForge.App;
+using VoxelForge.App.Events;
+using VoxelForge.App.Services;
 
 namespace VoxelForge.Engine.MonoGame.UI.Panels;
 
 public sealed class AnimationPanel
 {
     private readonly EditorState _state;
+    private readonly IEventPublisher _events;
+    private readonly AnimationEditingService _animationEditingService;
     private readonly VerticalStackPanel _root;
     private readonly HorizontalStackPanel _frameStrip;
     private bool _playing;
 
     public Widget Root => _root;
 
-    public AnimationPanel(EditorState state)
+    public AnimationPanel(
+        EditorState state,
+        IEventPublisher events,
+        AnimationEditingService animationEditingService)
     {
         _state = state;
+        _events = events;
+        _animationEditingService = animationEditingService;
         _root = new VerticalStackPanel { Spacing = 4 };
         _root.Widgets.Add(new Label { Text = "Animation", TextColor = Color.White });
 
-        // Frame strip
+        // Frame strip.
         _frameStrip = new HorizontalStackPanel { Spacing = 2 };
         var stripScroll = new ScrollViewer
         {
@@ -29,7 +38,7 @@ public sealed class AnimationPanel
         };
         _root.Widgets.Add(stripScroll);
 
-        // Controls
+        // Controls.
         var controls = new HorizontalStackPanel { Spacing = 4 };
 
         var baseBtn = new Button { Content = new Label { Text = "Base" }, Width = 40 };
@@ -43,9 +52,12 @@ public sealed class AnimationPanel
         var addBtn = new Button { Content = new Label { Text = "+" }, Width = 24 };
         addBtn.Click += (_, _) =>
         {
-            if (_state.Clips.Count == 0) return;
-            _state.Clips[0].AddFrame();
-            Refresh();
+            var result = _animationEditingService.AddFrame(
+                _state.Document,
+                _events,
+                new AddAnimationFrameRequest(0));
+            if (result.Success)
+                Refresh();
         };
         controls.Widgets.Add(addBtn);
 

@@ -1,4 +1,4 @@
-using VoxelForge.App.Events;
+using VoxelForge.App.Services;
 
 namespace VoxelForge.App.Console.Commands;
 
@@ -8,6 +8,7 @@ namespace VoxelForge.App.Console.Commands;
 public sealed class MeasureCommand : IConsoleCommand
 {
     private readonly EditorConfigState _config;
+    private readonly EditorConfigService _configService;
 
     public string Name => "measure";
     public string[] Aliases => [];
@@ -15,66 +16,54 @@ public sealed class MeasureCommand : IConsoleCommand
         "Measurement grid. Usage: measure [on|off|toggle] | measure scale <voxelsPerMeter>\n" +
         "  Shows wireframe cubes at 1-meter intervals using the configured scale.";
 
-    public MeasureCommand(EditorConfigState config) => _config = config;
+    public MeasureCommand(EditorConfigState config, EditorConfigService configService)
+    {
+        _config = config;
+        _configService = configService;
+    }
 
     public CommandResult Execute(string[] args, CommandContext context)
     {
         if (args.Length == 0 || args[0] == "toggle")
         {
-            var oldValue = _config.ShowMeasureGrid.ToString();
-            _config.ShowMeasureGrid = !_config.ShowMeasureGrid;
-            context.Events.Publish(new ConfigChangedEvent(
-                "showMeasureGrid",
-                oldValue,
-                _config.ShowMeasureGrid.ToString(),
-                false));
-            return CommandResult.Ok($"Measure grid {(_config.ShowMeasureGrid ? "ON" : "OFF")} (voxelsPerMeter={_config.VoxelsPerMeter})");
+            var result = _configService.SetMeasureGrid(
+                _config,
+                context.Events,
+                new SetMeasureGridRequest(!_config.ShowMeasureGrid, null));
+            return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
         }
 
         switch (args[0].ToLowerInvariant())
         {
             case "on":
             {
-                var oldValue = _config.ShowMeasureGrid.ToString();
-                _config.ShowMeasureGrid = true;
-                context.Events.Publish(new ConfigChangedEvent(
-                    "showMeasureGrid",
-                    oldValue,
-                    _config.ShowMeasureGrid.ToString(),
-                    false));
-                return CommandResult.Ok($"Measure grid ON (voxelsPerMeter={_config.VoxelsPerMeter})");
+                var result = _configService.SetMeasureGrid(
+                    _config,
+                    context.Events,
+                    new SetMeasureGridRequest(true, null));
+                return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
             }
 
             case "off":
             {
-                var oldValue = _config.ShowMeasureGrid.ToString();
-                _config.ShowMeasureGrid = false;
-                context.Events.Publish(new ConfigChangedEvent(
-                    "showMeasureGrid",
-                    oldValue,
-                    _config.ShowMeasureGrid.ToString(),
-                    false));
-                return CommandResult.Ok("Measure grid OFF");
+                var result = _configService.SetMeasureGrid(
+                    _config,
+                    context.Events,
+                    new SetMeasureGridRequest(false, null));
+                return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
             }
 
             case "scale":
-                if (args.Length < 2 || !float.TryParse(args[1], out float vpm) || vpm <= 0)
+            {
+                if (args.Length < 2 || !float.TryParse(args[1], out float vpm))
                     return CommandResult.Fail("Usage: measure scale <voxelsPerMeter>");
-                var oldVoxelsPerMeter = _config.VoxelsPerMeter.ToString();
-                var oldShowMeasureGrid = _config.ShowMeasureGrid.ToString();
-                _config.VoxelsPerMeter = vpm;
-                _config.ShowMeasureGrid = true;
-                context.Events.Publish(new ConfigChangedEvent(
-                    "voxelsPerMeter",
-                    oldVoxelsPerMeter,
-                    _config.VoxelsPerMeter.ToString(),
-                    false));
-                context.Events.Publish(new ConfigChangedEvent(
-                    "showMeasureGrid",
-                    oldShowMeasureGrid,
-                    _config.ShowMeasureGrid.ToString(),
-                    false));
-                return CommandResult.Ok($"VoxelsPerMeter = {vpm}. Measure grid ON.");
+
+                var result = _configService.SetMeasureGrid(
+                    _config,
+                    context.Events,
+                    new SetMeasureGridRequest(true, vpm));
+                return result.Success ? CommandResult.Ok(result.Message) : CommandResult.Fail(result.Message);
+            }
 
             default:
                 return CommandResult.Fail(HelpText);

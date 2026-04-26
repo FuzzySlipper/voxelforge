@@ -13,18 +13,12 @@ public sealed class EditorMenuBar
 
     private readonly MenuCommandDispatcher _dispatcher;
     private Desktop? _desktop;
-    private Action? _exitAction;
+    private IEditorMenuActions? _menuActions;
 
     /// <summary>
     /// Current project file path. Null means unsaved/new project.
     /// </summary>
     public string? CurrentProjectPath { get; set; }
-
-    // View menu actions — wired by VoxelForgeGame after construction
-    public Action? OnSnapFront { get; set; }
-    public Action? OnSnapSide { get; set; }
-    public Action? OnSnapTop { get; set; }
-    public Action? OnToggleWireframe { get; set; }
 
     public EditorMenuBar(MenuCommandDispatcher dispatcher)
     {
@@ -42,10 +36,10 @@ public sealed class EditorMenuBar
     /// <summary>
     /// Must be called after the Desktop is created so dialogs can be shown.
     /// </summary>
-    public void Initialize(Desktop desktop, Action exitAction)
+    public void Initialize(Desktop desktop, IEditorMenuActions menuActions)
     {
         _desktop = desktop;
-        _exitAction = exitAction;
+        _menuActions = menuActions;
     }
 
     private MenuItem BuildFileMenu()
@@ -99,7 +93,7 @@ public sealed class EditorMenuBar
         menu.Items.Add(new MenuSeparator());
 
         var exit = new MenuItem("file_exit", "E&xit");
-        exit.Selected += (_, _) => _exitAction?.Invoke();
+        exit.Selected += (_, _) => _menuActions?.ExitApplication();
         menu.Items.Add(exit);
 
         return menu;
@@ -249,24 +243,24 @@ public sealed class EditorMenuBar
 
         var front = new MenuItem("view_front", "&Front");
         front.ShortcutText = "F1";
-        front.Selected += (_, _) => OnSnapFront?.Invoke();
+        front.Selected += (_, _) => _menuActions?.SnapFront();
         menu.Items.Add(front);
 
         var side = new MenuItem("view_side", "&Side");
         side.ShortcutText = "F2";
-        side.Selected += (_, _) => OnSnapSide?.Invoke();
+        side.Selected += (_, _) => _menuActions?.SnapSide();
         menu.Items.Add(side);
 
         var top = new MenuItem("view_top", "&Top");
         top.ShortcutText = "F3";
-        top.Selected += (_, _) => OnSnapTop?.Invoke();
+        top.Selected += (_, _) => _menuActions?.SnapTop();
         menu.Items.Add(top);
 
         menu.Items.Add(new MenuSeparator());
 
         var wireframe = new MenuItem("view_wireframe", "&Wireframe Toggle");
         wireframe.ShortcutText = "F4";
-        wireframe.Selected += (_, _) => OnToggleWireframe?.Invoke();
+        wireframe.Selected += (_, _) => _menuActions?.ToggleWireframe();
         menu.Items.Add(wireframe);
 
         menu.Items.Add(new MenuSeparator());
@@ -446,25 +440,25 @@ public sealed class EditorMenuBar
         var animList = new MenuItem("ref_anim_list", "&List Clips...");
         animList.Selected += (_, _) => ShowArgsDialog("List Animation Clips",
             ["Model Index"],
-            args => _dispatcher.Dispatch($"refanim {args[0]} list"));
+            args => _dispatcher.Dispatch("refanim", args[0], "list"));
         anim.Items.Add(animList);
 
         var animPlay = new MenuItem("ref_anim_play", "&Play...");
         animPlay.Selected += (_, _) => ShowArgsDialog("Play Animation",
             ["Model Index", "Clip (name or index)"],
-            args => _dispatcher.Dispatch($"refanim {args[0]} play {args[1]}"));
+            args => _dispatcher.Dispatch("refanim", args[0], "play", args[1]));
         anim.Items.Add(animPlay);
 
         var animStop = new MenuItem("ref_anim_stop", "&Stop...");
         animStop.Selected += (_, _) => ShowArgsDialog("Stop Animation",
             ["Model Index"],
-            args => _dispatcher.Dispatch($"refanim {args[0]} stop"));
+            args => _dispatcher.Dispatch("refanim", args[0], "stop"));
         anim.Items.Add(animStop);
 
         var animPause = new MenuItem("ref_anim_pause", "Pa&use...");
         animPause.Selected += (_, _) => ShowArgsDialog("Pause Animation",
             ["Model Index"],
-            args => _dispatcher.Dispatch($"refanim {args[0]} pause"));
+            args => _dispatcher.Dispatch("refanim", args[0], "pause"));
         anim.Items.Add(animPause);
 
         menu.Items.Add(anim);
@@ -564,13 +558,13 @@ public sealed class EditorMenuBar
         var ssViewport = Cmd("tools_ss_viewport", "Capture &Viewport", "screenshot");
         screenshot.Items.Add(ssViewport);
 
-        var ssAll = Cmd("tools_ss_all", "Capture &All Angles", "screenshot all");
+        var ssAll = Cmd("tools_ss_all", "Capture &All Angles", "screenshot", "all");
         screenshot.Items.Add(ssAll);
 
         var ssCustom = new MenuItem("tools_ss_custom", "Custom &Angle...");
         ssCustom.Selected += (_, _) => ShowArgsDialog("Screenshot Custom Angle",
             ["Yaw (degrees)", "Pitch (degrees)"],
-            args => _dispatcher.Dispatch($"screenshot angle {args[0]} {args[1]}"));
+            args => _dispatcher.Dispatch("screenshot", "angle", args[0], args[1]));
         screenshot.Items.Add(ssCustom);
 
         menu.Items.Add(screenshot);
@@ -600,7 +594,7 @@ public sealed class EditorMenuBar
                 if (args.Length >= 3 && args[2] != "") _dispatcher.Dispatch("config", "panspeed", args[2]);
                 if (args.Length >= 4 && args[3] != "") _dispatcher.Dispatch("config", "invertorbitx", args[3]);
                 if (args.Length >= 5 && args[4] != "") _dispatcher.Dispatch("config", "invertorbity", args[4]);
-                _dispatcher.Dispatch("config save");
+                _dispatcher.Dispatch("config", "save");
             });
         settings.Items.Add(camSettings);
 
@@ -611,13 +605,13 @@ public sealed class EditorMenuBar
             {
                 if (args.Length >= 1 && args[0] != "") _dispatcher.Dispatch("config", "defaultgridhint", args[0]);
                 if (args.Length >= 2 && args[1] != "") _dispatcher.Dispatch("config", "maxundodepth", args[1]);
-                _dispatcher.Dispatch("config save");
+                _dispatcher.Dispatch("config", "save");
             });
         settings.Items.Add(displaySettings);
 
         settings.Items.Add(new MenuSeparator());
 
-        var saveConfig = Cmd("tools_savecfg", "&Save Settings", "config save");
+        var saveConfig = Cmd("tools_savecfg", "&Save Settings", "config", "save");
         settings.Items.Add(saveConfig);
 
         menu.Items.Add(settings);
@@ -781,10 +775,10 @@ public sealed class EditorMenuBar
     /// <summary>
     /// Create a menu item that directly dispatches a command string on click.
     /// </summary>
-    private MenuItem Cmd(string id, string text, string commandString)
+    private MenuItem Cmd(string id, string text, string commandName, params string[] args)
     {
         var item = new MenuItem(id, text);
-        item.Selected += (_, _) => _dispatcher.Dispatch(commandString);
+        item.Selected += (_, _) => _dispatcher.Dispatch(commandName, args);
         return item;
     }
 }
