@@ -122,6 +122,30 @@ public sealed class EssArchitectureTests
     }
 
     [Fact]
+    public void LlmPrimitiveGenerationDesign_DefinesToolSurfaceAndUndoPath()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "llm-primitive-generation-surface.md");
+
+        Assert.True(File.Exists(docPath), $"Missing LLM primitive generation design document at {docPath}");
+
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("apply_voxel_primitives", text, StringComparison.Ordinal);
+        Assert.Contains("block", text, StringComparison.Ordinal);
+        Assert.Contains("box", text, StringComparison.Ordinal);
+        Assert.Contains("line", text, StringComparison.Ordinal);
+        Assert.Contains("VoxelPrimitiveGenerationService", text, StringComparison.Ordinal);
+        Assert.Contains("VoxelMutationIntent", text, StringComparison.Ordinal);
+        Assert.Contains("LlmToolApplicationService", text, StringComparison.Ordinal);
+        Assert.Contains("VoxelEditingService.ApplyMutationIntent", text, StringComparison.Ordinal);
+        Assert.Contains("UndoStack", text, StringComparison.Ordinal);
+        Assert.Contains("CompoundCommand", text, StringComparison.Ordinal);
+        Assert.Contains("SetVoxelCommand", text, StringComparison.Ordinal);
+        Assert.Contains("LlmToolMcpTool", text, StringComparison.Ordinal);
+        Assert.Contains("Engine", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EssArchitectureDocuments_ReferenceExistingStateAndFacadeTypes()
     {
         var root = FindRepoRoot(AppContext.BaseDirectory);

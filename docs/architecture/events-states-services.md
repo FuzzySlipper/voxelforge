@@ -56,6 +56,10 @@ Rules:
 - `ApplicationEventDispatcher` is an in-process synchronous dispatcher. Register handlers during application composition before background publishers start; `Publish` runs handlers on the caller's thread and does not marshal to the UI thread. Add an explicit synchronization strategy before introducing late/dynamic registration.
 - App-layer tests live in `tests/VoxelForge.App.Tests`; keep `tests/VoxelForge.Core.Tests` focused on Core-only behavior and free of App project references.
 
+## LLM primitive generation seam
+
+The high-level `apply_voxel_primitives` design in [`llm-primitive-generation-surface.md`](llm-primitive-generation-surface.md) follows the same adapter rule: LLM tools parse compact primitive requests into typed Core intents, and App services apply those intents through undoable editor commands.
+
 ## MCP integration seam
 
 MCP should be implemented as another thin adapter over the same application core:
