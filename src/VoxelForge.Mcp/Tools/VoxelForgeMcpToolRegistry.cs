@@ -21,6 +21,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<PaletteMaterialService>();
         services.AddSingleton<ProjectLifecycleService>();
         services.AddSingleton<ModelPathResolver>();
+        services.AddSingleton<SpatialQueryService>();
         services.AddSingleton<LlmToolApplicationService>();
 
         services.AddSingleton<DescribeModelHandler>();
@@ -78,6 +79,12 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<SetPaletteEntryMcpTool>();
         services.AddSingleton<SetGridHintMcpTool>();
 
+        services.AddSingleton<GetRegionNeighborsMcpTool>();
+        services.AddSingleton<GetInterfaceVoxelsMcpTool>();
+        services.AddSingleton<MeasureDistanceMcpTool>();
+        services.AddSingleton<GetCrossSectionMcpTool>();
+        services.AddSingleton<CheckCollisionMcpTool>();
+
         services.AddSingleton<McpServerTool, ConsoleCountServerTool>();
         services.AddSingleton<McpServerTool, FillBoxServerTool>();
         services.AddSingleton<McpServerTool, GetVoxelServerTool>();
@@ -101,6 +108,12 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, ListPaletteServerTool>();
         services.AddSingleton<McpServerTool, SetPaletteEntryServerTool>();
         services.AddSingleton<McpServerTool, SetGridHintServerTool>();
+
+        services.AddSingleton<McpServerTool, GetRegionNeighborsServerTool>();
+        services.AddSingleton<McpServerTool, GetInterfaceVoxelsServerTool>();
+        services.AddSingleton<McpServerTool, MeasureDistanceServerTool>();
+        services.AddSingleton<McpServerTool, GetCrossSectionServerTool>();
+        services.AddSingleton<McpServerTool, CheckCollisionServerTool>();
 
         return services;
     }

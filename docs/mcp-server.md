@@ -84,4 +84,12 @@ Model lifecycle and palette tools:
 - `set_palette_entry` — add or update a palette entry through undoable App services.
 - `set_grid_hint` — set the model advisory grid resolution through undoable App services.
 
+Spatial reasoning tools:
+
+- `get_region_neighbors` — find labeled regions adjacent to a region using configurable 6- or 26-connected voxel adjacency.
+- `get_interface_voxels` — return boundary voxel pairs and unique boundary voxels for two regions.
+- `measure_distance` — measure point-to-point distance or region centroid / nearest-surface distance.
+- `get_cross_section` — return a compact 2D text slice along `x`, `y`, or `z`, with a legend for region or palette symbols.
+- `check_collision` — test whether two regions, boxes, or a region and box overlap in occupied voxel coordinates.
+
 Future MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.
