@@ -106,6 +106,25 @@ public abstract class ModelLifecycleMcpToolBase : IVoxelForgeMcpTool
         return true;
     }
 
+    protected static bool TryReadRequiredInt(JsonElement arguments, string propertyName, out int value, out string errorMessage)
+    {
+        value = 0;
+        if (arguments.ValueKind != JsonValueKind.Object || !arguments.TryGetProperty(propertyName, out var element))
+        {
+            errorMessage = $"Missing required integer property '{propertyName}'.";
+            return false;
+        }
+
+        if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt32(out value))
+        {
+            errorMessage = $"Property '{propertyName}' must be an integer.";
+            return false;
+        }
+
+        errorMessage = string.Empty;
+        return true;
+    }
+
     protected static bool TryReadOptionalInt(JsonElement arguments, string propertyName, out int value, out bool hasValue, out string errorMessage)
     {
         value = 0;
@@ -682,10 +701,8 @@ public sealed class SetGridHintMcpTool : ModelLifecycleMcpToolBase
     public override McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!TryReadOptionalInt(arguments, "size", out int size, out bool hasSize, out var errorMessage))
+        if (!TryReadRequiredInt(arguments, "size", out int size, out var errorMessage))
             return Fail(errorMessage);
-        if (!hasSize)
-            return Fail("Missing required integer property 'size'.");
 
         lock (Session.SyncRoot)
         {
