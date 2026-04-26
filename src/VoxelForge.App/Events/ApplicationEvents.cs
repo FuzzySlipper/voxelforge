@@ -25,6 +25,7 @@ public sealed record VoxelModelChangedEvent(
 public enum LabelChangeKind
 {
     RegionCreated,
+    RegionDeleted,
     RegionAssigned,
     RegionUnassigned,
     LabelsRebuilt,

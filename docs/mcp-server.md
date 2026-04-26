@@ -65,4 +65,14 @@ Typed console-command adapters:
 - `undo` / `redo` — edit history for the MCP session.
 - `console_count` — legacy compatibility adapter over the headless console `count` command using already-tokenized argument arrays; it does not rebuild command-line strings.
 
+Region/label tools:
+
+- `list_regions` — list regions with voxel counts, parent/child/ancestor/descendant ids, properties, and bounds.
+- `create_region` — create a named region with optional parent id and string properties.
+- `delete_region` — remove a region definition and unlabel its voxels without removing voxels from the model; regions with children must have children deleted first.
+- `assign_voxels_to_region` — assign existing model voxels by coordinate list or inclusive box.
+- `get_region_voxels` — list coordinates, palette indices, and material names for voxels in a region.
+- `get_region_bounds` — return a region axis-aligned bounding box.
+- `get_region_tree` — return the full hierarchy as a tree.
+
 Future MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.

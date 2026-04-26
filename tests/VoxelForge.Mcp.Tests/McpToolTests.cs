@@ -34,15 +34,22 @@ public sealed class McpToolTests
 
         Assert.Equal(
             [
+                "assign_voxels_to_region",
                 "clear_model",
                 "compare_reference",
                 "console_count",
                 "count_voxels",
+                "create_region",
+                "delete_region",
                 "describe_model",
                 "fill_box",
                 "get_model_info",
+                "get_region_bounds",
+                "get_region_tree",
+                "get_region_voxels",
                 "get_voxel",
                 "get_voxels_in_area",
+                "list_regions",
                 "redo",
                 "remove_voxels",
                 "set_voxels",

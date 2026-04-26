@@ -17,6 +17,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<VoxelQueryService>();
         services.AddSingleton<VoxelMutationIntentService>();
         services.AddSingleton<VoxelEditingService>();
+        services.AddSingleton<RegionEditingService>();
         services.AddSingleton<LlmToolApplicationService>();
 
         services.AddSingleton<DescribeModelHandler>();
@@ -58,6 +59,14 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<UndoMcpTool>();
         services.AddSingleton<RedoMcpTool>();
 
+        services.AddSingleton<ListRegionsMcpTool>();
+        services.AddSingleton<CreateRegionMcpTool>();
+        services.AddSingleton<DeleteRegionMcpTool>();
+        services.AddSingleton<AssignVoxelsToRegionMcpTool>();
+        services.AddSingleton<GetRegionVoxelsMcpTool>();
+        services.AddSingleton<GetRegionBoundsMcpTool>();
+        services.AddSingleton<GetRegionTreeMcpTool>();
+
         services.AddSingleton<McpServerTool, ConsoleCountServerTool>();
         services.AddSingleton<McpServerTool, FillBoxServerTool>();
         services.AddSingleton<McpServerTool, GetVoxelServerTool>();
@@ -65,6 +74,14 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, ClearModelServerTool>();
         services.AddSingleton<McpServerTool, UndoServerTool>();
         services.AddSingleton<McpServerTool, RedoServerTool>();
+
+        services.AddSingleton<McpServerTool, ListRegionsServerTool>();
+        services.AddSingleton<McpServerTool, CreateRegionServerTool>();
+        services.AddSingleton<McpServerTool, DeleteRegionServerTool>();
+        services.AddSingleton<McpServerTool, AssignVoxelsToRegionServerTool>();
+        services.AddSingleton<McpServerTool, GetRegionVoxelsServerTool>();
+        services.AddSingleton<McpServerTool, GetRegionBoundsServerTool>();
+        services.AddSingleton<McpServerTool, GetRegionTreeServerTool>();
 
         return services;
     }

@@ -4,11 +4,18 @@ using VoxelForge.Core;
 
 namespace VoxelForge.App.Services;
 
-public readonly record struct RegionListEntry(string Name, int VoxelCount, RegionId? ParentId);
+public readonly record struct RegionListEntry(RegionId Id, string Name, int VoxelCount, RegionId? ParentId);
 
-public readonly record struct CreateRegionRequest(string RegionName);
+public readonly record struct CreateRegionRequest(
+    string RegionName,
+    RegionId? ParentId = null,
+    IReadOnlyDictionary<string, string>? Properties = null);
+
+public readonly record struct DeleteRegionRequest(string RegionName);
 
 public readonly record struct AssignVoxelRegionRequest(string RegionName, Point3 Position);
+
+public readonly record struct AssignVoxelsRegionRequest(string RegionName, IReadOnlyList<Point3> Positions);
 
 /// <summary>
 /// Stateless service for semantic region edits and listing.
@@ -21,7 +28,7 @@ public sealed class RegionEditingService
 
         var entries = new List<RegionListEntry>();
         foreach (var entry in labels.Regions)
-            entries.Add(new RegionListEntry(entry.Value.Name, entry.Value.Voxels.Count, entry.Value.ParentId));
+            entries.Add(new RegionListEntry(entry.Key, entry.Value.Name, entry.Value.Voxels.Count, entry.Value.ParentId));
 
         return new ApplicationServiceResult<IReadOnlyList<RegionListEntry>>
         {
@@ -61,10 +68,21 @@ public sealed class RegionEditingService
             };
         }
 
+        if (request.ParentId.HasValue && !labels.Regions.ContainsKey(request.ParentId.Value))
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = $"Parent region '{request.ParentId.Value}' does not exist.",
+            };
+        }
+
         undoStack.Execute(new CreateRegionCommand(labels, new RegionDef
         {
             Id = regionId,
             Name = request.RegionName,
+            ParentId = request.ParentId,
+            Properties = CloneProperties(request.Properties),
         }));
 
         var applicationEvents = new IApplicationEvent[]
@@ -81,6 +99,60 @@ public sealed class RegionEditingService
         {
             Success = true,
             Message = $"Created region '{request.RegionName}'",
+            Events = applicationEvents,
+        };
+    }
+
+    public ApplicationServiceResult DeleteRegion(
+        LabelIndex labels,
+        UndoStack undoStack,
+        IEventPublisher events,
+        DeleteRegionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(labels);
+        ArgumentNullException.ThrowIfNull(undoStack);
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(request.RegionName);
+
+        var regionId = new RegionId(request.RegionName);
+        if (!labels.Regions.TryGetValue(regionId, out var region))
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = $"Region '{request.RegionName}' does not exist.",
+            };
+        }
+
+        foreach (var entry in labels.Regions)
+        {
+            if (entry.Value.ParentId == regionId)
+            {
+                return new ApplicationServiceResult
+                {
+                    Success = false,
+                    Message = $"Cannot delete region '{request.RegionName}' while child region '{entry.Key}' exists.",
+                };
+            }
+        }
+
+        int voxelCount = region.Voxels.Count;
+        undoStack.Execute(new DeleteRegionCommand(labels, regionId));
+
+        var applicationEvents = new IApplicationEvent[]
+        {
+            new LabelChangedEvent(
+                LabelChangeKind.RegionDeleted,
+                $"Deleted region '{request.RegionName}'",
+                regionId,
+                voxelCount),
+        };
+        events.PublishAll(applicationEvents);
+
+        return new ApplicationServiceResult
+        {
+            Success = true,
+            Message = $"Deleted region '{request.RegionName}'",
             Events = applicationEvents,
         };
     }
@@ -136,5 +208,85 @@ public sealed class RegionEditingService
             Message = $"Labeled ({request.Position.X},{request.Position.Y},{request.Position.Z}) as '{request.RegionName}'",
             Events = applicationEvents,
         };
+    }
+
+    public ApplicationServiceResult AssignVoxels(
+        EditorDocumentState document,
+        UndoStack undoStack,
+        IEventPublisher events,
+        AssignVoxelsRegionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(undoStack);
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(request.RegionName);
+        ArgumentNullException.ThrowIfNull(request.Positions);
+
+        if (request.Positions.Count == 0)
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = "No voxel positions were provided for region assignment.",
+            };
+        }
+
+        var regionId = new RegionId(request.RegionName);
+        if (!document.Labels.Regions.ContainsKey(regionId))
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = $"Region '{request.RegionName}' does not exist.",
+            };
+        }
+
+        for (int i = 0; i < request.Positions.Count; i++)
+        {
+            var position = request.Positions[i];
+            if (document.Model.GetVoxel(position) is null)
+            {
+                return new ApplicationServiceResult
+                {
+                    Success = false,
+                    Message = $"Cannot label air at ({position.X},{position.Y},{position.Z}).",
+                };
+            }
+        }
+
+        undoStack.Execute(new AssignLabelCommand(
+            document.Labels,
+            regionId,
+            request.RegionName,
+            request.Positions));
+
+        var applicationEvents = new IApplicationEvent[]
+        {
+            new LabelChangedEvent(
+                LabelChangeKind.RegionAssigned,
+                $"Assigned {request.Positions.Count} voxel(s) to region '{request.RegionName}'",
+                regionId,
+                request.Positions.Count),
+        };
+        events.PublishAll(applicationEvents);
+
+        return new ApplicationServiceResult
+        {
+            Success = true,
+            Message = $"Assigned {request.Positions.Count} voxel(s) to region '{request.RegionName}'",
+            Events = applicationEvents,
+        };
+    }
+
+    private static Dictionary<string, string> CloneProperties(IReadOnlyDictionary<string, string>? properties)
+    {
+        var clone = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (properties is null)
+            return clone;
+
+        foreach (var entry in properties)
+            clone[entry.Key] = entry.Value;
+
+        return clone;
     }
 }
