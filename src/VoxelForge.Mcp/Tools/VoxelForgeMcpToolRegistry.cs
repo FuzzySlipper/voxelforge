@@ -18,6 +18,9 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<VoxelMutationIntentService>();
         services.AddSingleton<VoxelEditingService>();
         services.AddSingleton<RegionEditingService>();
+        services.AddSingleton<PaletteMaterialService>();
+        services.AddSingleton<ProjectLifecycleService>();
+        services.AddSingleton<ModelPathResolver>();
         services.AddSingleton<LlmToolApplicationService>();
 
         services.AddSingleton<DescribeModelHandler>();
@@ -67,6 +70,14 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<GetRegionBoundsMcpTool>();
         services.AddSingleton<GetRegionTreeMcpTool>();
 
+        services.AddSingleton<NewModelMcpTool>();
+        services.AddSingleton<LoadModelMcpTool>();
+        services.AddSingleton<SaveModelMcpTool>();
+        services.AddSingleton<ListModelsMcpTool>();
+        services.AddSingleton<ListPaletteMcpTool>();
+        services.AddSingleton<SetPaletteEntryMcpTool>();
+        services.AddSingleton<SetGridHintMcpTool>();
+
         services.AddSingleton<McpServerTool, ConsoleCountServerTool>();
         services.AddSingleton<McpServerTool, FillBoxServerTool>();
         services.AddSingleton<McpServerTool, GetVoxelServerTool>();
@@ -82,6 +93,14 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, GetRegionVoxelsServerTool>();
         services.AddSingleton<McpServerTool, GetRegionBoundsServerTool>();
         services.AddSingleton<McpServerTool, GetRegionTreeServerTool>();
+
+        services.AddSingleton<McpServerTool, NewModelServerTool>();
+        services.AddSingleton<McpServerTool, LoadModelServerTool>();
+        services.AddSingleton<McpServerTool, SaveModelServerTool>();
+        services.AddSingleton<McpServerTool, ListModelsServerTool>();
+        services.AddSingleton<McpServerTool, ListPaletteServerTool>();
+        services.AddSingleton<McpServerTool, SetPaletteEntryServerTool>();
+        services.AddSingleton<McpServerTool, SetGridHintServerTool>();
 
         return services;
     }

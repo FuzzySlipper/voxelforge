@@ -22,6 +22,7 @@ public sealed class McpToolTests
         var services = new ServiceCollection();
         services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
         services.AddSingleton(new EditorConfigState());
+        services.AddSingleton(new VoxelForgeMcpOptions());
         services.AddSingleton<VoxelForgeMcpSession>();
         services.AddVoxelForgeMcpTools();
 
@@ -49,9 +50,16 @@ public sealed class McpToolTests
                 "get_region_voxels",
                 "get_voxel",
                 "get_voxels_in_area",
+                "list_models",
+                "list_palette",
                 "list_regions",
+                "load_model",
+                "new_model",
                 "redo",
                 "remove_voxels",
+                "save_model",
+                "set_grid_hint",
+                "set_palette_entry",
                 "set_voxels",
                 "undo",
                 "view_from_angle",

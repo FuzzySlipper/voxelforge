@@ -75,4 +75,13 @@ Region/label tools:
 - `get_region_bounds` — return a region axis-aligned bounding box.
 - `get_region_tree` — return the full hierarchy as a tree.
 
+Model lifecycle and palette tools:
+
+- `new_model` — replace the active session document with a new empty model, grid hint, and optional palette entries.
+- `load_model` / `save_model` — load and save `.vforge` files by name under the configured project directory.
+- `list_models` — list available `.vforge` files in the configured project directory.
+- `list_palette` — list current palette entries with RGBA colors.
+- `set_palette_entry` — add or update a palette entry through undoable App services.
+- `set_grid_hint` — set the model advisory grid resolution through undoable App services.
+
 Future MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.

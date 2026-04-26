@@ -46,5 +46,7 @@ public sealed class VoxelForgeMcpSession
 
     public CommandContext CommandContext { get; }
 
+    public string CurrentModelName { get; set; } = "untitled";
+
     public object SyncRoot => _syncRoot;
 }
