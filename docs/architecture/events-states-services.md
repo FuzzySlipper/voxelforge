@@ -54,7 +54,7 @@ Rules:
 
 - Renderer dirtying listens to model, palette, project-load, and undo-history events. `UndoHistoryChangedEvent` is intentional because undo/redo replay undoable commands without replaying every domain-specific event. Duplicate dirty marks during ordinary command execution are acceptable because renderer dirtying is idempotent.
 - `ApplicationEventDispatcher` is an in-process synchronous dispatcher. Register handlers during application composition before background publishers start; `Publish` runs handlers on the caller's thread and does not marshal to the UI thread. Add an explicit synchronization strategy before introducing late/dynamic registration.
-- App-layer tests currently live in `tests/VoxelForge.Core.Tests` because that is the existing test project with explicit App references. Move `EventDispatcherTests`, `UndoStackTests`, and related App-service tests together when a dedicated `VoxelForge.App.Tests` project is introduced.
+- App-layer tests live in `tests/VoxelForge.App.Tests`; keep `tests/VoxelForge.Core.Tests` focused on Core-only behavior and free of App project references.
 
 ## MCP integration seam
 

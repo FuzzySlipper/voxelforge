@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VoxelForge.Core\VoxelForge.Core.csproj" />
+    <ProjectReference Include="..\VoxelForge.App\VoxelForge.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+
+</Project>

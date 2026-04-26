@@ -4,12 +4,16 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Logging -->
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
 
     <!-- LLM -->
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.4.1" />
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.1" />
+
+    <!-- MCP -->
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
 
     <!-- Model loading -->
     <PackageVersion Include="AssimpNetter" Version="6.0.4" />

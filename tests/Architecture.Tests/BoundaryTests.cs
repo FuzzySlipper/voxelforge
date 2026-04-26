@@ -117,4 +117,41 @@ public sealed class BoundaryTests
             "using VoxelForge.Engine",
         ]);
     }
+
+    // --- MCP boundary: headless adapter over App/Core only ---
+
+    [Fact]
+    public void Mcp_MustNotReference_Engine()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var mcpPath = Path.Combine(root, "src", "VoxelForge.Mcp");
+        AssertNoUsings(mcpPath, "VoxelForge.Mcp", [
+            "using Microsoft.Xna.Framework",
+            "using Myra",
+            "using VoxelForge.Engine",
+        ]);
+    }
+
+    [Fact]
+    public void Mcp_Assembly_MustNotReference_EngineAssemblies()
+    {
+        var mcpAsm = typeof(VoxelForge.Mcp.VoxelForgeMcpOptions).Assembly;
+        var refs = mcpAsm.GetReferencedAssemblies().Select(r => r.Name ?? "").ToList();
+
+        Assert.DoesNotContain(refs, r => r.Contains("MonoGame", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("Myra", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("VoxelForge.Engine", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Mcp_ToolRegistration_MustStayExplicit()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var mcpPath = Path.Combine(root, "src", "VoxelForge.Mcp");
+        AssertNoUsings(mcpPath, "VoxelForge.Mcp", [
+            "WithToolsFromAssembly",
+            "McpServerToolType",
+            "System.Reflection",
+        ]);
+    }
 }
