@@ -939,35 +939,52 @@ public sealed class CheckCollisionMcpTool : SpatialQueryMcpToolBase
             {
                 "type": "object",
                 "properties": {
-                    "a": { "$ref": "#/$defs/shape" },
-                    "b": { "$ref": "#/$defs/shape" }
-                },
-                "required": ["a", "b"],
-                "$defs": {
-                    "box": {
-                        "type": "object",
-                        "properties": {
-                            "x1": { "type": "integer" },
-                            "y1": { "type": "integer" },
-                            "z1": { "type": "integer" },
-                            "x2": { "type": "integer" },
-                            "y2": { "type": "integer" },
-                            "z2": { "type": "integer" }
-                        },
-                        "required": ["x1", "y1", "z1", "x2", "y2", "z2"]
-                    },
-                    "shape": {
+                    "a": {
                         "type": "object",
                         "properties": {
                             "region_id": { "type": "string" },
-                            "box": { "$ref": "#/$defs/box" }
+                            "box": {
+                                "type": "object",
+                                "properties": {
+                                    "x1": { "type": "integer" },
+                                    "y1": { "type": "integer" },
+                                    "z1": { "type": "integer" },
+                                    "x2": { "type": "integer" },
+                                    "y2": { "type": "integer" },
+                                    "z2": { "type": "integer" }
+                                },
+                                "required": ["x1", "y1", "z1", "x2", "y2", "z2"]
+                            }
+                        },
+                        "oneOf": [
+                            { "required": ["region_id"] },
+                            { "required": ["box"] }
+                        ]
+                    },
+                    "b": {
+                        "type": "object",
+                        "properties": {
+                            "region_id": { "type": "string" },
+                            "box": {
+                                "type": "object",
+                                "properties": {
+                                    "x1": { "type": "integer" },
+                                    "y1": { "type": "integer" },
+                                    "z1": { "type": "integer" },
+                                    "x2": { "type": "integer" },
+                                    "y2": { "type": "integer" },
+                                    "z2": { "type": "integer" }
+                                },
+                                "required": ["x1", "y1", "z1", "x2", "y2", "z2"]
+                            }
                         },
                         "oneOf": [
                             { "required": ["region_id"] },
                             { "required": ["box"] }
                         ]
                     }
-                }
+                },
+                "required": ["a", "b"]
             }
             """))
     {
