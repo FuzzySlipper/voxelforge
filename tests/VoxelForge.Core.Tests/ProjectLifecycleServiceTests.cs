@@ -31,14 +31,7 @@ public sealed class ProjectLifecycleServiceTests
 
             Assert.True(result.Success);
             Assert.True(undoStack.CanUndo);
-            Assert.Null(document.Model.GetVoxel(oldPosition));
-            Assert.Equal((byte)2, document.Model.GetVoxel(newPosition));
-            Assert.Null(document.Model.Palette.Get(1));
-            Assert.Null(document.Model.Palette.Get(9));
-            Assert.Equal("Loaded", document.Model.Palette.Get(2)!.Name);
-            Assert.Null(document.Labels.GetRegion(staleLoadedLabelPosition));
-            Assert.Equal(new RegionId("loaded"), document.Labels.GetRegion(newPosition));
-            Assert.Single(document.Labels.GetVoxelsInRegion(new RegionId("loaded")));
+            AssertLoadedDocument(document, oldPosition, newPosition, staleLoadedLabelPosition);
 
             undoStack.Undo();
 
@@ -51,11 +44,42 @@ public sealed class ProjectLifecycleServiceTests
 
             undoStack.Redo();
 
-            Assert.Null(document.Model.GetVoxel(oldPosition));
-            Assert.Equal((byte)2, document.Model.GetVoxel(newPosition));
-            Assert.Null(document.Model.Palette.Get(1));
-            Assert.Null(document.Model.Palette.Get(9));
-            Assert.Equal("Loaded", document.Model.Palette.Get(2)!.Name);
+            AssertLoadedDocument(document, oldPosition, newPosition, staleLoadedLabelPosition);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_ResolvesBareProjectNameThroughContentDirectory()
+    {
+        var oldPosition = new Point3(0, 0, 0);
+        var newPosition = new Point3(2, 0, 0);
+        var staleLoadedLabelPosition = new Point3(88, 88, 88);
+        string projectName = $"load-resolves-{Guid.NewGuid():N}";
+        string path = Path.Combine("content", projectName + ".vforge");
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        WriteLoadedProject(newPosition, staleLoadedLabelPosition, path);
+
+        try
+        {
+            var document = CreateOldDocument(oldPosition);
+            var events = new ApplicationEventDispatcher();
+            var undoStack = CreateUndoStack(events);
+
+            var result = new ProjectLifecycleService(NullLoggerFactory.Instance).Load(
+                document,
+                undoStack,
+                events,
+                new LoadProjectRequest(projectName));
+
+            Assert.True(result.Success);
+            AssertLoadedDocument(document, oldPosition, newPosition, staleLoadedLabelPosition);
         }
         finally
         {
@@ -79,7 +103,30 @@ public sealed class ProjectLifecycleServiceTests
         return new EditorDocumentState(model, labels);
     }
 
+    private static void AssertLoadedDocument(
+        EditorDocumentState document,
+        Point3 oldPosition,
+        Point3 newPosition,
+        Point3 staleLoadedLabelPosition)
+    {
+        Assert.Null(document.Model.GetVoxel(oldPosition));
+        Assert.Equal((byte)2, document.Model.GetVoxel(newPosition));
+        Assert.Null(document.Model.Palette.Get(1));
+        Assert.Null(document.Model.Palette.Get(9));
+        Assert.Equal("Loaded", document.Model.Palette.Get(2)!.Name);
+        Assert.Null(document.Labels.GetRegion(staleLoadedLabelPosition));
+        Assert.Equal(new RegionId("loaded"), document.Labels.GetRegion(newPosition));
+        Assert.Single(document.Labels.GetVoxelsInRegion(new RegionId("loaded")));
+    }
+
     private static string WriteLoadedProject(Point3 newPosition, Point3 staleLoadedLabelPosition)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"voxelforge-load-{Guid.NewGuid():N}.vforge");
+        WriteLoadedProject(newPosition, staleLoadedLabelPosition, path);
+        return path;
+    }
+
+    private static void WriteLoadedProject(Point3 newPosition, Point3 staleLoadedLabelPosition, string path)
     {
         var model = CreateModel();
         model.GridHint = 64;
@@ -93,9 +140,7 @@ public sealed class ProjectLifecycleServiceTests
 
         var serializer = new ProjectSerializer(NullLoggerFactory.Instance);
         string json = serializer.Serialize(model, labels, [], new ProjectMetadata { Name = "loaded-project" });
-        string path = Path.Combine(Path.GetTempPath(), $"voxelforge-load-{Guid.NewGuid():N}.vforge");
         File.WriteAllText(path, json);
-        return path;
     }
 
     private static VoxelModel CreateModel() => new(NullLogger<VoxelModel>.Instance);

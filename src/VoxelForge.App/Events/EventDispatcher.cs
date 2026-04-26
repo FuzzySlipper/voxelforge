@@ -27,6 +27,7 @@ public interface IEventHandler<in TEvent> where TEvent : IApplicationEvent
 
 /// <summary>
 /// Registers named handlers and publishes events to explicitly registered subscribers.
+/// Register handlers during application composition before background publishers start.
 /// </summary>
 public interface IEventDispatcher : IEventPublisher
 {
@@ -35,7 +36,10 @@ public interface IEventDispatcher : IEventPublisher
 
 /// <summary>
 /// In-process typed event dispatcher. Registration is explicit and exact-type based;
-/// no reflection or automatic scanning is used.
+/// no reflection or automatic scanning is used. Registration is a composition-time
+/// operation; publishing is synchronous on the caller's thread and does not marshal
+/// to the UI thread. If future code needs dynamic late registration, add a deliberate
+/// synchronization strategy instead of relying on the current plain dictionary.
 /// </summary>
 public sealed class ApplicationEventDispatcher : IEventDispatcher
 {

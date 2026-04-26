@@ -4,6 +4,13 @@ using VoxelForge.Engine.MonoGame.UI.Panels;
 
 namespace VoxelForge.Engine.MonoGame;
 
+/// <summary>
+/// Marks derived voxel rendering data dirty after document-affecting events.
+/// Undo/redo currently publish UndoHistoryChangedEvent after replaying undoable
+/// commands instead of replaying each domain event, so this handler intentionally
+/// listens to undo history changes. Duplicate dirty marks from command execution
+/// are harmless because VoxelRenderer.MarkDirty is idempotent.
+/// </summary>
 internal sealed class VoxelRendererDirtyEventHandler :
     IEventHandler<VoxelModelChangedEvent>,
     IEventHandler<PaletteChangedEvent>,

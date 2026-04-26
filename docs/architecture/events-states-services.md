@@ -50,6 +50,12 @@ Rules:
 - LLM tool handlers return typed mutation intents (`VoxelMutationIntent`) for application services to apply. They must not return deferred mutation delegates.
 - GUI callbacks are allowed for local widget mechanics, but model/document changes flow through typed services and events.
 
+## Local event conventions
+
+- Renderer dirtying listens to model, palette, project-load, and undo-history events. `UndoHistoryChangedEvent` is intentional because undo/redo replay undoable commands without replaying every domain-specific event. Duplicate dirty marks during ordinary command execution are acceptable because renderer dirtying is idempotent.
+- `ApplicationEventDispatcher` is an in-process synchronous dispatcher. Register handlers during application composition before background publishers start; `Publish` runs handlers on the caller's thread and does not marshal to the UI thread. Add an explicit synchronization strategy before introducing late/dynamic registration.
+- App-layer tests currently live in `tests/VoxelForge.Core.Tests` because that is the existing test project with explicit App references. Move `EventDispatcherTests`, `UndoStackTests`, and related App-service tests together when a dedicated `VoxelForge.App.Tests` project is introduced.
+
 ## MCP integration seam
 
 MCP should be implemented as another thin adapter over the same application core:
