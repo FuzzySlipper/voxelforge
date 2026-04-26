@@ -12,7 +12,6 @@ public sealed class UndoCommand : IConsoleCommand
             return CommandResult.Fail("Nothing to undo.");
 
         context.UndoStack.Undo();
-        context.OnModelChanged?.Invoke();
         return CommandResult.Ok("Undone.");
     }
 }
@@ -29,7 +28,6 @@ public sealed class RedoCommand : IConsoleCommand
             return CommandResult.Fail("Nothing to redo.");
 
         context.UndoStack.Redo();
-        context.OnModelChanged?.Invoke();
         return CommandResult.Ok("Redone.");
     }
 }

@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using VoxelForge.Core;
 
 namespace VoxelForge.App;
@@ -9,8 +8,6 @@ namespace VoxelForge.App;
 /// </summary>
 public sealed class EditorState
 {
-    private readonly ILogger<EditorState> _logger;
-
     public EditorDocumentState Document { get; }
     public EditorSessionState Session { get; }
 
@@ -44,27 +41,14 @@ public sealed class EditorState
 
     public HashSet<Point3> SelectedVoxels => Session.SelectedVoxels;
 
-    /// <summary>
-    /// Fired when the model data changes (voxel set/remove, label change, etc.).
-    /// Renderer should mark dirty when this fires.
-    /// </summary>
-    public event Action? ModelChanged;
-
-    public EditorState(EditorDocumentState document, EditorSessionState session, ILogger<EditorState> logger)
+    public EditorState(EditorDocumentState document, EditorSessionState session)
     {
         Document = document;
         Session = session;
-        _logger = logger;
     }
 
-    public EditorState(VoxelModel model, LabelIndex labels, ILogger<EditorState> logger)
-        : this(new EditorDocumentState(model, labels), new EditorSessionState(), logger)
+    public EditorState(VoxelModel model, LabelIndex labels)
+        : this(new EditorDocumentState(model, labels), new EditorSessionState())
     {
-    }
-
-    public void NotifyModelChanged()
-    {
-        _logger.LogTrace("ModelChanged event fired");
-        ModelChanged?.Invoke();
     }
 }

@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.App.Commands;
+using VoxelForge.App.Events;
 
 namespace VoxelForge.Core.Tests;
 
@@ -8,8 +8,9 @@ public sealed class UndoStackTests
 {
     private static VoxelModel CreateModel() => new(NullLogger<VoxelModel>.Instance);
     private static LabelIndex CreateIndex() => new(NullLogger<LabelIndex>.Instance);
-    private static UndoStack CreateStack(int maxDepth = 100) =>
-        new(new UndoHistoryState(maxDepth), NullLogger<UndoStack>.Instance);
+    private static UndoStack CreateStack(int maxDepth = 100, IEventPublisher? events = null) =>
+        new(new UndoHistoryState(maxDepth), NullLogger<UndoStack>.Instance,
+            events ?? new ApplicationEventDispatcher());
 
     [Fact]
     public void SetVoxel_UndoThreeTimes_ModelEmpty()
@@ -208,21 +209,41 @@ public sealed class UndoStackTests
     }
 
     [Fact]
-    public void StateChanged_FiresOnExecuteUndoRedo()
+    public void UndoHistoryChangedEvent_PublishesOnExecuteUndoRedo()
     {
         var model = CreateModel();
-        var stack = CreateStack();
-        int fireCount = 0;
-        stack.StateChanged += () => fireCount++;
+        var events = new ApplicationEventDispatcher();
+        var handler = new RecordingUndoHistoryHandler();
+        events.Register<UndoHistoryChangedEvent>(handler);
+        var stack = CreateStack(events: events);
 
         stack.Execute(new SetVoxelCommand(model, new Point3(0, 0, 0), 1));
-        Assert.Equal(1, fireCount);
+        Assert.Single(handler.Events);
+        Assert.Equal(UndoHistoryChangeKind.Executed, handler.Events[0].Kind);
+        Assert.True(handler.Events[0].CanUndo);
+        Assert.False(handler.Events[0].CanRedo);
 
         stack.Undo();
-        Assert.Equal(2, fireCount);
+        Assert.Equal(2, handler.Events.Count);
+        Assert.Equal(UndoHistoryChangeKind.Undone, handler.Events[1].Kind);
+        Assert.False(handler.Events[1].CanUndo);
+        Assert.True(handler.Events[1].CanRedo);
 
         stack.Redo();
-        Assert.Equal(3, fireCount);
+        Assert.Equal(3, handler.Events.Count);
+        Assert.Equal(UndoHistoryChangeKind.Redone, handler.Events[2].Kind);
+        Assert.True(handler.Events[2].CanUndo);
+        Assert.False(handler.Events[2].CanRedo);
+    }
+
+    private sealed class RecordingUndoHistoryHandler : IEventHandler<UndoHistoryChangedEvent>
+    {
+        public List<UndoHistoryChangedEvent> Events { get; } = [];
+
+        public void Handle(UndoHistoryChangedEvent applicationEvent)
+        {
+            Events.Add(applicationEvent);
+        }
     }
 
     [Fact]

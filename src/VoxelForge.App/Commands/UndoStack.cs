@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using VoxelForge.App.Events;
 
 namespace VoxelForge.App.Commands;
 
@@ -6,16 +7,16 @@ public sealed class UndoStack
 {
     private readonly UndoHistoryState _history;
     private readonly ILogger<UndoStack> _logger;
-
-    public event Action? StateChanged;
+    private readonly IEventPublisher _events;
 
     public bool CanUndo => _history.UndoCommands.Count > 0;
     public bool CanRedo => _history.RedoCommands.Count > 0;
 
-    public UndoStack(UndoHistoryState history, ILogger<UndoStack> logger)
+    public UndoStack(UndoHistoryState history, ILogger<UndoStack> logger, IEventPublisher events)
     {
         _history = history;
         _logger = logger;
+        _events = events;
     }
 
     public void Execute(IEditorCommand cmd)
@@ -28,7 +29,7 @@ public sealed class UndoStack
             _history.UndoCommands.RemoveFirst();
 
         _logger.LogDebug("Executed: {Description}", cmd.Description);
-        StateChanged?.Invoke();
+        PublishChanged(UndoHistoryChangeKind.Executed, cmd.Description);
     }
 
     public void Undo()
@@ -41,7 +42,7 @@ public sealed class UndoStack
         _history.RedoCommands.Push(cmd);
 
         _logger.LogDebug("Undo: {Description}", cmd.Description);
-        StateChanged?.Invoke();
+        PublishChanged(UndoHistoryChangeKind.Undone, cmd.Description);
     }
 
     public void Redo()
@@ -53,6 +54,11 @@ public sealed class UndoStack
         _history.UndoCommands.AddLast(cmd);
 
         _logger.LogDebug("Redo: {Description}", cmd.Description);
-        StateChanged?.Invoke();
+        PublishChanged(UndoHistoryChangeKind.Redone, cmd.Description);
+    }
+
+    private void PublishChanged(UndoHistoryChangeKind kind, string commandDescription)
+    {
+        _events.Publish(new UndoHistoryChangedEvent(kind, commandDescription, CanUndo, CanRedo));
     }
 }

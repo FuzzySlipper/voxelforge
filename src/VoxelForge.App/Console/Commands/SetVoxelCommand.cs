@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -20,7 +21,10 @@ public sealed class SetVoxelConsoleCommand : IConsoleCommand
         var pos = new Point3(x, y, z);
         var cmd = new App.Commands.SetVoxelCommand(context.Model, pos, idx);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.SetVoxel,
+            $"Set ({x},{y},{z}) = {idx}",
+            1));
 
         return CommandResult.Ok($"Set ({x},{y},{z}) = {idx}");
     }

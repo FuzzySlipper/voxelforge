@@ -1,4 +1,5 @@
 using System.Globalization;
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -167,7 +168,15 @@ public sealed class LightBakeConsoleCommand : IConsoleCommand
             model, $"Light bake dir=({dx:F1},{dy:F1},{dz:F1}) intensity={intensity}",
             paletteChanges, voxelChanges);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new PaletteChangedEvent(
+            PaletteChangeKind.EntriesChanged,
+            $"Light bake created {paletteChanges.Count} palette entry(s)",
+            null,
+            paletteChanges.Count));
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.Baked,
+            $"Light baked {voxelChanges.Count} voxel(s)",
+            voxelChanges.Count));
 
         string msg = $"Light baked: {voxelChanges.Count} voxels, {paletteChanges.Count} palette entries created.";
         if (paletteFull)

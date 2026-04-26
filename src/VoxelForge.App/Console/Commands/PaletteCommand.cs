@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -34,6 +35,11 @@ public sealed class PaletteCommand : IConsoleCommand
                 Name = args[2],
                 Color = new RgbaColor(r, g, b, a),
             });
+            context.Events.Publish(new PaletteChangedEvent(
+                PaletteChangeKind.EntryAdded,
+                $"Added palette[{idx}] = {args[2]}",
+                idx,
+                1));
             return CommandResult.Ok($"Added palette[{idx}] = {args[2]} ({r},{g},{b},{a})");
         }
 

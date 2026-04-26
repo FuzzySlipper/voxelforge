@@ -1,6 +1,7 @@
 using System.Numerics;
 using Microsoft.Extensions.Logging;
 using VoxelForge.App.Commands;
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 using VoxelForge.Core;
 using VoxelForge.Core.Voxelization;
@@ -104,6 +105,14 @@ public sealed class VoxelizeCommand : IConsoleCommand
         // Copy palette entries from the voxelization result into the context model
         foreach (var (palIdx, matDef) in result.Palette.Entries)
             context.Model.Palette.Set(palIdx, matDef);
+        if (result.Palette.Count > 0)
+        {
+            context.Events.Publish(new PaletteChangedEvent(
+                PaletteChangeKind.EntriesChanged,
+                "Copied voxelized palette entries",
+                null,
+                result.Palette.Count));
+        }
 
         // Remap voxel positions from grid space [0, resolution) to world-integer space
         // so the model's scale and position are reflected in the output
@@ -132,7 +141,10 @@ public sealed class VoxelizeCommand : IConsoleCommand
         if (commands.Count > 0)
         {
             context.UndoStack.Execute(new CompoundCommand(commands, $"Voxelize ({newVoxels.Count} voxels)"));
-            context.OnModelChanged?.Invoke();
+            context.Events.Publish(new VoxelModelChangedEvent(
+                VoxelModelChangeKind.Voxelized,
+                $"Voxelized reference model {refIdx} at resolution {resolution}",
+                newVoxels.Count));
         }
 
         int removed = commands.Count - newVoxels.Count;

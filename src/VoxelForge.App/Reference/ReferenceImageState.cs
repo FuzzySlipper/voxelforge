@@ -32,8 +32,4 @@ public sealed class ReferenceImageState
         return index >= 0 && index < _images.Count ? _images[index] : null;
     }
 
-    /// <summary>Fired when images are added/removed so the UI can rebuild.</summary>
-    public event Action? Changed;
-
-    public void NotifyChanged() => Changed?.Invoke();
 }

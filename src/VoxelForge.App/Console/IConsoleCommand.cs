@@ -1,3 +1,5 @@
+using VoxelForge.App.Events;
+
 namespace VoxelForge.App.Console;
 
 /// <summary>
@@ -46,10 +48,6 @@ public sealed class CommandContext
     public required VoxelForge.Core.LabelIndex Labels { get; init; }
     public required List<VoxelForge.Core.AnimationClip> Clips { get; init; }
     public required VoxelForge.App.Commands.UndoStack UndoStack { get; init; }
+    public required IEventPublisher Events { get; init; }
     public ExecutionMode Mode { get; set; } = ExecutionMode.Interactive;
-
-    /// <summary>
-    /// Fired after any command mutates the model so the renderer can update.
-    /// </summary>
-    public Action? OnModelChanged { get; set; }
 }

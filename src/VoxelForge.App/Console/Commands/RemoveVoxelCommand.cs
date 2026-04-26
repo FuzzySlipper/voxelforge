@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -20,7 +21,10 @@ public sealed class RemoveVoxelConsoleCommand : IConsoleCommand
         var pos = new Point3(x, y, z);
         var cmd = new App.Commands.RemoveVoxelCommand(context.Model, pos);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.RemoveVoxel,
+            $"Removed ({x},{y},{z})",
+            1));
 
         return CommandResult.Ok($"Removed ({x},{y},{z})");
     }

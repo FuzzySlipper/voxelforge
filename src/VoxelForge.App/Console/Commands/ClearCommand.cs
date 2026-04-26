@@ -1,3 +1,5 @@
+using VoxelForge.App.Events;
+
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class ClearCommand : IConsoleCommand
@@ -12,7 +14,10 @@ public sealed class ClearCommand : IConsoleCommand
         foreach (var pos in positions)
             context.Model.RemoveVoxel(pos);
 
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.Clear,
+            $"Cleared {positions.Count} voxels",
+            positions.Count));
         return CommandResult.Ok($"Cleared {positions.Count} voxels.");
     }
 }

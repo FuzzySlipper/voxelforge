@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -92,7 +93,15 @@ public sealed class AoBakeConsoleCommand : IConsoleCommand
             model, $"AO bake (intensity={intensity}, steps={steps})",
             paletteChanges, voxelChanges);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new PaletteChangedEvent(
+            PaletteChangeKind.EntriesChanged,
+            $"AO bake created {paletteChanges.Count} palette entry(s)",
+            null,
+            paletteChanges.Count));
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.Baked,
+            $"AO baked {voxelChanges.Count} voxel(s)",
+            voxelChanges.Count));
 
         string result = $"AO baked: {voxelChanges.Count} voxels darkened, {paletteChanges.Count} palette entries created.";
         if (paletteFull)

@@ -3,6 +3,7 @@ using Myra.Graphics2D;
 using Myra.Graphics2D.Brushes;
 using Myra.Graphics2D.UI;
 using VoxelForge.App;
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.Engine.MonoGame.UI.Panels;
@@ -20,6 +21,7 @@ public sealed class MaterialPanel
     private static readonly Color SlotTextColor = new(160, 160, 160);
 
     private readonly EditorState _state;
+    private readonly IEventPublisher _events;
     private readonly VerticalStackPanel _root;
     private readonly VerticalStackPanel _propsSection;
     private readonly Label _headerLabel;
@@ -34,9 +36,10 @@ public sealed class MaterialPanel
 
     public Widget Root => _root;
 
-    public MaterialPanel(EditorState state, ContentDragDrop dragDrop)
+    public MaterialPanel(EditorState state, ContentDragDrop dragDrop, IEventPublisher events)
     {
         _state = state;
+        _events = events;
 
         _root = new VerticalStackPanel { Spacing = 4 };
 
@@ -174,6 +177,7 @@ public sealed class MaterialPanel
             Color = mat.Color,
             Metadata = new Dictionary<string, string>(mat.Metadata),
         });
+        PublishPaletteChanged(PaletteChangeKind.EntryUpdated, "Material name changed");
     }
 
     private void OnColorChanged()
@@ -195,7 +199,7 @@ public sealed class MaterialPanel
             Color = new RgbaColor(r, g, b, mat.Color.A),
             Metadata = new Dictionary<string, string>(mat.Metadata),
         });
-        _state.NotifyModelChanged();
+        PublishPaletteChanged(PaletteChangeKind.EntryUpdated, "Material color changed");
     }
 
     private void SetTexture(string metadataKey, string filePath)
@@ -219,6 +223,8 @@ public sealed class MaterialPanel
                 break;
             }
         }
+
+        PublishPaletteChanged(PaletteChangeKind.TextureChanged, $"Material texture {metadataKey} set");
     }
 
     private void ClearTexture(string metadataKey)
@@ -243,6 +249,13 @@ public sealed class MaterialPanel
                 break;
             }
         }
+
+        PublishPaletteChanged(PaletteChangeKind.TextureChanged, $"Material texture {metadataKey} cleared");
+    }
+
+    private void PublishPaletteChanged(PaletteChangeKind kind, string description)
+    {
+        _events.Publish(new PaletteChangedEvent(kind, description, _state.ActivePaletteIndex, 1));
     }
 
     private MaterialDef? GetCurrentMaterial()

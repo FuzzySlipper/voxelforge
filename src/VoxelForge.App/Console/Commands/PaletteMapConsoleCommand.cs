@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -58,7 +59,11 @@ public sealed class PaletteMapConsoleCommand : IConsoleCommand
 
         var cmd = new App.Commands.PaletteMapCommand(palette, changes);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new PaletteChangedEvent(
+            PaletteChangeKind.Mapped,
+            $"Mapped {changes.Count} palette entry(s)",
+            null,
+            changes.Count));
 
         var lines = new List<string>
         {

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 using VoxelForge.Content;
 using VoxelForge.Core.Reference;
@@ -29,8 +30,11 @@ public sealed class RefLoadCommand : IConsoleCommand
         {
             var model = _loader.Load(args[0]);
             _referenceModelState.Add(model);
-            _referenceModelState.NotifyChanged();
             int idx = _referenceModelState.Models.Count - 1;
+            context.Events.Publish(new ReferenceModelChangedEvent(
+                ReferenceModelChangeKind.Loaded,
+                $"Loaded reference model {Path.GetFileName(model.FilePath)}",
+                idx));
             return CommandResult.Ok(
                 $"Loaded [{idx}] {model.Format} — {model.Meshes.Count} meshes, {model.TotalVertices} vertices, {model.TotalTriangles} triangles");
         }
@@ -87,7 +91,10 @@ public sealed class RefRemoveCommand : IConsoleCommand
             return CommandResult.Fail($"No reference model at index {idx}.");
 
         _referenceModelState.RemoveAt(idx);
-        _referenceModelState.NotifyChanged();
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.Removed,
+            $"Removed reference model [{idx}]",
+            idx));
         return CommandResult.Ok($"Removed reference model [{idx}].");
     }
 }
@@ -109,7 +116,10 @@ public sealed class RefClearCommand : IConsoleCommand
             return CommandResult.Ok("No reference models to remove.");
 
         _referenceModelState.Clear();
-        _referenceModelState.NotifyChanged();
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.Cleared,
+            $"Removed {count} reference model(s)",
+            null));
         return CommandResult.Ok($"Removed {count} reference model(s).");
     }
 }
@@ -152,6 +162,10 @@ public sealed class RefTransformCommand : IConsoleCommand
         if (args.Length >= 8 && float.TryParse(args[7], out float scale))
             model.Scale = scale;
 
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.TransformChanged,
+            $"Transformed reference model [{idx}]",
+            idx));
         return CommandResult.Ok($"[{idx}] pos=({x},{y},{z}) rot=({model.RotationX},{model.RotationY},{model.RotationZ}) scale={model.Scale}");
     }
 }
@@ -179,6 +193,10 @@ public sealed class RefModeCommand : IConsoleCommand
             return CommandResult.Fail("Invalid mode. Use: wireframe, solid, or transparent.");
 
         model.RenderMode = mode;
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.RenderModeChanged,
+            $"Reference model [{idx}] render mode = {mode}",
+            idx));
         return CommandResult.Ok($"[{idx}] render mode = {mode}");
     }
 }
@@ -208,6 +226,10 @@ public sealed class RefVisibilityCommand : IConsoleCommand
             return CommandResult.Fail($"No reference model at index {idx}.");
 
         model.IsVisible = _show;
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.VisibilityChanged,
+            $"Reference model [{idx}] {(_show ? "shown" : "hidden")}",
+            idx));
         return CommandResult.Ok($"[{idx}] {(_show ? "shown" : "hidden")}");
     }
 }
@@ -232,6 +254,10 @@ public sealed class RefScaleCommand : IConsoleCommand
             return CommandResult.Fail($"No reference model at index {idx}.");
 
         model.Scale = scale;
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.TransformChanged,
+            $"Reference model [{idx}] scale = {scale}",
+            idx));
         return CommandResult.Ok($"[{idx}] scale = {scale}");
     }
 }
@@ -267,6 +293,10 @@ public sealed class RefRotateCommand : IConsoleCommand
             default: return CommandResult.Fail("Axis must be x, y, or z.");
         }
 
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.TransformChanged,
+            $"Rotated reference model [{idx}] around {args[1]}",
+            idx));
         return CommandResult.Ok($"[{idx}] rot=({model.RotationX},{model.RotationY},{model.RotationZ})");
     }
 }
@@ -391,6 +421,10 @@ public sealed class RefOrientCommand : IConsoleCommand
         model.PositionX = -(newMinX + newMaxX) / 2f;
         model.PositionZ = -(newMinZ + newMaxZ) / 2f;
 
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.TransformChanged,
+            $"Auto-oriented reference model [{idx}]",
+            idx));
         return CommandResult.Ok(
             $"[{idx}] oriented: pos=({model.PositionX:F1},{model.PositionY:F1},{model.PositionZ:F1}) rot=({rx},{ry},{rz}) scale={model.Scale}");
     }
@@ -453,7 +487,7 @@ public sealed class RefAnimCommand : IConsoleCommand
 
         var action = args[1].ToLowerInvariant();
 
-        return action switch
+        var result = action switch
         {
             "list" => ListClips(model, idx),
             "play" => Play(model, idx, args),
@@ -463,6 +497,16 @@ public sealed class RefAnimCommand : IConsoleCommand
             "speed" => SetSpeed(model, idx, args),
             _ => CommandResult.Fail($"Unknown action '{action}'. Use: list, play, stop, pause, frame, speed."),
         };
+
+        if (result.Success && action != "list")
+        {
+            context.Events.Publish(new ReferenceModelChangedEvent(
+                ReferenceModelChangeKind.AnimationChanged,
+                result.Message,
+                idx));
+        }
+
+        return result;
     }
 
     private static CommandResult ListClips(ReferenceModelData model, int idx)
@@ -625,7 +669,10 @@ public sealed class RefTexCommand : IConsoleCommand
         if (updated == 0)
             return CommandResult.Fail("Failed to apply texture — check file format.");
 
-        _referenceModelState.NotifyChanged();
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.TextureChanged,
+            $"Retextured {updated} mesh(es) on model [{modelIdx}] with {Path.GetFileName(texPath)}",
+            modelIdx));
         return CommandResult.Ok($"Retextured {updated} mesh(es) on model [{modelIdx}] with {Path.GetFileName(texPath)}");
     }
 }
@@ -695,7 +742,10 @@ public sealed class RefTexEmissiveCommand : IConsoleCommand
         if (updated == 0)
             return CommandResult.Fail("Failed to apply emissive texture — check file format.");
 
-        _referenceModelState.NotifyChanged();
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.TextureChanged,
+            $"Applied emissive to {updated} mesh(es) on model [{modelIdx}]",
+            modelIdx));
         return CommandResult.Ok($"Applied emissive to {updated} mesh(es) on model [{modelIdx}] (brightness={brightness:F1})");
     }
 }
@@ -851,9 +901,12 @@ public sealed class RefLoadMetaCommand : IConsoleCommand
         }
 
         _referenceModelState.Add(model);
-        _referenceModelState.NotifyChanged();
 
         int idx = _referenceModelState.Models.Count - 1;
+        context.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.Loaded,
+            $"Loaded reference model metadata {Path.GetFileName(path)}",
+            idx));
         string msg = $"Loaded [{idx}] from {Path.GetFileName(path)} — {model.Meshes.Count} meshes, {model.TotalVertices} vertices";
         if (warnings.Count > 0)
             msg += "\nWarnings:\n  " + string.Join("\n  ", warnings);

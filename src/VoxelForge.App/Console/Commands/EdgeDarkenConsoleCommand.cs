@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -117,7 +118,15 @@ public sealed class EdgeDarkenConsoleCommand : IConsoleCommand
             model, $"Edge darken (strength={strength}, steps={steps})",
             paletteChanges, voxelChanges);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new PaletteChangedEvent(
+            PaletteChangeKind.EntriesChanged,
+            $"Edge darken created {paletteChanges.Count} palette entry(s)",
+            null,
+            paletteChanges.Count));
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.Baked,
+            $"Edge darkened {voxelChanges.Count} voxel(s)",
+            voxelChanges.Count));
 
         string msg = $"Edge darkened: {voxelChanges.Count} voxels, {paletteChanges.Count} palette entries created.";
         if (paletteFull)

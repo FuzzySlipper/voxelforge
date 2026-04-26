@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -23,9 +24,12 @@ public sealed class FillCommand : IConsoleCommand
         var max = new Point3(Math.Max(x1, x2), Math.Max(y1, y2), Math.Max(z1, z2));
         var cmd = new App.Commands.FillRegionCommand(context.Model, min, max, idx);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
 
         int count = (max.X - min.X + 1) * (max.Y - min.Y + 1) * (max.Z - min.Z + 1);
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.FillRegion,
+            $"Filled region with index {idx}",
+            count));
         return CommandResult.Ok($"Filled {count} voxels from ({min.X},{min.Y},{min.Z}) to ({max.X},{max.Y},{max.Z}) with index {idx}");
     }
 }

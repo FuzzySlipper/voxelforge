@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -36,9 +37,11 @@ public sealed class LabelVoxelCommand : IConsoleCommand
             return CommandResult.Fail("Usage: label <regionName> <x> <y> <z>");
 
         var regionId = new RegionId(args[0]);
+        bool createdRegion = false;
         if (!context.Labels.Regions.ContainsKey(regionId))
         {
             context.Labels.AddOrUpdateRegion(new RegionDef { Id = regionId, Name = args[0] });
+            createdRegion = true;
         }
 
         if (!int.TryParse(args[1], out int x) || !int.TryParse(args[2], out int y) ||
@@ -47,6 +50,19 @@ public sealed class LabelVoxelCommand : IConsoleCommand
 
         var pos = new Point3(x, y, z);
         context.Labels.AssignRegion(regionId, [pos]);
+        if (createdRegion)
+        {
+            context.Events.Publish(new LabelChangedEvent(
+                LabelChangeKind.RegionCreated,
+                $"Created region '{args[0]}'",
+                regionId,
+                0));
+        }
+        context.Events.Publish(new LabelChangedEvent(
+            LabelChangeKind.RegionAssigned,
+            $"Labeled ({x},{y},{z}) as '{args[0]}'",
+            regionId,
+            1));
         return CommandResult.Ok($"Labeled ({x},{y},{z}) as '{args[0]}'");
     }
 }

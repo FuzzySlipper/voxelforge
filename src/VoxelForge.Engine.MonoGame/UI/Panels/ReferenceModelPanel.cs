@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Myra.Graphics2D.Brushes;
 using Myra.Graphics2D.UI;
 using Myra.Graphics2D.UI.File;
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 using VoxelForge.Core.Reference;
 using VoxelForge.Engine.MonoGame.UI;
@@ -42,7 +43,8 @@ public sealed class ReferenceModelPanel
 
     public Widget Root { get; }
 
-    public ReferenceModelPanel(ReferenceModelState referenceModelState, MenuCommandDispatcher dispatcher)
+    public ReferenceModelPanel(ReferenceModelState referenceModelState, MenuCommandDispatcher dispatcher,
+        IEventDispatcher events)
     {
         _referenceModelState = referenceModelState;
         _dispatcher = dispatcher;
@@ -237,8 +239,7 @@ public sealed class ReferenceModelPanel
         WireTransformField(_rotY, () => CommitTransform());
         WireTransformField(_rotZ, () => CommitTransform());
 
-        // Listen for referenceModelState changes
-        _referenceModelState.Changed += Refresh;
+        events.Register<ReferenceModelChangedEvent>(new ReferenceModelPanelRefreshEventHandler(this));
     }
 
     public void SetDesktop(Desktop desktop) => _desktop = desktop;

@@ -1,5 +1,6 @@
 using Myra.Graphics2D.UI;
 using VoxelForge.App;
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 using VoxelForge.Engine.MonoGame.UI.Panels;
 
@@ -26,7 +27,7 @@ public sealed class EditorLayout
     public VerticalStackPanel RightSidebar { get; private set; } = null!;
     public Widget Root { get; }
 
-    public EditorLayout(EditorState state, MenuCommandDispatcher? dispatcher = null,
+    public EditorLayout(EditorState state, IEventDispatcher events, MenuCommandDispatcher? dispatcher = null,
         ReferenceModelState? referenceModelState = null)
     {
         DragDrop = new ContentDragDrop();
@@ -38,10 +39,10 @@ public sealed class EditorLayout
         PropertiesPanel = new PropertiesPanel(state);
         LlmPanel = new LlmPanel(state);
 
-        MaterialPanel = new MaterialPanel(state, DragDrop);
+        MaterialPanel = new MaterialPanel(state, DragDrop, events);
 
         if (dispatcher is not null && referenceModelState is not null)
-            RefModelPanel = new ReferenceModelPanel(referenceModelState, dispatcher);
+            RefModelPanel = new ReferenceModelPanel(referenceModelState, dispatcher, events);
 
         // Main grid: 2 rows (menu bar + main area)
         var outerGrid = new Grid();

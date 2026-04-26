@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 
 namespace VoxelForge.App.Console.Commands;
@@ -178,7 +179,15 @@ public sealed class PaletteReduceConsoleCommand : IConsoleCommand
             $"Palette reduce ({uniqueCount} -> {clusters.Count} colors)",
             paletteChanges, voxelChanges);
         context.UndoStack.Execute(cmd);
-        context.OnModelChanged?.Invoke();
+        context.Events.Publish(new PaletteChangedEvent(
+            PaletteChangeKind.Reduced,
+            $"Reduced palette from {uniqueCount} to {clusters.Count} unique colors",
+            null,
+            paletteChanges.Count));
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.PaletteIndexRemap,
+            $"Reassigned {voxelChanges.Count} voxel palette index(es)",
+            voxelChanges.Count));
 
         return CommandResult.Ok(
             $"Reduced from {uniqueCount} to {clusters.Count} unique colors. " +

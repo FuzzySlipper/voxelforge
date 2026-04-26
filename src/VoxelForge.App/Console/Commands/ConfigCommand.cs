@@ -1,3 +1,5 @@
+using VoxelForge.App.Events;
+
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class ConfigCommand : IConsoleCommand
@@ -32,6 +34,7 @@ public sealed class ConfigCommand : IConsoleCommand
         if (args[0] == "save")
         {
             _config.Save();
+            context.Events.Publish(new ConfigSavedEvent("config.json"));
             return CommandResult.Ok("Config saved to config.json");
         }
 
@@ -40,6 +43,7 @@ public sealed class ConfigCommand : IConsoleCommand
 
         var key = args[0].ToLowerInvariant();
         var value = args[1];
+        var oldValue = GetConfigValue(key);
 
         switch (key)
         {
@@ -80,6 +84,20 @@ public sealed class ConfigCommand : IConsoleCommand
         }
 
         _config.Save();
+        context.Events.Publish(new ConfigChangedEvent(key, oldValue, GetConfigValue(key), true));
         return CommandResult.Ok($"{key} = {value} (saved)");
     }
+
+    private string? GetConfigValue(string key) => key switch
+    {
+        "invertorbitx" => _config.InvertOrbitX.ToString(),
+        "invertorbity" => _config.InvertOrbitY.ToString(),
+        "orbitsensitivity" => _config.OrbitSensitivity.ToString(),
+        "zoomsensitivity" => _config.ZoomSensitivity.ToString(),
+        "defaultgridhint" => _config.DefaultGridHint.ToString(),
+        "maxundodepth" => _config.MaxUndoDepth.ToString(),
+        "maxzoomdistance" => _config.MaxZoomDistance.ToString(),
+        "voxelspermeter" => _config.VoxelsPerMeter.ToString(),
+        _ => null,
+    };
 }

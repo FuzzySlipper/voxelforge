@@ -1,3 +1,5 @@
+using VoxelForge.App.Events;
+
 namespace VoxelForge.App.Console.Commands;
 
 public sealed class GridCommand : IConsoleCommand
@@ -14,7 +16,12 @@ public sealed class GridCommand : IConsoleCommand
         if (!int.TryParse(args[0], out int size) || size < 1 || size > 256)
             return CommandResult.Fail("Invalid size. Expected integer 1-256.");
 
+        var oldSize = context.Model.GridHint;
         context.Model.GridHint = size;
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.GridHintChanged,
+            $"Grid hint changed from {oldSize} to {size}",
+            null));
         return CommandResult.Ok($"Grid hint set to {size}");
     }
 }

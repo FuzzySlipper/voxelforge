@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Console;
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 using VoxelForge.Content;
 using VoxelForge.Core;
@@ -18,11 +19,12 @@ var labels = new LabelIndex(NullLogger<LabelIndex>.Instance);
 var documentState = new EditorDocumentState(model, labels);
 var sessionState = new EditorSessionState();
 var undoHistoryState = new UndoHistoryState(configState.MaxUndoDepth);
+var events = new ApplicationEventDispatcher();
 var referenceModelState = new ReferenceModelState();
 var referenceImageState = new ReferenceImageState();
 
-var editorState = new EditorState(documentState, sessionState, NullLogger<EditorState>.Instance);
-var undoStack = new UndoStack(undoHistoryState, NullLogger<UndoStack>.Instance);
+var editorState = new EditorState(documentState, sessionState);
+var undoStack = new UndoStack(undoHistoryState, NullLogger<UndoStack>.Instance, events);
 var refLoader = new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance);
 
 // Game reference (set after construction, screenshot provider available after LoadContent)
@@ -37,6 +39,7 @@ var context = new CommandContext
     Labels = documentState.Labels,
     Clips = documentState.Clips,
     UndoStack = undoStack,
+    Events = events,
 };
 
 using var cts = new CancellationTokenSource();
@@ -60,10 +63,8 @@ if (headless)
 }
 else
 {
-    context.OnModelChanged = () => editorState.NotifyModelChanged();
-
     game = new VoxelForgeGame(editorState, undoStack, configState, referenceModelState, referenceImageState,
-        cts, router, context);
+        events, cts, router, context);
 
     var consoleThread = new Thread(() =>
     {

@@ -1,6 +1,7 @@
 using System.Numerics;
 using Microsoft.Extensions.Logging;
 using VoxelForge.App.Commands;
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 using VoxelForge.Core;
 using VoxelForge.Core.Voxelization;
@@ -121,6 +122,14 @@ public sealed class VoxelizeCompareCommand : IConsoleCommand
             // Copy palette entries
             foreach (var (palIdx, matDef) in result.Palette.Entries)
                 context.Model.Palette.Set(palIdx, matDef);
+            if (result.Palette.Count > 0)
+            {
+                context.Events.Publish(new PaletteChangedEvent(
+                    PaletteChangeKind.EntriesChanged,
+                    "Copied comparison voxelization palette entries",
+                    null,
+                    result.Palette.Count));
+            }
 
             // Remap to world-integer space with X offset
             var gridMin = aabbMin - new Vector3(cellSize * 0.5f);
@@ -156,7 +165,10 @@ public sealed class VoxelizeCompareCommand : IConsoleCommand
         {
             context.UndoStack.Execute(new CompoundCommand(commands,
                 $"Voxelize compare ({resolutions.Count} resolutions)"));
-            context.OnModelChanged?.Invoke();
+            context.Events.Publish(new VoxelModelChangedEvent(
+                VoxelModelChangeKind.VoxelizeComparison,
+                $"Voxelized {resolutions.Count} comparison resolution(s)",
+                allVoxels.Count));
         }
 
         return CommandResult.Ok(

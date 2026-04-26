@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Myra.Graphics2D.TextureAtlases;
 using Myra.Graphics2D.UI;
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 
 namespace VoxelForge.Engine.MonoGame.UI.Panels;
@@ -21,7 +22,8 @@ public sealed class ReferenceImagePanel : IDisposable
 
     public Widget Root => _root;
 
-    public ReferenceImagePanel(ReferenceImageState referenceImageState, GraphicsDevice graphicsDevice)
+    public ReferenceImagePanel(ReferenceImageState referenceImageState, GraphicsDevice graphicsDevice,
+        IEventDispatcher events)
     {
         _referenceImageState = referenceImageState;
         _graphicsDevice = graphicsDevice;
@@ -40,7 +42,7 @@ public sealed class ReferenceImagePanel : IDisposable
         };
         _root.Widgets.Add(scroll);
 
-        _referenceImageState.Changed += Rebuild;
+        events.Register<ReferenceImageChangedEvent>(new ReferenceImagePanelRefreshEventHandler(this));
     }
 
     public void Rebuild()

@@ -1,3 +1,4 @@
+using VoxelForge.App.Events;
 using VoxelForge.App.Reference;
 
 namespace VoxelForge.App.Console.Commands;
@@ -23,9 +24,12 @@ public sealed class ImgLoadCommand : IConsoleCommand
 
         var bytes = File.ReadAllBytes(path);
         _referenceImageState.Add(new ReferenceImageEntry { FilePath = path, RawBytes = bytes });
-        _referenceImageState.NotifyChanged();
 
         int idx = _referenceImageState.Images.Count - 1;
+        context.Events.Publish(new ReferenceImageChangedEvent(
+            ReferenceImageChangeKind.Loaded,
+            $"Loaded image {Path.GetFileName(path)}",
+            idx));
         return CommandResult.Ok($"Loaded image [{idx}] {Path.GetFileName(path)} ({bytes.Length} bytes)");
     }
 }
@@ -76,7 +80,10 @@ public sealed class ImgRemoveCommand : IConsoleCommand
             return CommandResult.Fail($"No image at index {idx}.");
 
         _referenceImageState.RemoveAt(idx);
-        _referenceImageState.NotifyChanged();
+        context.Events.Publish(new ReferenceImageChangedEvent(
+            ReferenceImageChangeKind.Removed,
+            $"Removed image [{idx}]",
+            idx));
         return CommandResult.Ok($"Removed image [{idx}].");
     }
 }

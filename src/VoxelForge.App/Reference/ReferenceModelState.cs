@@ -25,11 +25,4 @@ public sealed class ReferenceModelState
     }
 
     public void Clear() => _models.Clear();
-
-    /// <summary>
-    /// Fired when models are added/removed so the renderer can rebuild GPU buffers.
-    /// </summary>
-    public event Action? Changed;
-
-    public void NotifyChanged() => Changed?.Invoke();
 }

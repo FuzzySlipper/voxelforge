@@ -21,8 +21,9 @@ public sealed class ReferenceModelRenderer : IDisposable
     {
         _graphicsDevice = graphicsDevice;
         _referenceModelState = referenceModelState;
-        _referenceModelState.Changed += () => _dirty = true;
     }
+
+    public void MarkDirty() => _dirty = true;
 
     /// <summary>
     /// Tick animation time on all animating models. Call from Update().

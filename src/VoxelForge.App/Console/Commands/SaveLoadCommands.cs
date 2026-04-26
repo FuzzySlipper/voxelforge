@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using VoxelForge.App.Events;
 using VoxelForge.Core.Serialization;
 
 namespace VoxelForge.App.Console.Commands;
@@ -26,6 +27,7 @@ public sealed class SaveCommand : IConsoleCommand
         var meta = new ProjectMetadata { Name = Path.GetFileNameWithoutExtension(path) };
         var json = serializer.Serialize(context.Model, context.Labels, context.Clips, meta);
         File.WriteAllText(path, json);
+        context.Events.Publish(new ProjectSavedEvent(path, json.Length));
 
         return CommandResult.Ok($"Saved to {path} ({json.Length} bytes)");
     }
@@ -64,7 +66,7 @@ public sealed class LoadCommand : IConsoleCommand
         if (!File.Exists(path))
             return CommandResult.Fail($"File not found: {path}");
 
-        var json = File.ReadAllText(args[0]);
+        var json = File.ReadAllText(path);
         var serializer = new ProjectSerializer(_loggerFactory);
         var (model, labels, clips, meta) = serializer.Deserialize(json);
 
@@ -90,8 +92,25 @@ public sealed class LoadCommand : IConsoleCommand
         context.Clips.Clear();
         context.Clips.AddRange(clips);
 
-        context.OnModelChanged?.Invoke();
+        int voxelCount = model.GetVoxelCount();
+        int regionCount = labels.Regions.Count;
+        int clipCount = clips.Count;
+        context.Events.Publish(new ProjectLoadedEvent(path, meta.Name, voxelCount, regionCount, clipCount));
+        context.Events.Publish(new VoxelModelChangedEvent(
+            VoxelModelChangeKind.ProjectLoaded,
+            $"Loaded project '{meta.Name}'",
+            voxelCount));
+        context.Events.Publish(new LabelChangedEvent(
+            LabelChangeKind.LabelsRebuilt,
+            $"Loaded {regionCount} region(s) from project",
+            null,
+            0));
+        context.Events.Publish(new PaletteChangedEvent(
+            PaletteChangeKind.EntriesChanged,
+            "Loaded project palette",
+            null,
+            model.Palette.Count));
 
-        return CommandResult.Ok($"Loaded '{meta.Name}' — {model.GetVoxelCount()} voxels, {labels.Regions.Count} regions, {clips.Count} clips");
+        return CommandResult.Ok($"Loaded '{meta.Name}' — {voxelCount} voxels, {regionCount} regions, {clipCount} clips");
     }
 }
