@@ -36,11 +36,14 @@ public abstract class LlmToolMcpTool : IVoxelForgeMcpTool
 
     public JsonElement InputSchema => _definition.ParametersSchema;
 
-    public McpToolInvocationResult Invoke(JsonElement arguments)
+    public McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         ToolHandlerResult handlerResult;
         lock (_session.SyncRoot)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             handlerResult = _handler.Handle(
                 arguments,
                 _session.Document.Model,
@@ -49,6 +52,7 @@ public abstract class LlmToolMcpTool : IVoxelForgeMcpTool
 
             if (handlerResult.MutationIntent is not null && !handlerResult.IsError)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var applicationResult = _applicationService.ApplyMutationIntents(
                     _session.Document,
                     _session.UndoStack,

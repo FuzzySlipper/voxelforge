@@ -41,7 +41,7 @@ public abstract class VoxelForgeMcpServerTool : McpServerTool
             ? JsonSerializer.SerializeToElement(new Dictionary<string, object?>())
             : JsonSerializer.SerializeToElement(request.Params.Arguments);
 
-        var result = _tool.Invoke(arguments);
+        var result = _tool.Invoke(arguments, cancellationToken);
         return ValueTask.FromResult(new CallToolResult
         {
             IsError = !result.Success,

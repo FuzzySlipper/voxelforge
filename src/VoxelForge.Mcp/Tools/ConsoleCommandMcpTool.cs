@@ -21,7 +21,7 @@ public abstract class ConsoleCommandMcpTool : IVoxelForgeMcpTool
 
         _command = command;
         _session = session;
-        _inputSchema = JsonDocument.Parse("""
+        using var schemaDocument = JsonDocument.Parse("""
         {
             "type": "object",
             "properties": {
@@ -32,7 +32,8 @@ public abstract class ConsoleCommandMcpTool : IVoxelForgeMcpTool
                 }
             }
         }
-        """).RootElement.Clone();
+        """);
+        _inputSchema = schemaDocument.RootElement.Clone();
     }
 
     public string Name => "console_" + _command.Name;
@@ -41,8 +42,10 @@ public abstract class ConsoleCommandMcpTool : IVoxelForgeMcpTool
 
     public JsonElement InputSchema => _inputSchema;
 
-    public McpToolInvocationResult Invoke(JsonElement arguments)
+    public McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         string[] commandArgs = [];
         if (arguments.ValueKind == JsonValueKind.Object &&
             arguments.TryGetProperty("args", out var argsElement) &&
@@ -60,7 +63,10 @@ public abstract class ConsoleCommandMcpTool : IVoxelForgeMcpTool
 
         CommandResult commandResult;
         lock (_session.SyncRoot)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             commandResult = _command.Execute(commandArgs, _session.CommandContext);
+        }
 
         return new McpToolInvocationResult
         {

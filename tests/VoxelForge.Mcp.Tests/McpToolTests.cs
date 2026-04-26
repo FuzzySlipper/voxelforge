@@ -50,7 +50,7 @@ public sealed class McpToolTests
             session,
             new LlmToolApplicationService(new VoxelEditingService()));
 
-        var result = tool.Invoke(EmptyArguments());
+        var result = tool.Invoke(EmptyArguments(), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Contains("Voxel model with 1 voxels", result.Message, StringComparison.Ordinal);
@@ -64,7 +64,7 @@ public sealed class McpToolTests
         session.Document.Model.SetVoxel(new Point3(0, 0, 0), 1);
         var tool = new ConsoleCountMcpTool(new CountCommand(new VoxelQueryService()), session);
 
-        var result = tool.Invoke(EmptyArguments());
+        var result = tool.Invoke(EmptyArguments(), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal("Total voxels: 1", result.Message);
