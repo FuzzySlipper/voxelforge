@@ -3,8 +3,9 @@ using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Console;
 using VoxelForge.App.Events;
+using VoxelForge.Core;
 
-namespace VoxelForge.Core.Tests;
+namespace VoxelForge.App.Tests;
 
 public sealed class CommandRouterTests
 {

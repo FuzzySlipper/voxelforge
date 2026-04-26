@@ -3,8 +3,9 @@ using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
 using VoxelForge.App.Services;
+using VoxelForge.Core;
 
-namespace VoxelForge.Core.Tests;
+namespace VoxelForge.App.Tests;
 
 public sealed class RegionEditingServiceTests
 {

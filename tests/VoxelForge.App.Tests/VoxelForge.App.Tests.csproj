@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VoxelForge.Core\VoxelForge.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.App\VoxelForge.App.csproj" />
   </ItemGroup>
 
 </Project>

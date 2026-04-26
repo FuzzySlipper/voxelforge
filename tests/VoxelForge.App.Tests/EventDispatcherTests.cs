@@ -1,6 +1,7 @@
 using VoxelForge.App.Events;
+using VoxelForge.Core;
 
-namespace VoxelForge.Core.Tests;
+namespace VoxelForge.App.Tests;
 
 public sealed class EventDispatcherTests
 {

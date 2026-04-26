@@ -8,6 +8,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VoxelForge.Core.Tests/VoxelForge.Core.Tests.csproj" />
+    <Project Path="tests/VoxelForge.App.Tests/VoxelForge.App.Tests.csproj" />
     <Project Path="tests/VoxelForge.LLM.Tests/VoxelForge.LLM.Tests.csproj" />
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
   </Folder>
