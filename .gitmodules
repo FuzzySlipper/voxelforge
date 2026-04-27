@@ -1,12 +1,16 @@
 [submodule "lib/FNA"]
 	path = lib/FNA
 	url = https://github.com/FNA-XNA/FNA.git
+	ignore = dirty
 [submodule "lib/Myra"]
 	path = lib/Myra
 	url = https://github.com/rds1983/Myra.git
+	ignore = dirty
 [submodule "lib/FontStashSharp"]
 	path = lib/FontStashSharp
 	url = https://github.com/FontStashSharp/FontStashSharp.git
+	ignore = dirty
 [submodule "lib/XNAssets"]
 	path = lib/XNAssets
 	url = https://github.com/rds1983/XNAssets.git
+	ignore = dirty

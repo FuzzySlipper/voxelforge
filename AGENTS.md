@@ -112,6 +112,8 @@ lib/
 
 `lib/Directory.Build.props` and `lib/Directory.Packages.props` isolate submodules from VoxelForge's strict build settings. Submodule `Directory.Build.props` files are patched to target net10.0 (local modifications, not committed upstream).
 
+The superproject intentionally sets `ignore = dirty` for these `lib/` submodules in `.gitmodules`. This keeps expected local target-framework patches and generated native/build artifacts from dominating routine `git status` output while still showing real submodule commit pointer changes in the superproject. To inspect submodule worktree dirtiness manually, run commands inside the submodule, for example `git -C lib/FNA status --short`, or use `git submodule foreach 'git status --short'` when you explicitly need to audit third-party checkout changes.
+
 **Native libraries:** `libFNA3D.so` and `libFAudio.so` are built from source via `./build-native.sh`. Requires cmake, gcc, SDL3 dev headers.
 
 ## Configuration
