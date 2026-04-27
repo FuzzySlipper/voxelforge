@@ -154,4 +154,33 @@ public sealed class BoundaryTests
             "System.Reflection",
         ]);
     }
+
+    // --- Evaluation boundary: headless parser/planner, no Engine or provider SDK coupling ---
+
+    [Fact]
+    public void Evaluation_MustNotReference_EngineOrProviders()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var evaluationPath = Path.Combine(root, "src", "VoxelForge.Evaluation");
+        AssertNoUsings(evaluationPath, "VoxelForge.Evaluation", [
+            "using Microsoft.Xna.Framework",
+            "using Myra",
+            "using VoxelForge.Engine",
+            "using OpenAI",
+            "using Anthropic",
+        ]);
+    }
+
+    [Fact]
+    public void Evaluation_Assembly_MustNotReference_EngineOrProviders()
+    {
+        var evaluationAsm = typeof(VoxelForge.Evaluation.BenchmarkRunset).Assembly;
+        var refs = evaluationAsm.GetReferencedAssemblies().Select(r => r.Name ?? "").ToList();
+
+        Assert.DoesNotContain(refs, r => r.Contains("MonoGame", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("Myra", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("VoxelForge.Engine", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("OpenAI", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("Anthropic", StringComparison.OrdinalIgnoreCase));
+    }
 }
