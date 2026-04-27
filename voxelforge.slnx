@@ -6,6 +6,7 @@
     <Project Path="src/VoxelForge.App/VoxelForge.App.csproj" />
     <Project Path="src/VoxelForge.Mcp/VoxelForge.Mcp.csproj" />
     <Project Path="src/VoxelForge.Evaluation/VoxelForge.Evaluation.csproj" />
+    <Project Path="src/VoxelForge.Import/VoxelForge.Import.csproj" />
     <Project Path="src/VoxelForge.Engine.MonoGame/VoxelForge.Engine.MonoGame.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -14,6 +15,7 @@
     <Project Path="tests/VoxelForge.LLM.Tests/VoxelForge.LLM.Tests.csproj" />
     <Project Path="tests/VoxelForge.Mcp.Tests/VoxelForge.Mcp.Tests.csproj" />
     <Project Path="tests/VoxelForge.Evaluation.Tests/VoxelForge.Evaluation.Tests.csproj" />
+    <Project Path="tests/VoxelForge.Import.Tests/VoxelForge.Import.Tests.csproj" />
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
   </Folder>
 </Solution>

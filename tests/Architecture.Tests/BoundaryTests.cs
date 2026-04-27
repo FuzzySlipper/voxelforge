@@ -183,4 +183,33 @@ public sealed class BoundaryTests
         Assert.DoesNotContain(refs, r => r.Contains("OpenAI", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(refs, r => r.Contains("Anthropic", StringComparison.OrdinalIgnoreCase));
     }
+
+    // --- Import boundary: headless adapter, no Engine or provider SDK coupling ---
+
+    [Fact]
+    public void Import_MustNotReference_EngineOrProviders()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var importPath = Path.Combine(root, "src", "VoxelForge.Import");
+        AssertNoUsings(importPath, "VoxelForge.Import", [
+            "using Microsoft.Xna.Framework",
+            "using Myra",
+            "using VoxelForge.Engine",
+            "using OpenAI",
+            "using Anthropic",
+        ]);
+    }
+
+    [Fact]
+    public void Import_Assembly_MustNotReference_EngineOrProviders()
+    {
+        var importAsm = typeof(VoxelForge.Import.VoxelForgeImportPlan).Assembly;
+        var refs = importAsm.GetReferencedAssemblies().Select(r => r.Name ?? "").ToList();
+
+        Assert.DoesNotContain(refs, r => r.Contains("MonoGame", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("Myra", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("VoxelForge.Engine", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("OpenAI", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("Anthropic", StringComparison.OrdinalIgnoreCase));
+    }
 }

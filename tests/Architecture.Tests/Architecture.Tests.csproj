@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\VoxelForge.App\VoxelForge.App.csproj" />
     <ProjectReference Include="..\..\src\VoxelForge.Mcp\VoxelForge.Mcp.csproj" />
     <ProjectReference Include="..\..\src\VoxelForge.Evaluation\VoxelForge.Evaluation.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.Import\VoxelForge.Import.csproj" />
     <ProjectReference Include="..\..\src\VoxelForge.Engine.MonoGame\VoxelForge.Engine.MonoGame.csproj" />
   </ItemGroup>
 
