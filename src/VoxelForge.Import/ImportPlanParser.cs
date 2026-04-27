@@ -492,7 +492,7 @@ public sealed class ImportPlanParser
         }
         catch (JsonException ex)
         {
-            diagnostics.Add(CreateError("IMPORT001", ex.Message, path, line: (int?)ex.LineNumber, column: (int?)ex.BytePositionInLine));
+            diagnostics.Add(CreateError("IMPORT001", ex.Message, path, line: (int?)ex.LineNumber, column: ex.BytePositionInLine));
             return JsonDocument.Parse("{}");
         }
     }
@@ -505,7 +505,7 @@ public sealed class ImportPlanParser
         }
         catch (JsonException ex)
         {
-            diagnostics.Add(CreateError("IMPORT002", ex.Message, path, lineNumber, column: (int?)ex.BytePositionInLine));
+            diagnostics.Add(CreateError("IMPORT002", ex.Message, path, lineNumber, column: ex.BytePositionInLine));
             return null;
         }
     }
@@ -719,7 +719,7 @@ public sealed class ImportPlanParser
         string? sourceCallId = null,
         string? toolName = null,
         string? jsonPointer = null,
-        int? column = null)
+        long? column = null)
     {
         return new ImportDiagnostic
         {

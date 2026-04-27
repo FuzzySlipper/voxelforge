@@ -1,4 +1,7 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
+using VoxelForge.Core;
+using VoxelForge.Core.Serialization;
 
 namespace VoxelForge.Import.Tests;
 
@@ -48,7 +51,7 @@ public sealed class ImportPlanParserTests
         {
           "type": "tool_use",
           "name": "set_palette_entry",
-          "input": { "index": 1, "name": "stone" }
+          "input": { "index": 1, "name": "stone", "r": 64, "g": 64, "b": 64 }
         }
         """);
         using var mcpFixture = TempFile.Json("""
@@ -248,7 +251,7 @@ public sealed class ImportPlanParserTests
     [Fact]
     public void Cli_NormalizeWritesPlanAndValidateWritesReport()
     {
-        using var input = TempFile.Json("{ \"name\": \"set_palette_entry\", \"arguments\": { \"index\": 1, \"name\": \"stone\" } }");
+        using var input = TempFile.Json("{ \"name\": \"set_palette_entry\", \"arguments\": { \"index\": 1, \"name\": \"stone\", \"r\": 64, \"g\": 64, \"b\": 64 } }");
         using var planOut = TempFile.Empty(".plan.json");
         using var normalizeReportOut = TempFile.Empty(".normalize-report.json");
         using var validateReportOut = TempFile.Empty(".validate-report.json");
@@ -290,6 +293,107 @@ public sealed class ImportPlanParserTests
         Assert.DoesNotContain("Wrote import plan", validateOutput.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Cli_ReplayMaterializesPlanThroughToolAndConsoleRoutes()
+    {
+        using var plan = TempFile.Json("""
+        {
+          "schema_version": 1,
+          "source": { "format": "tool-call-array", "path": "fixture.json", "sha256": "fixture", "captured_at_utc": "2026-04-27T00:00:00+00:00" },
+          "options": { "strict": true, "max_operations": 100, "max_generated_voxels": 1000 },
+          "operations": [
+            { "operation_id": "op-000001", "source_index": 1, "kind": "tool_call", "name": "describe_model", "arguments": {}, "effect": "read_only" },
+            { "operation_id": "op-000002", "source_index": 2, "kind": "tool_call", "name": "new_model", "arguments": { "name": "imported", "grid_hint": 16 }, "effect": "lifecycle" },
+            { "operation_id": "op-000003", "source_index": 3, "kind": "tool_call", "name": "set_palette_entry", "arguments": { "index": 1, "name": "stone", "r": 64, "g": 64, "b": 64 }, "effect": "mutation" },
+            { "operation_id": "op-000004", "source_index": 4, "kind": "tool_call", "name": "fill_box", "arguments": { "x1": 0, "y1": 0, "z1": 0, "x2": 1, "y2": 0, "z2": 0, "palette_index": 1 }, "effect": "mutation" },
+            { "operation_id": "op-000005", "source_index": 5, "kind": "tool_call", "name": "set_voxels", "arguments": { "voxels": [ { "x": 2, "y": 0, "z": 0, "i": 1 } ] }, "effect": "mutation" },
+            { "operation_id": "op-000006", "source_index": 6, "kind": "tool_call", "name": "remove_voxels", "arguments": { "positions": [ { "x": 1, "y": 0, "z": 0 } ] }, "effect": "mutation" },
+            { "operation_id": "op-000007", "source_index": 7, "kind": "tool_call", "name": "create_region", "arguments": { "name": "body" }, "effect": "mutation" },
+            { "operation_id": "op-000008", "source_index": 8, "kind": "tool_call", "name": "assign_voxels_to_region", "arguments": { "region_id": "body", "positions": [ { "x": 0, "y": 0, "z": 0 }, { "x": 2, "y": 0, "z": 0 } ] }, "effect": "mutation" },
+            { "operation_id": "op-000009", "source_index": 9, "kind": "console_command", "name": "palette", "arguments": { "command": "palette", "args": ["add", "2", "glass", "10", "20", "30"] }, "effect": "mutation" },
+            { "operation_id": "op-000010", "source_index": 10, "kind": "console_command", "name": "set", "arguments": { "command": "set", "args": ["3", "0", "0", "2"] }, "effect": "mutation" },
+            { "operation_id": "op-000011", "source_index": 11, "kind": "console_command", "name": "label", "arguments": { "command": "label", "args": ["wing", "3", "0", "0"] }, "effect": "mutation" }
+          ]
+        }
+        """);
+        string outputPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(plan.Path)!, "materialized.vforge");
+        string reportPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(plan.Path)!, "report.json");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new ImportCli().Execute(["replay", plan.Path, "--out", outputPath, "--report-out", reportPath], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.True(File.Exists(outputPath));
+        Assert.Contains("Wrote materialized model", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("IMPORT201", File.ReadAllText(reportPath), StringComparison.Ordinal);
+
+        var (model, labels, _, meta) = ReadProject(outputPath);
+        Assert.Equal("materialized", meta.Name);
+        Assert.Equal(16, model.GridHint);
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(0, 0, 0)));
+        Assert.Null(model.GetVoxel(new Point3(1, 0, 0)));
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(2, 0, 0)));
+        Assert.Equal((byte)2, model.GetVoxel(new Point3(3, 0, 0)));
+        Assert.Equal("stone", model.Palette.Get(1)?.Name);
+        Assert.Equal("glass", model.Palette.Get(2)?.Name);
+        Assert.True(labels.Regions.TryGetValue(new RegionId("body"), out RegionDef? body));
+        Assert.Equal(2, body.Voxels.Count);
+        Assert.True(labels.Regions.TryGetValue(new RegionId("wing"), out RegionDef? wing));
+        Assert.Single(wing.Voxels);
+    }
+
+    [Fact]
+    public void Cli_ImportOneShotNormalizesAndMaterializesToolCalls()
+    {
+        using var input = TempFile.Json("""
+        [
+          { "name": "set_palette_entry", "arguments": { "index": 1, "name": "brick", "r": 120, "g": 40, "b": 30 } },
+          { "name": "apply_voxel_primitives", "arguments": { "primitives": [ { "kind": "block", "palette_index": 1, "at": { "x": 4, "y": 0, "z": 0 } } ] } }
+        ]
+        """);
+        string outputPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(input.Path)!, "imported.vforge");
+        string planOutPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(input.Path)!, "imported.plan.json");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new ImportCli().Execute(["import", input.Path, "--format", "auto", "--out", outputPath, "--plan-out", planOutPath], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.True(File.Exists(outputPath));
+        Assert.True(File.Exists(planOutPath));
+        Assert.Contains("apply_voxel_primitives", File.ReadAllText(planOutPath), StringComparison.Ordinal);
+        var (model, _, _, _) = ReadProject(outputPath);
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(4, 0, 0)));
+    }
+
+    [Fact]
+    public void Cli_ReplayRejectsMalformedPlanWithoutWritingOutput()
+    {
+        using var plan = TempFile.Json("""
+        {
+          "schema_version": 1,
+          "source": { "format": "tool-call-array", "path": "fixture.json", "sha256": "fixture", "captured_at_utc": "2026-04-27T00:00:00+00:00" },
+          "options": { "strict": true, "max_operations": 100, "max_generated_voxels": 1000 },
+          "operations": [
+            { "operation_id": "op-000001", "source_index": 1, "kind": "tool_call", "name": "new_model", "arguments": { "grid_hint": 12 }, "effect": "lifecycle" }
+          ]
+        }
+        """);
+        string outputPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(plan.Path)!, "should-not-exist.vforge");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new ImportCli().Execute(["replay", plan.Path, "--out", outputPath], output, error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.False(File.Exists(outputPath));
+        Assert.Contains("IMPORT111", error.ToString(), StringComparison.Ordinal);
+    }
+
     private static ImportNormalizeResult Normalize(string path)
     {
         return Normalize(path, new ImportNormalizeOptions { CapturedAtUtc = FixedTime });
@@ -299,6 +403,12 @@ public sealed class ImportPlanParserTests
     {
         var parser = new ImportPlanParser(new ImportPlanValidator());
         return parser.NormalizeFile(path, options);
+    }
+
+    private static (VoxelModel Model, LabelIndex Labels, List<AnimationClip> Clips, ProjectMetadata Meta) ReadProject(string path)
+    {
+        var serializer = new ProjectSerializer(NullLoggerFactory.Instance);
+        return serializer.Deserialize(File.ReadAllText(path));
     }
 
     private static void AssertSuccess(ImportNormalizeResult result, string sourceFormat, int operationCount, int expectedWarnings = 0)

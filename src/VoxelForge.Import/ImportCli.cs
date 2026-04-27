@@ -5,15 +5,22 @@ namespace VoxelForge.Import;
 public sealed class ImportCli
 {
     private readonly ImportPlanParser _parser;
+    private readonly ImportPlanReplayer _replayer;
 
     public ImportCli()
-        : this(new ImportPlanParser(new ImportPlanValidator()))
+        : this(new ImportPlanParser(new ImportPlanValidator()), new ImportPlanReplayer())
     {
     }
 
     public ImportCli(ImportPlanParser parser)
+        : this(parser, new ImportPlanReplayer())
+    {
+    }
+
+    public ImportCli(ImportPlanParser parser, ImportPlanReplayer replayer)
     {
         _parser = parser;
+        _replayer = replayer;
     }
 
     public int Execute(string[] args, TextWriter output, TextWriter error)
@@ -29,15 +36,7 @@ public sealed class ImportCli
         }
 
         string command = args[0];
-        if (string.Equals(command, "replay", StringComparison.Ordinal)
-            || string.Equals(command, "import", StringComparison.Ordinal))
-        {
-            error.WriteLine("Replay/materialization is not implemented in task 863. Use normalize or validate.");
-            return 2;
-        }
-
-        if (!string.Equals(command, "normalize", StringComparison.Ordinal)
-            && !string.Equals(command, "validate", StringComparison.Ordinal))
+        if (!IsCommand(command))
         {
             error.WriteLine($"Unknown command '{command}'.");
             WriteUsage(error);
@@ -50,6 +49,12 @@ public sealed class ImportCli
             error.WriteLine(parseResult.Message);
             return 2;
         }
+
+        if (string.Equals(command, "replay", StringComparison.Ordinal))
+            return ExecuteReplay(parseResult, output, error);
+
+        if (string.Equals(command, "import", StringComparison.Ordinal))
+            return ExecuteImport(parseResult, output, error);
 
         ImportNormalizeResult result = _parser.NormalizeFile(parseResult.InputPath!, new ImportNormalizeOptions
         {
@@ -72,10 +77,11 @@ public sealed class ImportCli
             }
 
             string planJson = JsonSerializer.Serialize(result.Plan, ImportJson.SerializerOptions);
-            if (!string.IsNullOrWhiteSpace(parseResult.PlanOutPath))
+            string? planOutPath = parseResult.PlanOutPath ?? parseResult.OutputPath;
+            if (!string.IsNullOrWhiteSpace(planOutPath))
             {
-                File.WriteAllText(parseResult.PlanOutPath, planJson);
-                output.WriteLine($"Wrote import plan: {parseResult.PlanOutPath}");
+                File.WriteAllText(planOutPath, planJson);
+                output.WriteLine($"Wrote import plan: {planOutPath}");
             }
             else
             {
@@ -91,6 +97,87 @@ public sealed class ImportCli
             WriteDiagnostics(result.Report.ErrorCount == 0 ? output : error, result.Diagnostics);
 
         return result.Report.ErrorCount == 0 ? 0 : 1;
+    }
+
+    private int ExecuteReplay(CliParseResult parseResult, TextWriter output, TextWriter error)
+    {
+        if (string.IsNullOrWhiteSpace(parseResult.OutputPath))
+        {
+            error.WriteLine("--out is required for replay.");
+            return 2;
+        }
+
+        ImportReplayResult result = _replayer.ReplayPlanFile(parseResult.InputPath!, new ImportReplayOptions
+        {
+            OutputPath = parseResult.OutputPath,
+            ProjectDirectory = parseResult.ProjectDirectory,
+            InitialModelPath = parseResult.InitialModelPath,
+        });
+
+        if (!string.IsNullOrWhiteSpace(parseResult.ReportOutPath))
+            File.WriteAllText(parseResult.ReportOutPath, JsonSerializer.Serialize(result.Report, ImportJson.SerializerOptions));
+
+        WriteSummary(result.Success ? output : error, result.Report);
+        if (result.Diagnostics.Count > 0)
+            WriteDiagnostics(result.Success ? output : error, result.Diagnostics);
+
+        if (result.Success)
+            output.WriteLine($"Wrote materialized model: {result.OutputPath}");
+
+        return result.Success ? 0 : 1;
+    }
+
+    private int ExecuteImport(CliParseResult parseResult, TextWriter output, TextWriter error)
+    {
+        if (string.IsNullOrWhiteSpace(parseResult.OutputPath))
+        {
+            error.WriteLine("--out is required for import.");
+            return 2;
+        }
+
+        ImportNormalizeResult normalizeResult = _parser.NormalizeFile(parseResult.InputPath!, new ImportNormalizeOptions
+        {
+            Format = parseResult.Format,
+            ToolName = parseResult.ToolName,
+            Strict = parseResult.Strict,
+            MaxOperations = parseResult.MaxOperations,
+            MaxGeneratedVoxels = parseResult.MaxGeneratedVoxels,
+        });
+
+        if (!normalizeResult.Success || normalizeResult.Plan is null)
+        {
+            if (!string.IsNullOrWhiteSpace(parseResult.ReportOutPath))
+                File.WriteAllText(parseResult.ReportOutPath, JsonSerializer.Serialize(normalizeResult.Report, ImportJson.SerializerOptions));
+
+            WriteSummary(error, normalizeResult.Report);
+            WriteDiagnostics(error, normalizeResult.Diagnostics);
+            return 1;
+        }
+
+        if (!string.IsNullOrWhiteSpace(parseResult.PlanOutPath))
+        {
+            File.WriteAllText(parseResult.PlanOutPath, JsonSerializer.Serialize(normalizeResult.Plan, ImportJson.SerializerOptions));
+            output.WriteLine($"Wrote import plan: {parseResult.PlanOutPath}");
+        }
+
+        ImportReplayResult replayResult = _replayer.ReplayToFile(normalizeResult.Plan, new ImportReplayOptions
+        {
+            OutputPath = parseResult.OutputPath,
+            ProjectDirectory = parseResult.ProjectDirectory,
+            InitialModelPath = parseResult.InitialModelPath,
+        });
+
+        if (!string.IsNullOrWhiteSpace(parseResult.ReportOutPath))
+            File.WriteAllText(parseResult.ReportOutPath, JsonSerializer.Serialize(replayResult.Report, ImportJson.SerializerOptions));
+
+        WriteSummary(replayResult.Success ? output : error, replayResult.Report);
+        if (replayResult.Diagnostics.Count > 0)
+            WriteDiagnostics(replayResult.Success ? output : error, replayResult.Diagnostics);
+
+        if (replayResult.Success)
+            output.WriteLine($"Wrote materialized model: {replayResult.OutputPath}");
+
+        return replayResult.Success ? 0 : 1;
     }
 
     private static CliParseResult ParseOptions(string[] args)
@@ -141,7 +228,9 @@ public sealed class ImportCli
             || string.Equals(arg, "--max-generated-voxels", StringComparison.Ordinal)
             || string.Equals(arg, "--out", StringComparison.Ordinal)
             || string.Equals(arg, "--plan-out", StringComparison.Ordinal)
-            || string.Equals(arg, "--report-out", StringComparison.Ordinal);
+            || string.Equals(arg, "--report-out", StringComparison.Ordinal)
+            || string.Equals(arg, "--project-dir", StringComparison.Ordinal)
+            || string.Equals(arg, "--initial-model", StringComparison.Ordinal);
     }
 
     private static void ApplyValue(CliParseResult result, string arg, string value)
@@ -204,15 +293,32 @@ public sealed class ImportCli
             return;
         }
 
-        if (string.Equals(arg, "--out", StringComparison.Ordinal)
-            || string.Equals(arg, "--plan-out", StringComparison.Ordinal))
+        if (string.Equals(arg, "--out", StringComparison.Ordinal))
+        {
+            result.OutputPath = value;
+            return;
+        }
+
+        if (string.Equals(arg, "--plan-out", StringComparison.Ordinal))
         {
             result.PlanOutPath = value;
             return;
         }
 
         if (string.Equals(arg, "--report-out", StringComparison.Ordinal))
+        {
             result.ReportOutPath = value;
+            return;
+        }
+
+        if (string.Equals(arg, "--project-dir", StringComparison.Ordinal))
+        {
+            result.ProjectDirectory = value;
+            return;
+        }
+
+        if (string.Equals(arg, "--initial-model", StringComparison.Ordinal))
+            result.InitialModelPath = value;
     }
 
     private static bool TryParseFormat(string value, out ImportInputFormat format)
@@ -234,6 +340,14 @@ public sealed class ImportCli
             || value == "tool-call-array"
             || value == "tool-calls-jsonl"
             || value == "stdio-jsonl";
+    }
+
+    private static bool IsCommand(string command)
+    {
+        return string.Equals(command, "normalize", StringComparison.Ordinal)
+            || string.Equals(command, "validate", StringComparison.Ordinal)
+            || string.Equals(command, "replay", StringComparison.Ordinal)
+            || string.Equals(command, "import", StringComparison.Ordinal);
     }
 
     private static bool IsHelp(string arg)
@@ -295,7 +409,8 @@ public sealed class ImportCli
         writer.WriteLine("Usage:");
         writer.WriteLine("  normalize <input> --format <auto|tool-envelope|raw-arguments|tool-call-array|tool-calls-jsonl|stdio-jsonl> [--tool <tool>] [--out <plan.json>] [--report-out <report.json>]");
         writer.WriteLine("  validate <input> --format <auto|tool-envelope|raw-arguments|tool-call-array|tool-calls-jsonl|stdio-jsonl> [--tool <tool>] [--report-out <report.json>]");
-        writer.WriteLine("Replay/materialization commands are intentionally deferred beyond task 863.");
+        writer.WriteLine("  replay <plan.json> --out <model.vforge> [--project-dir <dir>] [--initial-model <model.vforge>] [--report-out <report.json>]");
+        writer.WriteLine("  import <input> --format <auto|tool-envelope|raw-arguments|tool-call-array|tool-calls-jsonl|stdio-jsonl> --out <model.vforge> [--plan-out <plan.json>] [--report-out <report.json>]");
     }
 
     private sealed class CliParseResult
@@ -308,8 +423,11 @@ public sealed class ImportCli
         public bool Strict { get; set; }
         public int MaxOperations { get; set; }
         public int MaxGeneratedVoxels { get; set; }
+        public string? OutputPath { get; set; }
         public string? PlanOutPath { get; set; }
         public string? ReportOutPath { get; set; }
+        public string? ProjectDirectory { get; set; }
+        public string? InitialModelPath { get; set; }
 
         public static CliParseResult Failure(string message)
         {

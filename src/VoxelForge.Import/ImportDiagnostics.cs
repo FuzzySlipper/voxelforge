@@ -30,7 +30,7 @@ public sealed class ImportDiagnostic
 
     [JsonPropertyName("column")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? Column { get; init; }
+    public long? Column { get; init; }
 
     [JsonPropertyName("operation_index")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
