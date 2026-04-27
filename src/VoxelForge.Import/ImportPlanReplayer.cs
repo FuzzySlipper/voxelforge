@@ -438,6 +438,7 @@ public sealed class ImportPlanReplayer
             SkippedReadOnlyCount = CountReadOnlyOperations(plan),
             ErrorCount = errorCount,
             WarningCount = warningCount,
+            Operations = BuildReportOperations(plan),
             Diagnostics = diagnostics,
         };
 
@@ -502,6 +503,30 @@ public sealed class ImportPlanReplayer
         }
 
         return count;
+    }
+
+    private static IReadOnlyList<ImportReportOperation> BuildReportOperations(VoxelForgeImportPlan? plan)
+    {
+        if (plan is null)
+            return [];
+
+        var operations = new ImportReportOperation[plan.Operations.Count];
+        for (int i = 0; i < plan.Operations.Count; i++)
+        {
+            ImportPlanOperation operation = plan.Operations[i];
+            operations[i] = new ImportReportOperation
+            {
+                OperationId = operation.OperationId,
+                SourceIndex = operation.SourceIndex,
+                SourceLine = operation.SourceLine,
+                SourceCallId = operation.SourceCallId,
+                Kind = operation.Kind,
+                Name = operation.Name,
+                Effect = operation.Effect,
+            };
+        }
+
+        return operations;
     }
 
     private static ImportDiagnostic CreateReplayStateError(string message, string sourcePath, ImportPlanOperation operation, string jsonPointer)

@@ -49,6 +49,32 @@ public sealed class ImportDiagnostic
     public string? JsonPointer { get; init; }
 }
 
+public sealed class ImportReportOperation
+{
+    [JsonPropertyName("operation_id")]
+    public required string OperationId { get; init; }
+
+    [JsonPropertyName("source_index")]
+    public required int SourceIndex { get; init; }
+
+    [JsonPropertyName("source_line")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SourceLine { get; init; }
+
+    [JsonPropertyName("source_call_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceCallId { get; init; }
+
+    [JsonPropertyName("kind")]
+    public required string Kind { get; init; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    [JsonPropertyName("effect")]
+    public required string Effect { get; init; }
+}
+
 public sealed class ImportReport
 {
     [JsonPropertyName("schema_version")]
@@ -74,6 +100,9 @@ public sealed class ImportReport
 
     [JsonPropertyName("warning_count")]
     public required int WarningCount { get; init; }
+
+    [JsonPropertyName("operations")]
+    public IReadOnlyList<ImportReportOperation> Operations { get; init; } = [];
 
     [JsonPropertyName("diagnostics")]
     public required IReadOnlyList<ImportDiagnostic> Diagnostics { get; init; }

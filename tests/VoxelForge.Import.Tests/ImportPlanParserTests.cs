@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.Core;
 using VoxelForge.Core.Serialization;
+using VoxelForge.Evaluation;
 
 namespace VoxelForge.Import.Tests;
 
@@ -370,6 +371,122 @@ public sealed class ImportPlanParserTests
     }
 
     [Fact]
+    public void Cli_ImportBenchmarkToolCallsFixtureMaterializesPrimitiveModelAndPreservesReportProvenance()
+    {
+        string inputPath = FixturePath("benchmark-tool-calls.jsonl");
+        using var outputFile = TempFile.Empty(".vforge");
+        using var planFile = TempFile.Empty(".plan.json");
+        using var reportFile = TempFile.Empty(".report.json");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new ImportCli().Execute([
+            "import",
+            inputPath,
+            "--format",
+            "tool-calls-jsonl",
+            "--out",
+            outputFile.Path,
+            "--plan-out",
+            planFile.Path,
+            "--report-out",
+            reportFile.Path,
+        ], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        VoxelForgeImportPlan plan = ReadJson<VoxelForgeImportPlan>(planFile.Path);
+        ImportReport report = ReadJson<ImportReport>(reportFile.Path);
+        ImportPlanOperation primitiveOperation = Assert.Single(plan.Operations, operation => operation.Name == "apply_voxel_primitives");
+        Assert.Equal(12, primitiveOperation.SourceIndex);
+        Assert.Equal(3, primitiveOperation.SourceLine);
+        Assert.Equal("call-primitive", primitiveOperation.SourceCallId);
+        Assert.Contains(report.Operations, operation => operation.SourceCallId == "call-primitive" && operation.SourceIndex == 12);
+        Assert.Contains(report.Diagnostics, diagnostic => diagnostic.Code == "IMPORT201" && diagnostic.SourceCallId == "call-info" && diagnostic.OperationIndex == 13);
+
+        var (model, labels, clips, _) = ReadProject(outputFile.Path);
+        Assert.Equal(4, model.GetVoxelCount());
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(0, 0, 0)));
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(1, 1, 0)));
+        Assert.Equal("brick", model.Palette.Get(1)?.Name);
+
+        var metrics = new BenchmarkMetricsService().Compute(model, labels, clips, new BenchmarkMetricsOptions
+        {
+            ToolCallCount = plan.Operations.Count,
+            FailedToolCallCount = 0,
+            UndoableMutationCount = 0,
+        });
+        Assert.Equal(4, metrics.VoxelCount);
+        BenchmarkPaletteUsageMetric paletteUsage = Assert.Single(metrics.PaletteUsage);
+        Assert.Equal(4, paletteUsage.VoxelCount);
+        Assert.False(string.IsNullOrWhiteSpace(metrics.NormalizedVoxelHash));
+    }
+
+    [Fact]
+    public void Cli_ImportBenchmarkStdioFixtureMaterializesExpectedModelAndPreservesSourceIndices()
+    {
+        string inputPath = FixturePath("benchmark-stdio.jsonl");
+        using var outputFile = TempFile.Empty(".vforge");
+        using var planFile = TempFile.Empty(".plan.json");
+        using var reportFile = TempFile.Empty(".report.json");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new ImportCli().Execute([
+            "import",
+            inputPath,
+            "--format",
+            "stdio-jsonl",
+            "--out",
+            outputFile.Path,
+            "--plan-out",
+            planFile.Path,
+            "--report-out",
+            reportFile.Path,
+        ], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        VoxelForgeImportPlan plan = ReadJson<VoxelForgeImportPlan>(planFile.Path);
+        ImportReport report = ReadJson<ImportReport>(reportFile.Path);
+        Assert.Equal("stdio-jsonl", plan.Source.Format);
+        Assert.Equal([21, 22, 23], plan.Operations.Select(operation => operation.SourceIndex).ToArray());
+        Assert.Equal([21, 22, 23], report.Operations.Select(operation => operation.SourceIndex).ToArray());
+
+        var (model, _, _, _) = ReadProject(outputFile.Path);
+        Assert.Equal(3, model.GetVoxelCount());
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(0, 0, 0)));
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(1, 0, 0)));
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(2, 0, 0)));
+        Assert.Equal("wood", model.Palette.Get(1)?.Name);
+    }
+
+    [Fact]
+    public void Cli_ValidateBenchmarkToolCallFailureReportPreservesCallIdAndWarning()
+    {
+        string inputPath = FixturePath("benchmark-tool-calls-failed.jsonl");
+        using var reportFile = TempFile.Empty(".report.json");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new ImportCli().Execute([
+            "validate",
+            inputPath,
+            "--format",
+            "tool-calls-jsonl",
+            "--report-out",
+            reportFile.Path,
+        ], output, error);
+
+        Assert.Equal(1, exitCode);
+        ImportReport report = ReadJson<ImportReport>(reportFile.Path);
+        Assert.Equal("failed", report.Status);
+        Assert.Contains(report.Operations, operation => operation.SourceCallId == "call-bad-primitive" && operation.SourceIndex == 31);
+        Assert.Contains(report.Diagnostics, diagnostic => diagnostic.Code == "IMPORT111" && diagnostic.SourceCallId == "call-bad-primitive" && diagnostic.OperationIndex == 31);
+        Assert.Contains(report.Diagnostics, diagnostic => diagnostic.Code == "IMPORT203" && diagnostic.SourceCallId == "call-bad-primitive" && diagnostic.OperationIndex == 31);
+    }
+
+    [Fact]
     public void Cli_ReplayRejectsMalformedPlanWithoutWritingOutput()
     {
         using var plan = TempFile.Json("""
@@ -409,6 +526,18 @@ public sealed class ImportPlanParserTests
     {
         var serializer = new ProjectSerializer(NullLoggerFactory.Instance);
         return serializer.Deserialize(File.ReadAllText(path));
+    }
+
+    private static T ReadJson<T>(string path)
+    {
+        T? value = JsonSerializer.Deserialize<T>(File.ReadAllText(path), ImportJson.SerializerOptions);
+        Assert.NotNull(value);
+        return value;
+    }
+
+    private static string FixturePath(string fileName)
+    {
+        return System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", fileName);
     }
 
     private static void AssertSuccess(ImportNormalizeResult result, string sourceFormat, int operationCount, int expectedWarnings = 0)

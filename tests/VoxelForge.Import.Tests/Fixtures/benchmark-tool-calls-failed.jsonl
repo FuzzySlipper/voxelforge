@@ -1,0 +1,1 @@
+{"index":31,"round":1,"tool_call_id":"call-bad-primitive","name":"apply_voxel_primitives","arguments":{},"ok":false,"result_summary":"Missing primitives.","duration_ms":1}

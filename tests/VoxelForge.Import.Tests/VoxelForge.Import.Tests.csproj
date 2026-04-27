@@ -17,7 +17,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VoxelForge.Core\VoxelForge.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.Evaluation\VoxelForge.Evaluation.csproj" />
     <ProjectReference Include="..\..\src\VoxelForge.Import\VoxelForge.Import.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

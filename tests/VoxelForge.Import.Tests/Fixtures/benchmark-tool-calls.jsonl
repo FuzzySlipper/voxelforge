@@ -1,0 +1,4 @@
+{"index":10,"round":1,"tool_call_id":"call-new","name":"new_model","arguments":{"name":"benchmark-tool-import","grid_hint":24},"ok":true,"result_summary":"Created model.","duration_ms":1}
+{"index":11,"round":1,"tool_call_id":"call-palette","name":"set_palette_entry","arguments":{"index":1,"name":"brick","r":120,"g":40,"b":30},"ok":true,"result_summary":"Set palette.","duration_ms":1}
+{"index":12,"round":2,"tool_call_id":"call-primitive","name":"apply_voxel_primitives","arguments":{"primitives":[{"kind":"box","mode":"filled","palette_index":1,"from":{"x":0,"y":0,"z":0},"to":{"x":1,"y":1,"z":0}}]},"ok":true,"result_summary":"Generated 4 voxels.","duration_ms":2}
+{"index":13,"round":2,"tool_call_id":"call-info","name":"get_model_info","arguments":{},"ok":true,"result_summary":"4 voxels.","duration_ms":1}

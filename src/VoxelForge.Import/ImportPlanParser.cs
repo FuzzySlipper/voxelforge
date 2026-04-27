@@ -233,6 +233,23 @@ public sealed class ImportPlanParser
             JsonElement root = document.RootElement;
             int sourceIndex = ReadSourceIndex(root, fallbackIndex);
             TryAppendEnvelopeOperation(path, root, sourceIndex, lineNumber, diagnostics, operations);
+
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("ok", out JsonElement okElement)
+                && okElement.ValueKind == JsonValueKind.False)
+            {
+                string? callId = ReadOptionalString(root, "tool_call_id") ?? ReadOptionalString(root, "id");
+                TryReadString(root, "name", out string? toolName);
+                diagnostics.Add(CreateWarning(
+                    "IMPORT203",
+                    "Transcript tool call result was ok:false; request is still normalized for validation.",
+                    path,
+                    lineNumber,
+                    sourceIndex,
+                    toolName,
+                    "/ok",
+                    callId));
+            }
         }
     }
 
@@ -533,6 +550,7 @@ public sealed class ImportPlanParser
             SkippedReadOnlyCount = readOnlyCount,
             ErrorCount = errorCount,
             WarningCount = warningCount,
+            Operations = BuildReportOperations(plan),
             Diagnostics = diagnostics,
         };
 
@@ -676,6 +694,30 @@ public sealed class ImportPlanParser
         return count;
     }
 
+    private static IReadOnlyList<ImportReportOperation> BuildReportOperations(VoxelForgeImportPlan? plan)
+    {
+        if (plan is null)
+            return [];
+
+        var operations = new ImportReportOperation[plan.Operations.Count];
+        for (int i = 0; i < plan.Operations.Count; i++)
+        {
+            ImportPlanOperation operation = plan.Operations[i];
+            operations[i] = new ImportReportOperation
+            {
+                OperationId = operation.OperationId,
+                SourceIndex = operation.SourceIndex,
+                SourceLine = operation.SourceLine,
+                SourceCallId = operation.SourceCallId,
+                Kind = operation.Kind,
+                Name = operation.Name,
+                Effect = operation.Effect,
+            };
+        }
+
+        return operations;
+    }
+
     private static int CountAcceptedOperations(VoxelForgeImportPlan? plan)
     {
         if (plan is null)
@@ -743,7 +785,8 @@ public sealed class ImportPlanParser
         int? line,
         int operationIndex,
         string? toolName,
-        string? jsonPointer)
+        string? jsonPointer,
+        string? sourceCallId = null)
     {
         return new ImportDiagnostic
         {
@@ -754,6 +797,7 @@ public sealed class ImportPlanParser
             Line = line,
             OperationIndex = operationIndex,
             ToolName = toolName,
+            SourceCallId = sourceCallId,
             JsonPointer = jsonPointer,
         };
     }
