@@ -124,3 +124,15 @@ public sealed record ConfigChangedEvent(
     bool Saved) : IApplicationEvent;
 
 public sealed record ConfigSavedEvent(string Path) : IApplicationEvent;
+
+public enum EditorStatusSeverity
+{
+    Info,
+    Warning,
+    Error,
+}
+
+public sealed record EditorStatusEvent(
+    string Source,
+    EditorStatusSeverity Severity,
+    string Message) : IApplicationEvent;

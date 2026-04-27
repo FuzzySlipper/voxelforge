@@ -55,6 +55,7 @@ Rules:
 - Renderer dirtying listens to model, palette, project-load, and undo-history events. `UndoHistoryChangedEvent` is intentional because undo/redo replay undoable commands without replaying every domain-specific event. Duplicate dirty marks during ordinary command execution are acceptable because renderer dirtying is idempotent.
 - `ApplicationEventDispatcher` is an in-process synchronous dispatcher. Register handlers during application composition before background publishers start; `Publish` runs handlers on the caller's thread and does not marshal to the UI thread. Add an explicit synchronization strategy before introducing late/dynamic registration.
 - App-layer tests live in `tests/VoxelForge.App.Tests`; keep `tests/VoxelForge.Core.Tests` focused on Core-only behavior and free of App project references.
+- `EditorStatusEvent` is the App-layer status/toast seam for non-mutating adapter feedback such as a tool click that fails validation. It is a typed application event for UI/status subscribers; it must not replace service results or undoable mutation commands.
 
 ## LLM primitive generation seam
 

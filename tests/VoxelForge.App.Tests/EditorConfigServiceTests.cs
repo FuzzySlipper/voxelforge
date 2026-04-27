@@ -40,6 +40,33 @@ public sealed class EditorConfigServiceTests
         Assert.False(config.ShowMeasureGrid);
     }
 
+    [Theory]
+    [InlineData("invertOrbitX", "true", "True")]
+    [InlineData("invertOrbitY", "true", "True")]
+    [InlineData("orbitSensitivity", "2.5", "2.5")]
+    [InlineData("zoomSensitivity", "0.75", "0.75")]
+    [InlineData("defaultGridHint", "64", "64")]
+    [InlineData("maxUndoDepth", "25", "25")]
+    [InlineData("maxZoomDistance", "150", "150")]
+    [InlineData("voxelsPerMeter", "12.5", "12.5")]
+    [InlineData("backgroundColor", "4,5,6", "4,5,6")]
+    [InlineData("showMeasureGrid", "true", "True")]
+    public void SetValue_UsesSharedConfigKeyMapForEveryListedEntry(string key, string value, string expectedValue)
+    {
+        var config = new EditorConfigState();
+        var service = new EditorConfigService();
+
+        var setResult = service.SetValue(
+            config,
+            new ApplicationEventDispatcher(),
+            new SetConfigValueRequest(key, value, Save: false));
+        var listResult = service.List(config);
+
+        Assert.True(setResult.Success);
+        Assert.NotNull(listResult.Data);
+        Assert.Contains(listResult.Data, entry => entry.Key == key && entry.Value == expectedValue);
+    }
+
     private sealed class RecordingConfigHandler : IEventHandler<ConfigChangedEvent>
     {
         public List<ConfigChangedEvent> Events { get; } = [];

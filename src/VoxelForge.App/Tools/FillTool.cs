@@ -18,11 +18,14 @@ public sealed class FillTool : IEditorTool
     {
         if (hit is null) return;
 
-        _editingService.FloodFill(
+        var result = _editingService.FloodFill(
             state.Document,
             undo,
             events,
             new FloodFillVoxelRequest(hit.Value.VoxelPos, state.ActivePaletteIndex));
+
+        if (!result.Success)
+            events.Publish(new EditorStatusEvent("fill", EditorStatusSeverity.Warning, result.Message));
     }
 
     public void OnMouseMove(RaycastHit? hit, EditorState state) { }

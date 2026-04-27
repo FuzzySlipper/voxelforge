@@ -13,23 +13,30 @@ public readonly record struct ConfigListEntry(string Key, string Value);
 /// </summary>
 public sealed class EditorConfigService
 {
+    private static readonly ConfigKeyBinding[] ConfigKeys =
+    [
+        new("invertOrbitX", GetInvertOrbitX, SetInvertOrbitX),
+        new("invertOrbitY", GetInvertOrbitY, SetInvertOrbitY),
+        new("orbitSensitivity", GetOrbitSensitivity, SetOrbitSensitivity),
+        new("zoomSensitivity", GetZoomSensitivity, SetZoomSensitivity),
+        new("defaultGridHint", GetDefaultGridHint, SetDefaultGridHint),
+        new("maxUndoDepth", GetMaxUndoDepth, SetMaxUndoDepth),
+        new("maxZoomDistance", GetMaxZoomDistance, SetMaxZoomDistance),
+        new("voxelsPerMeter", GetVoxelsPerMeter, SetVoxelsPerMeter),
+        new("backgroundColor", GetBackgroundColor, SetBackgroundColor),
+        new("showMeasureGrid", GetShowMeasureGrid, SetShowMeasureGrid),
+    ];
+
     public ApplicationServiceResult<IReadOnlyList<ConfigListEntry>> List(EditorConfigState config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var entries = new List<ConfigListEntry>
+        var entries = new List<ConfigListEntry>(ConfigKeys.Length);
+        for (int i = 0; i < ConfigKeys.Length; i++)
         {
-            new("invertOrbitX", config.InvertOrbitX.ToString()),
-            new("invertOrbitY", config.InvertOrbitY.ToString()),
-            new("orbitSensitivity", config.OrbitSensitivity.ToString()),
-            new("zoomSensitivity", config.ZoomSensitivity.ToString()),
-            new("defaultGridHint", config.DefaultGridHint.ToString()),
-            new("maxUndoDepth", config.MaxUndoDepth.ToString()),
-            new("maxZoomDistance", config.MaxZoomDistance.ToString()),
-            new("voxelsPerMeter", config.VoxelsPerMeter.ToString()),
-            new("backgroundColor", string.Join(",", config.BackgroundColor)),
-            new("showMeasureGrid", config.ShowMeasureGrid.ToString()),
-        };
+            var binding = ConfigKeys[i];
+            entries.Add(new ConfigListEntry(binding.ExternalKey, binding.GetValue(config)));
+        }
 
         return new ApplicationServiceResult<IReadOnlyList<ConfigListEntry>>
         {
@@ -65,9 +72,19 @@ public sealed class EditorConfigService
         ArgumentNullException.ThrowIfNull(request.Key);
         ArgumentNullException.ThrowIfNull(request.Value);
 
-        var key = NormalizeKey(request.Key);
-        var oldValue = GetConfigValue(config, key);
-        var failure = SetConfigValue(config, key, request.Value);
+        var normalizedKey = NormalizeKey(request.Key);
+        var binding = FindConfigKey(normalizedKey);
+        if (binding is null)
+        {
+            return new ApplicationServiceResult
+            {
+                Success = false,
+                Message = $"Unknown config key: '{normalizedKey}'",
+            };
+        }
+
+        var oldValue = binding.GetValue(config);
+        var failure = binding.SetValue(config, request.Value);
         if (failure is not null)
         {
             return new ApplicationServiceResult
@@ -82,14 +99,14 @@ public sealed class EditorConfigService
 
         var applicationEvents = new IApplicationEvent[]
         {
-            new ConfigChangedEvent(key, oldValue, GetConfigValue(config, key), request.Save),
+            new ConfigChangedEvent(binding.NormalizedKey, oldValue, binding.GetValue(config), request.Save),
         };
         events.PublishAll(applicationEvents);
 
         return new ApplicationServiceResult
         {
             Success = true,
-            Message = $"{key} = {request.Value}" + (request.Save ? " (saved)" : string.Empty),
+            Message = $"{binding.NormalizedKey} = {request.Value}" + (request.Save ? " (saved)" : string.Empty),
             Events = applicationEvents,
         };
     }
@@ -143,48 +160,90 @@ public sealed class EditorConfigService
         };
     }
 
-    private static string? SetConfigValue(EditorConfigState config, string key, string value)
+    private static ConfigKeyBinding? FindConfigKey(string normalizedKey)
     {
-        switch (key)
+        for (int i = 0; i < ConfigKeys.Length; i++)
         {
-            case "invertorbitx":
-                if (!bool.TryParse(value, out var ix)) return "Expected true/false";
-                config.InvertOrbitX = ix;
-                return null;
-            case "invertorbity":
-                if (!bool.TryParse(value, out var iy)) return "Expected true/false";
-                config.InvertOrbitY = iy;
-                return null;
-            case "orbitsensitivity":
-                if (!float.TryParse(value, out var os)) return "Expected number";
-                config.OrbitSensitivity = os;
-                return null;
-            case "zoomsensitivity":
-                if (!float.TryParse(value, out var zs)) return "Expected number";
-                config.ZoomSensitivity = zs;
-                return null;
-            case "defaultgridhint":
-                if (!int.TryParse(value, out var dg)) return "Expected integer";
-                config.DefaultGridHint = dg;
-                return null;
-            case "maxundodepth":
-                if (!int.TryParse(value, out var mu)) return "Expected integer";
-                config.MaxUndoDepth = mu;
-                return null;
-            case "maxzoomdistance":
-                if (!float.TryParse(value, out var mz)) return "Expected number";
-                config.MaxZoomDistance = mz;
-                return null;
-            case "voxelspermeter":
-                if (!float.TryParse(value, out var vpm) || vpm <= 0) return "Expected positive number";
-                config.VoxelsPerMeter = vpm;
-                return null;
-            case "backgroundcolor":
-                return SetBackgroundColor(config, value);
-            default:
-                return $"Unknown config key: '{key}'";
+            if (ConfigKeys[i].NormalizedKey == normalizedKey)
+                return ConfigKeys[i];
         }
+
+        return null;
     }
+
+    private static string GetInvertOrbitX(EditorConfigState config) => config.InvertOrbitX.ToString();
+
+    private static string? SetInvertOrbitX(EditorConfigState config, string value)
+    {
+        if (!bool.TryParse(value, out var parsed)) return "Expected true/false";
+        config.InvertOrbitX = parsed;
+        return null;
+    }
+
+    private static string GetInvertOrbitY(EditorConfigState config) => config.InvertOrbitY.ToString();
+
+    private static string? SetInvertOrbitY(EditorConfigState config, string value)
+    {
+        if (!bool.TryParse(value, out var parsed)) return "Expected true/false";
+        config.InvertOrbitY = parsed;
+        return null;
+    }
+
+    private static string GetOrbitSensitivity(EditorConfigState config) => config.OrbitSensitivity.ToString();
+
+    private static string? SetOrbitSensitivity(EditorConfigState config, string value)
+    {
+        if (!float.TryParse(value, out var parsed)) return "Expected number";
+        config.OrbitSensitivity = parsed;
+        return null;
+    }
+
+    private static string GetZoomSensitivity(EditorConfigState config) => config.ZoomSensitivity.ToString();
+
+    private static string? SetZoomSensitivity(EditorConfigState config, string value)
+    {
+        if (!float.TryParse(value, out var parsed)) return "Expected number";
+        config.ZoomSensitivity = parsed;
+        return null;
+    }
+
+    private static string GetDefaultGridHint(EditorConfigState config) => config.DefaultGridHint.ToString();
+
+    private static string? SetDefaultGridHint(EditorConfigState config, string value)
+    {
+        if (!int.TryParse(value, out var parsed)) return "Expected integer";
+        config.DefaultGridHint = parsed;
+        return null;
+    }
+
+    private static string GetMaxUndoDepth(EditorConfigState config) => config.MaxUndoDepth.ToString();
+
+    private static string? SetMaxUndoDepth(EditorConfigState config, string value)
+    {
+        if (!int.TryParse(value, out var parsed)) return "Expected integer";
+        config.MaxUndoDepth = parsed;
+        return null;
+    }
+
+    private static string GetMaxZoomDistance(EditorConfigState config) => config.MaxZoomDistance.ToString();
+
+    private static string? SetMaxZoomDistance(EditorConfigState config, string value)
+    {
+        if (!float.TryParse(value, out var parsed)) return "Expected number";
+        config.MaxZoomDistance = parsed;
+        return null;
+    }
+
+    private static string GetVoxelsPerMeter(EditorConfigState config) => config.VoxelsPerMeter.ToString();
+
+    private static string? SetVoxelsPerMeter(EditorConfigState config, string value)
+    {
+        if (!float.TryParse(value, out var parsed) || parsed <= 0) return "Expected positive number";
+        config.VoxelsPerMeter = parsed;
+        return null;
+    }
+
+    private static string GetBackgroundColor(EditorConfigState config) => string.Join(",", config.BackgroundColor);
 
     private static string? SetBackgroundColor(EditorConfigState config, string value)
     {
@@ -201,19 +260,38 @@ public sealed class EditorConfigService
         return null;
     }
 
-    private static string? GetConfigValue(EditorConfigState config, string key) => key switch
+    private static string GetShowMeasureGrid(EditorConfigState config) => config.ShowMeasureGrid.ToString();
+
+    private static string? SetShowMeasureGrid(EditorConfigState config, string value)
     {
-        "invertorbitx" => config.InvertOrbitX.ToString(),
-        "invertorbity" => config.InvertOrbitY.ToString(),
-        "orbitsensitivity" => config.OrbitSensitivity.ToString(),
-        "zoomsensitivity" => config.ZoomSensitivity.ToString(),
-        "defaultgridhint" => config.DefaultGridHint.ToString(),
-        "maxundodepth" => config.MaxUndoDepth.ToString(),
-        "maxzoomdistance" => config.MaxZoomDistance.ToString(),
-        "voxelspermeter" => config.VoxelsPerMeter.ToString(),
-        "backgroundcolor" => string.Join(",", config.BackgroundColor),
-        _ => null,
-    };
+        if (!bool.TryParse(value, out var parsed)) return "Expected true/false";
+        config.ShowMeasureGrid = parsed;
+        return null;
+    }
 
     private static string NormalizeKey(string key) => key.ToLowerInvariant();
+
+    private sealed class ConfigKeyBinding
+    {
+        private readonly Func<EditorConfigState, string> _getValue;
+        private readonly Func<EditorConfigState, string, string?> _setValue;
+
+        public ConfigKeyBinding(
+            string externalKey,
+            Func<EditorConfigState, string> getValue,
+            Func<EditorConfigState, string, string?> setValue)
+        {
+            ExternalKey = externalKey;
+            NormalizedKey = NormalizeKey(externalKey);
+            _getValue = getValue;
+            _setValue = setValue;
+        }
+
+        public string ExternalKey { get; }
+        public string NormalizedKey { get; }
+
+        public string GetValue(EditorConfigState config) => _getValue(config);
+
+        public string? SetValue(EditorConfigState config, string value) => _setValue(config, value);
+    }
 }
