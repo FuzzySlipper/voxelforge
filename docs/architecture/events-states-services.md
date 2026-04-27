@@ -60,6 +60,10 @@ Rules:
 
 The high-level `apply_voxel_primitives` design in [`llm-primitive-generation-surface.md`](llm-primitive-generation-surface.md) follows the same adapter rule: LLM tools parse compact primitive requests into typed Core intents, and App services apply those intents through undoable editor commands.
 
+## LLM benchmark evaluation seam
+
+The local headless benchmark workflow in [`llm-headless-benchmark-harness.md`](llm-headless-benchmark-harness.md) is another adapter/orchestrator layer. It schedules prompt/model/tool runs and writes artifacts, but model edits still flow through headless MCP, stdio, ToolLoop, App services, and undoable commands. Required comparison artifacts are final `.vforge` files, transcripts, and Core/App-derived metrics; renderer screenshots are an optional later post-process, not part of the required headless benchmark path.
+
 ## MCP integration seam
 
 MCP should be implemented as another thin adapter over the same application core:

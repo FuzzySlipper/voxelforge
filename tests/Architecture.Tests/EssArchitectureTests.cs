@@ -146,6 +146,28 @@ public sealed class EssArchitectureTests
     }
 
     [Fact]
+    public void LlmHeadlessBenchmarkDesign_DefinesArtifactsAndComparisonScope()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "llm-headless-benchmark-harness.md");
+
+        Assert.True(File.Exists(docPath), $"Missing LLM benchmark design document at {docPath}");
+
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("run-manifest.json", text, StringComparison.Ordinal);
+        Assert.Contains("final.vforge", text, StringComparison.Ordinal);
+        Assert.Contains("conversation.jsonl", text, StringComparison.Ordinal);
+        Assert.Contains("metrics.json", text, StringComparison.Ordinal);
+        Assert.Contains("comparison.md", text, StringComparison.Ordinal);
+        Assert.Contains("VoxelForge.Mcp", text, StringComparison.Ordinal);
+        Assert.Contains("StdioHost", text, StringComparison.Ordinal);
+        Assert.Contains("ToolLoop", text, StringComparison.Ordinal);
+        Assert.Contains("LlmToolApplicationService", text, StringComparison.Ordinal);
+        Assert.Contains("screenshots are explicitly not part of the required first version", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not reference `VoxelForge.Engine.MonoGame`", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EssArchitectureDocuments_ReferenceExistingStateAndFacadeTypes()
     {
         var root = FindRepoRoot(AppContext.BaseDirectory);
