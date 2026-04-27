@@ -64,6 +64,10 @@ The high-level `apply_voxel_primitives` design in [`llm-primitive-generation-sur
 
 The local headless benchmark workflow in [`llm-headless-benchmark-harness.md`](llm-headless-benchmark-harness.md) is another adapter/orchestrator layer. It schedules prompt/model/tool runs and writes artifacts, but model edits still flow through headless MCP, stdio, ToolLoop, App services, and undoable commands. Required comparison artifacts are final `.vforge` files, transcripts, and Core/App-derived metrics; renderer screenshots are an optional later post-process, not part of the required headless benchmark path.
 
+## LLM tool JSON import seam
+
+The raw tool-call import workflow in [`llm-tool-json-import-pipeline.md`](llm-tool-json-import-pipeline.md) normalizes external JSON into a provider-neutral `VoxelForgeImportPlan` and may materialize a derived `.vforge` by replaying that plan. The import plan is an adapter artifact, not a Core model format: replay still goes through existing MCP/LLM/stdio adapters, typed App services, and undoable commands. Provider-specific envelope parsing stays at the import adapter boundary and must not leak into Core.
+
 ## MCP integration seam
 
 MCP should be implemented as another thin adapter over the same application core:

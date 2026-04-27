@@ -168,6 +168,29 @@ public sealed class EssArchitectureTests
     }
 
     [Fact]
+    public void LlmToolJsonImportDesign_DefinesShapesTargetsAndValidation()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "llm-tool-json-import-pipeline.md");
+
+        Assert.True(File.Exists(docPath), $"Missing LLM tool JSON import design document at {docPath}");
+
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("raw tool envelope", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("raw tool arguments", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tool-calls.jsonl", text, StringComparison.Ordinal);
+        Assert.Contains("stdio.jsonl", text, StringComparison.Ordinal);
+        Assert.Contains("VoxelForgeImportPlan", text, StringComparison.Ordinal);
+        Assert.Contains(".vforge", text, StringComparison.Ordinal);
+        Assert.Contains("structured diagnostics", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LlmToolApplicationService", text, StringComparison.Ordinal);
+        Assert.Contains("CommandRouter.Execute", text, StringComparison.Ordinal);
+        Assert.Contains("ProjectSerializer", text, StringComparison.Ordinal);
+        Assert.Contains("provider-specific envelope support belongs only in the import parser adapter", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not reference Engine, FNA, Myra", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EssArchitectureDocuments_ReferenceExistingStateAndFacadeTypes()
     {
         var root = FindRepoRoot(AppContext.BaseDirectory);
