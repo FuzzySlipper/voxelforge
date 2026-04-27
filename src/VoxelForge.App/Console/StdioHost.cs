@@ -35,7 +35,7 @@ public sealed class StdioHost
     /// </summary>
     public void Run(CancellationToken ct)
     {
-        WriteOutput(new StdioResponse { Ok = true, Message = "VoxelForge stdio ready. Send JSON commands." });
+        WriteOutput(new StdioCommandResponse { Ok = true, Message = "VoxelForge stdio ready. Send JSON commands." });
 
         using var reader = new StreamReader(System.Console.OpenStandardInput());
 
@@ -57,19 +57,19 @@ public sealed class StdioHost
             if (string.IsNullOrWhiteSpace(line))
                 continue;
 
-            StdioResponse response;
+            StdioCommandResponse response;
             try
             {
-                var request = JsonSerializer.Deserialize<StdioRequest>(line, JsonOptions);
+                var request = JsonSerializer.Deserialize<StdioCommandRequest>(line, JsonOptions);
                 if (request?.Command is null)
                 {
-                    response = new StdioResponse { Ok = false, Message = "Missing 'command' field." };
+                    response = new StdioCommandResponse { Ok = false, Message = "Missing 'command' field." };
                 }
                 else
                 {
                     var args = request.Args ?? [];
                     var result = _router.Execute(request.Command, args, _context);
-                    response = new StdioResponse
+                    response = new StdioCommandResponse
                     {
                         Ok = result.Success,
                         Message = result.Message,
@@ -88,31 +88,18 @@ public sealed class StdioHost
             }
             catch (JsonException ex)
             {
-                response = new StdioResponse { Ok = false, Message = $"Invalid JSON: {ex.Message}" };
+                response = new StdioCommandResponse { Ok = false, Message = $"Invalid JSON: {ex.Message}" };
             }
 
             WriteOutput(response);
         }
     }
 
-    private static void WriteOutput(StdioResponse response)
+    private static void WriteOutput(StdioCommandResponse response)
     {
         var json = JsonSerializer.Serialize(response, JsonOptions);
         System.Console.Out.WriteLine(json);
         System.Console.Out.Flush();
     }
 
-    private sealed class StdioRequest
-    {
-        public string? Command { get; set; }
-        public string[]? Args { get; set; }
-    }
-
-    private sealed class StdioResponse
-    {
-        public bool Ok { get; set; }
-        public string Message { get; set; } = "";
-        public string? Image { get; set; }
-        public string[]? Images { get; set; }
-    }
 }
