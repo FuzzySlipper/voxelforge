@@ -284,6 +284,7 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
         if (keyboard.IsKeyDown(Keys.Escape))
             Exit();
 
+        _editorLayout?.Tick(gameTime.ElapsedGameTime);
         _editorLayout?.Refresh();
 
         // Sync grid floor to model's grid hint

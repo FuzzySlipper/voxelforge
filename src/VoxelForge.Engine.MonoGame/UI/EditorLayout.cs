@@ -25,6 +25,7 @@ public sealed class EditorLayout
     public ReferenceModelPanel? RefModelPanel { get; }
     public MaterialPanel MaterialPanel { get; }
     public LlmPanel LlmPanel { get; }
+    public EditorStatusPanel StatusPanel { get; }
     public ContentDragDrop DragDrop { get; }
     public VerticalStackPanel RightSidebar { get; private set; } = null!;
     public Widget Root { get; }
@@ -44,16 +45,19 @@ public sealed class EditorLayout
         AnimationPanel = new AnimationPanel(state, events, animationEditingService);
         PropertiesPanel = new PropertiesPanel(state);
         LlmPanel = new LlmPanel(state);
+        StatusPanel = new EditorStatusPanel();
+        events.Register<EditorStatusEvent>(new EditorStatusPanelEventHandler(StatusPanel));
 
         MaterialPanel = new MaterialPanel(state, DragDrop, events, undoStack, paletteMaterialService);
 
         if (dispatcher is not null && referenceModelState is not null)
             RefModelPanel = new ReferenceModelPanel(referenceModelState, dispatcher, events);
 
-        // Main grid: 2 rows (menu bar + main area)
+        // Main grid: 3 rows (menu bar + main area + status bar)
         var outerGrid = new Grid();
         outerGrid.RowsProportions.Add(new Proportion(ProportionType.Auto));  // menu bar
         outerGrid.RowsProportions.Add(new Proportion(ProportionType.Fill));  // main area
+        outerGrid.RowsProportions.Add(new Proportion(ProportionType.Auto));  // status bar
 
         // Menu bar (row 0)
         if (dispatcher is not null)
@@ -110,8 +114,11 @@ public sealed class EditorLayout
         Grid.SetRow(mainGrid, 1);
         outerGrid.Widgets.Add(mainGrid);
 
+        Grid.SetRow(StatusPanel.Root, 2);
+        outerGrid.Widgets.Add(StatusPanel.Root);
+
         // Drag-drop overlay (spans full window so the label can appear anywhere)
-        Grid.SetRowSpan(DragDrop.DragLabel, 2);
+        Grid.SetRowSpan(DragDrop.DragLabel, 3);
         outerGrid.Widgets.Add(DragDrop.DragLabel);
 
         // Register drop targets
@@ -124,6 +131,11 @@ public sealed class EditorLayout
         }
 
         Root = outerGrid;
+    }
+
+    public void Tick(TimeSpan elapsed)
+    {
+        StatusPanel.Tick(elapsed);
     }
 
     public void Refresh()

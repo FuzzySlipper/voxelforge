@@ -68,3 +68,15 @@ internal sealed class ReferenceImagePanelRefreshEventHandler : IEventHandler<Ref
 
     public void Handle(ReferenceImageChangedEvent applicationEvent) => _panel.Rebuild();
 }
+
+internal sealed class EditorStatusPanelEventHandler : IEventHandler<EditorStatusEvent>
+{
+    private readonly EditorStatusPanel _panel;
+
+    public EditorStatusPanelEventHandler(EditorStatusPanel panel)
+    {
+        _panel = panel;
+    }
+
+    public void Handle(EditorStatusEvent applicationEvent) => _panel.ShowStatus(applicationEvent);
+}
