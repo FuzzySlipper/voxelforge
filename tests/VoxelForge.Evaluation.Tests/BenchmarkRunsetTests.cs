@@ -226,6 +226,76 @@ public sealed class BenchmarkRunsetTests
         Assert.Equal(0, manifest.ErrorCount);
     }
 
+    [Fact]
+    public void Cli_RunStdioBackendReplaysFixtureCommandsAndWritesTranscript()
+    {
+        using var temp = new TemporaryRunset(StdioRunsetJson("stdio-fixture"));
+        WriteFile(Path.Combine(temp.RootPath, "scripts", "commands.jsonl"), string.Join('\n', [
+            "{\"command\":\"palette\",\"args\":[\"add\",\"2\",\"blue\",\"0\",\"0\",\"255\"]}",
+            "{\"command\":\"set\",\"args\":[\"0\",\"0\",\"0\",\"2\"]}",
+            "{\"command\":\"set\",\"args\":[\"1\",\"0\",\"0\",\"2\"]}",
+            "{\"command\":\"count\",\"args\":[]}",
+        ]));
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new BenchmarkCli().Execute(["run", temp.Path, "--backend", "stdio"], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.Contains("Wrote benchmark suite for 1 runs", output.ToString(), StringComparison.Ordinal);
+        string suiteRoot = Assert.Single(Directory.GetDirectories(Path.Combine(temp.RootPath, "artifacts", "stdio", "stdio-fixture")));
+        string runRoot = Path.Combine(suiteRoot, "stdio-case", "stdio-variant", "trial-1");
+        Assert.True(File.Exists(Path.Combine(runRoot, "outputs", "final.vforge")));
+        Assert.True(File.Exists(Path.Combine(runRoot, "transcripts", "stdio.jsonl")));
+
+        string stdio = File.ReadAllText(Path.Combine(runRoot, "transcripts", "stdio.jsonl"));
+        Assert.Contains("\"command\":\"set\"", stdio, StringComparison.Ordinal);
+        Assert.Contains("\"command\":\"save\"", stdio, StringComparison.Ordinal);
+        Assert.Contains("\"ok\":true", stdio, StringComparison.Ordinal);
+
+        string metricsJson = File.ReadAllText(Path.Combine(runRoot, "outputs", "metrics.json"));
+        Assert.Contains("\"voxel_count\": 2", metricsJson, StringComparison.Ordinal);
+
+        BenchmarkRunManifest manifest = JsonSerializer.Deserialize<BenchmarkRunManifest>(File.ReadAllText(Path.Combine(runRoot, "run-manifest.json")))
+            ?? throw new InvalidOperationException("Failed to read manifest.");
+        Assert.Equal("succeeded", manifest.Status);
+        Assert.Equal("stdio", manifest.Backend);
+        Assert.Equal(5, manifest.ToolCallCount);
+        Assert.Equal(0, manifest.ErrorCount);
+    }
+
+    [Fact]
+    public void Cli_RunStdioBackendCapturesRequestFailures()
+    {
+        using var temp = new TemporaryRunset(StdioRunsetJson("stdio-failure"));
+        WriteFile(Path.Combine(temp.RootPath, "scripts", "commands.jsonl"), string.Join('\n', [
+            "{\"command\":\"set\",\"args\":[\"0\",\"0\",\"0\",\"1\"]}",
+            "{\"command\":\"unknown_command\",\"args\":[]}",
+        ]));
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new BenchmarkCli().Execute(["run", temp.Path, "--backend", "stdio"], output, error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.Contains("Failed runs: 1", output.ToString(), StringComparison.Ordinal);
+        string suiteRoot = Assert.Single(Directory.GetDirectories(Path.Combine(temp.RootPath, "artifacts", "stdio", "stdio-failure")));
+        string runRoot = Path.Combine(suiteRoot, "stdio-case", "stdio-variant", "trial-1");
+        string stdio = File.ReadAllText(Path.Combine(runRoot, "transcripts", "stdio.jsonl"));
+        Assert.Contains("\"command\":\"unknown_command\"", stdio, StringComparison.Ordinal);
+        Assert.Contains("\"ok\":false", stdio, StringComparison.Ordinal);
+        Assert.Contains("Unknown command", stdio, StringComparison.Ordinal);
+
+        BenchmarkRunManifest manifest = JsonSerializer.Deserialize<BenchmarkRunManifest>(File.ReadAllText(Path.Combine(runRoot, "run-manifest.json")))
+            ?? throw new InvalidOperationException("Failed to read manifest.");
+        Assert.Equal("failed", manifest.Status);
+        Assert.Equal("stdio", manifest.Backend);
+        Assert.Equal(3, manifest.ToolCallCount);
+        Assert.Equal(1, manifest.ErrorCount);
+    }
+
     private static BenchmarkRunset ValidRunset()
     {
         return new BenchmarkRunset
@@ -317,6 +387,33 @@ public sealed class BenchmarkRunsetTests
               "variant_id": "fake-variant",
               "provider": "fake",
               "model": "fake-primitive"
+            }
+          ]
+        }
+        """;
+    }
+
+    private static string StdioRunsetJson(string suiteId)
+    {
+        return $$"""
+        {
+          "schema_version": 1,
+          "suite_id": "{{suiteId}}",
+          "artifact_root": "artifacts/stdio",
+          "max_rounds": 4,
+          "trials": 1,
+          "tool_preset": "stdio-console-v1",
+          "cases": [
+            {
+              "case_id": "stdio-case",
+              "prompt_file": "scripts/commands.jsonl"
+            }
+          ],
+          "variants": [
+            {
+              "variant_id": "stdio-variant",
+              "provider": "fixture-stdio",
+              "model": "command-sequence"
             }
           ]
         }
