@@ -23,6 +23,7 @@ public sealed class BenchmarkRunPlan
     public required string ArtifactRoot { get; init; }
     public required string Backend { get; init; }
     public required bool FailFast { get; init; }
+    public int? MaxRounds { get; init; }
     public required IReadOnlyList<BenchmarkPlannedRun> Runs { get; init; }
 }
 
@@ -38,6 +39,8 @@ public sealed class BenchmarkPlannedRun
     public string? InitialModel { get; init; }
     public string? PaletteFile { get; init; }
     public string? ToolPreset { get; init; }
+    public double? Temperature { get; init; }
+    public int? Seed { get; init; }
 }
 
 public sealed class BenchmarkPlanner
@@ -134,6 +137,8 @@ public sealed class BenchmarkPlanner
                         InitialModel = benchmarkCase.InitialModel,
                         PaletteFile = benchmarkCase.PaletteFile,
                         ToolPreset = variant.ToolPreset ?? runset.ToolPreset,
+                        Temperature = variant.Temperature,
+                        Seed = variant.Seed,
                     });
                 }
             }
@@ -149,6 +154,7 @@ public sealed class BenchmarkPlanner
                 ArtifactRoot = options.ArtifactRootOverride ?? runset.ArtifactRoot!,
                 Backend = options.Backend,
                 FailFast = options.FailFast,
+                MaxRounds = runset.MaxRounds,
                 Runs = runs,
             },
         };

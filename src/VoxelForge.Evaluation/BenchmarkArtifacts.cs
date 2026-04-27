@@ -151,6 +151,11 @@ public sealed class BenchmarkRunArtifactRequest
     public double? Temperature { get; init; }
     public int? Seed { get; init; }
     public string? ToolSchemaSha256 { get; init; }
+    public string? ConversationTranscriptJsonl { get; init; }
+    public string? ToolCallsTranscriptJsonl { get; init; }
+    public string? StdioTranscriptJsonl { get; init; }
+    public string? StdoutLog { get; init; }
+    public string? StderrLog { get; init; }
     public BenchmarkFailureArtifact? Failure { get; init; }
 }
 
@@ -243,7 +248,7 @@ public sealed class BenchmarkArtifactWriter
         CopyOptionalInputFile(inputRoot, run.PaletteFile, Path.Combine(inputsDirectory, "palette.json"));
         WriteJson(Path.Combine(inputsDirectory, "runset-fragment.json"), new BenchmarkRunsetFragment(run));
 
-        WritePlaceholderTranscripts(transcriptsDirectory, suite.Backend);
+        WriteTranscripts(transcriptsDirectory, suite.Backend, request);
 
         string finalProjectJson = new ProjectSerializer(NullLoggerFactory.Instance).Serialize(
             request.Model,
@@ -336,14 +341,19 @@ public sealed class BenchmarkArtifactWriter
         return _metricsService.ComputeFileSha256(targetPath);
     }
 
-    private static void WritePlaceholderTranscripts(string transcriptsDirectory, string backend)
+    private static void WriteTranscripts(string transcriptsDirectory, string backend, BenchmarkRunArtifactRequest request)
     {
-        File.WriteAllText(Path.Combine(transcriptsDirectory, "conversation.jsonl"), string.Empty);
-        File.WriteAllText(Path.Combine(transcriptsDirectory, "tool-calls.jsonl"), string.Empty);
-        if (string.Equals(backend, "stdio", StringComparison.Ordinal))
-            File.WriteAllText(Path.Combine(transcriptsDirectory, "stdio.jsonl"), string.Empty);
-        File.WriteAllText(Path.Combine(transcriptsDirectory, "stdout.log"), string.Empty);
-        File.WriteAllText(Path.Combine(transcriptsDirectory, "stderr.log"), string.Empty);
+        WriteText(Path.Combine(transcriptsDirectory, "conversation.jsonl"), request.ConversationTranscriptJsonl);
+        WriteText(Path.Combine(transcriptsDirectory, "tool-calls.jsonl"), request.ToolCallsTranscriptJsonl);
+        if (string.Equals(backend, "stdio", StringComparison.Ordinal) || request.StdioTranscriptJsonl is not null)
+            WriteText(Path.Combine(transcriptsDirectory, "stdio.jsonl"), request.StdioTranscriptJsonl);
+        WriteText(Path.Combine(transcriptsDirectory, "stdout.log"), request.StdoutLog);
+        WriteText(Path.Combine(transcriptsDirectory, "stderr.log"), request.StderrLog);
+    }
+
+    private static void WriteText(string path, string? value)
+    {
+        File.WriteAllText(path, value ?? string.Empty);
     }
 
     private static object CreateModelInfo(BenchmarkModelMetrics metrics)
@@ -454,6 +464,8 @@ public sealed class BenchmarkArtifactWriter
             InitialModel = run.InitialModel;
             PaletteFile = run.PaletteFile;
             ToolPreset = run.ToolPreset;
+            Temperature = run.Temperature;
+            Seed = run.Seed;
         }
 
         [JsonPropertyName("case_id")]
@@ -485,5 +497,11 @@ public sealed class BenchmarkArtifactWriter
 
         [JsonPropertyName("tool_preset")]
         public string? ToolPreset { get; }
+
+        [JsonPropertyName("temperature")]
+        public double? Temperature { get; }
+
+        [JsonPropertyName("seed")]
+        public int? Seed { get; }
     }
 }

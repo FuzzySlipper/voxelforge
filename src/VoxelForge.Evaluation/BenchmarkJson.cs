@@ -15,4 +15,9 @@ internal static class BenchmarkJson
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
     };
+
+    public static JsonSerializerOptions JsonlOptions { get; } = new()
+    {
+        WriteIndented = false,
+    };
 }

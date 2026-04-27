@@ -11,6 +11,8 @@ public sealed class BenchmarkPlanWriter
         writer.WriteLine($"Artifact root: {plan.ArtifactRoot}");
         writer.WriteLine($"Backend: {plan.Backend}");
         writer.WriteLine($"Fail fast: {plan.FailFast.ToString().ToLowerInvariant()}");
+        if (plan.MaxRounds.HasValue)
+            writer.WriteLine($"Max rounds: {plan.MaxRounds.Value}");
         writer.WriteLine($"Runs: {plan.Runs.Count}");
 
         for (int i = 0; i < plan.Runs.Count; i++)

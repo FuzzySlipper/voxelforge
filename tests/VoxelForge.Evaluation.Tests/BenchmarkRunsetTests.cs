@@ -1,3 +1,4 @@
+using System.Text.Json;
 using VoxelForge.Evaluation;
 
 namespace VoxelForge.Evaluation.Tests;
@@ -167,17 +168,62 @@ public sealed class BenchmarkRunsetTests
     }
 
     [Fact]
-    public void Cli_RunWithoutDryRunReturnsNotImplementedError()
+    public void Cli_RunWithoutConfiguredProviderWritesFailureArtifacts()
     {
         using var temp = new TemporaryRunset(SampleRunsetJson());
+        CreateBenchmarkInputFiles(temp.RootPath);
         var output = new StringWriter();
         var error = new StringWriter();
 
         int exitCode = new BenchmarkCli().Execute(["run", temp.Path], output, error);
 
-        Assert.Equal(2, exitCode);
-        Assert.Equal(string.Empty, output.ToString());
-        Assert.Contains("Live benchmark execution is not implemented", error.ToString(), StringComparison.Ordinal);
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        string text = output.ToString();
+        Assert.Contains("Wrote benchmark suite for 2 runs", text, StringComparison.Ordinal);
+        Assert.Contains("Failed runs: 2", text, StringComparison.Ordinal);
+        string suiteRoot = Assert.Single(Directory.GetDirectories(Path.Combine(temp.RootPath, "artifacts", "benchmarks", "primitive-builds")));
+        Assert.True(File.Exists(Path.Combine(suiteRoot, "comparison.json")));
+    }
+
+    [Fact]
+    public void Cli_RunMcpFakeProviderWritesTranscriptsAndFinalModel()
+    {
+        using var temp = new TemporaryRunset(FakeRunsetJson());
+        WriteFile(Path.Combine(temp.RootPath, "prompts", "build.md"), "Build a small deterministic fixture.");
+        WriteFile(Path.Combine(temp.RootPath, "prompts", "system.md"), "Use MCP tools.");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new BenchmarkCli().Execute(["run", temp.Path], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.Contains("Wrote benchmark suite for 1 runs", output.ToString(), StringComparison.Ordinal);
+        string suiteRoot = Assert.Single(Directory.GetDirectories(Path.Combine(temp.RootPath, "artifacts", "mcp", "mcp-fixture")));
+        string runRoot = Path.Combine(suiteRoot, "fake-case", "fake-variant", "trial-1");
+        Assert.True(File.Exists(Path.Combine(runRoot, "outputs", "final.vforge")));
+        Assert.True(File.Exists(Path.Combine(runRoot, "transcripts", "conversation.jsonl")));
+        Assert.True(File.Exists(Path.Combine(runRoot, "transcripts", "tool-calls.jsonl")));
+
+        string toolCalls = File.ReadAllText(Path.Combine(runRoot, "transcripts", "tool-calls.jsonl"));
+        Assert.Contains("\"name\":\"apply_voxel_primitives\"", toolCalls, StringComparison.Ordinal);
+        Assert.Contains("\"name\":\"save_model\"", toolCalls, StringComparison.Ordinal);
+
+        string conversation = File.ReadAllText(Path.Combine(runRoot, "transcripts", "conversation.jsonl"));
+        Assert.Contains("\"role\":\"system\"", conversation, StringComparison.Ordinal);
+        Assert.Contains("\"role\":\"user\"", conversation, StringComparison.Ordinal);
+        Assert.Contains("\"role\":\"tool\"", conversation, StringComparison.Ordinal);
+
+        string metricsJson = File.ReadAllText(Path.Combine(runRoot, "outputs", "metrics.json"));
+        Assert.Contains("\"voxel_count\": 8", metricsJson, StringComparison.Ordinal);
+
+        BenchmarkRunManifest manifest = JsonSerializer.Deserialize<BenchmarkRunManifest>(File.ReadAllText(Path.Combine(runRoot, "run-manifest.json")))
+            ?? throw new InvalidOperationException("Failed to read manifest.");
+        Assert.Equal("succeeded", manifest.Status);
+        Assert.Equal("mcp-tool-loop", manifest.Backend);
+        Assert.Equal(3, manifest.ToolCallCount);
+        Assert.Equal(0, manifest.ErrorCount);
     }
 
     private static BenchmarkRunset ValidRunset()
@@ -249,6 +295,48 @@ public sealed class BenchmarkRunsetTests
         """;
     }
 
+    private static string FakeRunsetJson()
+    {
+        return """
+        {
+          "schema_version": 1,
+          "suite_id": "mcp-fixture",
+          "artifact_root": "artifacts/mcp",
+          "max_rounds": 4,
+          "trials": 1,
+          "tool_preset": "mcp-authoring-with-primitives-v1",
+          "cases": [
+            {
+              "case_id": "fake-case",
+              "prompt_file": "prompts/build.md",
+              "system_prompt_file": "prompts/system.md"
+            }
+          ],
+          "variants": [
+            {
+              "variant_id": "fake-variant",
+              "provider": "fake",
+              "model": "fake-primitive"
+            }
+          ]
+        }
+        """;
+    }
+
+    private static void CreateBenchmarkInputFiles(string root)
+    {
+        WriteFile(Path.Combine(root, "benchmarks", "prompts", "simple-chair.md"), "Build a chair.");
+        WriteFile(Path.Combine(root, "benchmarks", "prompts", "voxel-authoring-system.md"), "Use voxel tools.");
+        WriteFile(Path.Combine(root, "benchmarks", "prompts", "voxel-authoring-with-primitives.md"), "Use primitives.");
+        WriteFile(Path.Combine(root, "benchmarks", "palettes", "basic-materials.json"), "[{\"index\":1,\"name\":\"red\",\"r\":255,\"g\":0,\"b\":0}]");
+    }
+
+    private static void WriteFile(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
     private static string FormatDiagnostics(IReadOnlyList<BenchmarkDiagnostic> diagnostics)
     {
         return string.Join(Environment.NewLine, diagnostics.Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message));
@@ -267,6 +355,8 @@ public sealed class BenchmarkRunsetTests
         }
 
         public string Path { get; }
+
+        public string RootPath => _directory;
 
         public void Dispose()
         {
