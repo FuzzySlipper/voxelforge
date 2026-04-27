@@ -462,6 +462,58 @@ public sealed class ImportPlanParserTests
     }
 
     [Fact]
+    public void Cli_ImportExpandedBenchmarkStdioFixtureCoversSupportedCommandReplay()
+    {
+        string inputPath = FixturePath("benchmark-stdio-expanded.jsonl");
+        using var outputFile = TempFile.Empty(".vforge");
+        using var planFile = TempFile.Empty(".plan.json");
+        using var reportFile = TempFile.Empty(".report.json");
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = new ImportCli().Execute([
+            "import",
+            inputPath,
+            "--format",
+            "stdio-jsonl",
+            "--out",
+            outputFile.Path,
+            "--plan-out",
+            planFile.Path,
+            "--report-out",
+            reportFile.Path,
+        ], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, error.ToString());
+        VoxelForgeImportPlan plan = ReadJson<VoxelForgeImportPlan>(planFile.Path);
+        ImportReport report = ReadJson<ImportReport>(reportFile.Path);
+        Assert.Equal(12, plan.Operations.Count);
+        Assert.Equal([41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52], report.Operations.Select(operation => operation.SourceIndex).ToArray());
+        Assert.Contains(report.Operations, operation => operation.Name == "remove");
+        Assert.Contains(report.Operations, operation => operation.Name == "clear");
+        Assert.Contains(report.Operations, operation => operation.Name == "grid");
+        Assert.Contains(report.Operations, operation => operation.Name == "undo");
+        Assert.Contains(report.Operations, operation => operation.Name == "redo");
+        Assert.Contains(report.Operations, operation => operation.Name == "label");
+        Assert.Contains(report.Operations, operation => operation.Name == "regions");
+        Assert.Contains(report.Diagnostics, diagnostic => diagnostic.Code == "IMPORT202" && diagnostic.OperationIndex == 46);
+        Assert.Contains(report.Diagnostics, diagnostic => diagnostic.Code == "IMPORT202" && diagnostic.OperationIndex == 47);
+        Assert.Contains(report.Diagnostics, diagnostic => diagnostic.Code == "IMPORT202" && diagnostic.OperationIndex == 51);
+
+        var (model, labels, _, _) = ReadProject(outputFile.Path);
+        Assert.Equal(32, model.GridHint);
+        Assert.Equal(3, model.GetVoxelCount());
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(0, 0, 0)));
+        Assert.Null(model.GetVoxel(new Point3(1, 0, 0)));
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(2, 0, 0)));
+        Assert.Equal((byte)1, model.GetVoxel(new Point3(3, 0, 0)));
+        Assert.True(labels.Regions.TryGetValue(new RegionId("body"), out RegionDef? body));
+        Assert.Single(body.Voxels);
+        Assert.Contains(new Point3(0, 0, 0), body.Voxels);
+    }
+
+    [Fact]
     public void Cli_ValidateBenchmarkToolCallFailureReportPreservesCallIdAndWarning()
     {
         string inputPath = FixturePath("benchmark-tool-calls-failed.jsonl");

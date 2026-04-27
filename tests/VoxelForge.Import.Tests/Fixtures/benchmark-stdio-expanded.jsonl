@@ -1,0 +1,12 @@
+{"index":41,"timestamp_utc":"2026-04-27T00:01:00+00:00","request":{"command":"grid","args":["32"]},"response":{"ok":true,"message":"Grid hint set to 32."},"duration_ms":1}
+{"index":42,"timestamp_utc":"2026-04-27T00:01:01+00:00","request":{"command":"palette","args":["add","1","stone","70","70","80"]},"response":{"ok":true,"message":"Palette set."},"duration_ms":1}
+{"index":43,"timestamp_utc":"2026-04-27T00:01:02+00:00","request":{"command":"set","args":["0","0","0","1"]},"response":{"ok":true,"message":"Set voxel."},"duration_ms":1}
+{"index":44,"timestamp_utc":"2026-04-27T00:01:03+00:00","request":{"command":"set","args":["1","0","0","1"]},"response":{"ok":true,"message":"Set voxel."},"duration_ms":1}
+{"index":45,"timestamp_utc":"2026-04-27T00:01:04+00:00","request":{"command":"remove","args":["1","0","0"]},"response":{"ok":true,"message":"Removed voxel."},"duration_ms":1}
+{"index":46,"timestamp_utc":"2026-04-27T00:01:05+00:00","request":{"command":"undo","args":[]},"response":{"ok":true,"message":"Undone."},"duration_ms":1}
+{"index":47,"timestamp_utc":"2026-04-27T00:01:06+00:00","request":{"command":"redo","args":[]},"response":{"ok":true,"message":"Redone."},"duration_ms":1}
+{"index":48,"timestamp_utc":"2026-04-27T00:01:07+00:00","request":{"command":"fill","args":["2","0","0","3","0","0","1"]},"response":{"ok":true,"message":"Filled."},"duration_ms":1}
+{"index":49,"timestamp_utc":"2026-04-27T00:01:08+00:00","request":{"command":"label","args":["body","0","0","0"]},"response":{"ok":true,"message":"Labeled."},"duration_ms":1}
+{"index":50,"timestamp_utc":"2026-04-27T00:01:09+00:00","request":{"command":"clear","args":[]},"response":{"ok":true,"message":"Cleared."},"duration_ms":1}
+{"index":51,"timestamp_utc":"2026-04-27T00:01:10+00:00","request":{"command":"undo","args":[]},"response":{"ok":true,"message":"Undone."},"duration_ms":1}
+{"index":52,"timestamp_utc":"2026-04-27T00:01:11+00:00","request":{"command":"regions","args":[]},"response":{"ok":true,"message":"body: 1 voxel"},"duration_ms":1}
