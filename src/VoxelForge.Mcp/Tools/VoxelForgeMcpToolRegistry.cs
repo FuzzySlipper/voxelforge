@@ -16,6 +16,7 @@ public static class VoxelForgeMcpToolRegistry
     {
         services.AddSingleton<VoxelQueryService>();
         services.AddSingleton<VoxelMutationIntentService>();
+        services.AddSingleton<VoxelPrimitiveGenerationService>();
         services.AddSingleton<VoxelEditingService>();
         services.AddSingleton<RegionEditingService>();
         services.AddSingleton<PaletteMaterialService>();
@@ -29,12 +30,14 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<SetVoxelsHandler>();
         services.AddSingleton<RemoveVoxelsHandler>();
         services.AddSingleton<GetVoxelsInAreaHandler>();
+        services.AddSingleton<ApplyVoxelPrimitivesHandler>();
 
         services.AddSingleton<DescribeModelMcpTool>();
         services.AddSingleton<GetModelInfoMcpTool>();
         services.AddSingleton<SetVoxelsMcpTool>();
         services.AddSingleton<RemoveVoxelsMcpTool>();
         services.AddSingleton<GetVoxelsInAreaMcpTool>();
+        services.AddSingleton<ApplyVoxelPrimitivesMcpTool>();
         services.AddSingleton<ViewModelMcpTool>();
         services.AddSingleton<ViewFromAngleMcpTool>();
         services.AddSingleton<CompareReferenceMcpTool>();
@@ -44,6 +47,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, SetVoxelsServerTool>();
         services.AddSingleton<McpServerTool, RemoveVoxelsServerTool>();
         services.AddSingleton<McpServerTool, GetVoxelsInAreaServerTool>();
+        services.AddSingleton<McpServerTool, ApplyVoxelPrimitivesServerTool>();
         services.AddSingleton<McpServerTool, ViewModelServerTool>();
         services.AddSingleton<McpServerTool, ViewFromAngleServerTool>();
         services.AddSingleton<McpServerTool, CompareReferenceServerTool>();

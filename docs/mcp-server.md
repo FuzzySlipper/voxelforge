@@ -54,6 +54,7 @@ Core LLM-handler adapters:
 - `set_voxels` — batch set voxel coordinates to palette indices through undoable App services.
 - `remove_voxels` — batch remove voxel coordinates through undoable App services.
 - `get_voxels_in_area` — query voxels in a bounding box, including region label id/name when present.
+- `apply_voxel_primitives` — generate block, box, and line primitive batches through the same validated LLM handler and undoable App service path. Supports `preview_only` for validation/count summaries without mutation.
 - `view_model`, `view_from_angle`, `compare_reference` — registered visual tool names that return a clear headless-mode error because screenshots require the FNA renderer.
 
 Typed console-command adapters:

@@ -78,3 +78,22 @@ public sealed class GetVoxelsInAreaServerTool : VoxelForgeMcpServerTool
     {
     }
 }
+
+public sealed class ApplyVoxelPrimitivesMcpTool : LlmToolMcpTool
+{
+    public ApplyVoxelPrimitivesMcpTool(
+        ApplyVoxelPrimitivesHandler handler,
+        VoxelForgeMcpSession session,
+        LlmToolApplicationService applicationService)
+        : base(handler, session, applicationService, isReadOnly: false)
+    {
+    }
+}
+
+public sealed class ApplyVoxelPrimitivesServerTool : VoxelForgeMcpServerTool
+{
+    public ApplyVoxelPrimitivesServerTool(ApplyVoxelPrimitivesMcpTool tool)
+        : base(tool)
+    {
+    }
+}

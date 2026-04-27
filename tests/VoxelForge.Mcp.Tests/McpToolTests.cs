@@ -35,6 +35,7 @@ public sealed class McpToolTests
 
         Assert.Equal(
             [
+                "apply_voxel_primitives",
                 "assign_voxels_to_region",
                 "check_collision",
                 "clear_model",
@@ -156,6 +157,117 @@ public sealed class McpToolTests
         Assert.True(removeResult.Success);
         Assert.Null(session.Document.Model.GetVoxel(new Point3(1, 2, 3)));
         Assert.False(removeTool.IsReadOnly);
+    }
+
+    [Fact]
+    public void ApplyVoxelPrimitivesMcpTool_AppliesPrimitiveBatchThroughUndoableServices()
+    {
+        var session = CreateSession();
+        var tool = new ApplyVoxelPrimitivesMcpTool(
+            new ApplyVoxelPrimitivesHandler(new VoxelPrimitiveGenerationService()),
+            session,
+            new LlmToolApplicationService(new VoxelEditingService()));
+
+        var result = tool.Invoke(JsonArguments("""
+        {
+            "primitives": [
+                {
+                    "id": "body",
+                    "kind": "box",
+                    "from": { "x": 0, "y": 0, "z": 0 },
+                    "to": { "x": 1, "y": 1, "z": 0 },
+                    "palette_index": 2
+                },
+                {
+                    "id": "marker",
+                    "kind": "block",
+                    "at": { "x": 0, "y": 0, "z": 0 },
+                    "palette_index": 3
+                },
+                {
+                    "id": "rail",
+                    "kind": "line",
+                    "from": { "x": 0, "y": 0, "z": 1 },
+                    "to": { "x": 2, "y": 0, "z": 1 },
+                    "palette_index": 4
+                }
+            ]
+        }
+        """), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.False(tool.IsReadOnly);
+        Assert.Contains("Generated 7 voxel assignment(s) from 3 primitive(s).", result.Message, StringComparison.Ordinal);
+        Assert.Equal((byte)3, session.Document.Model.GetVoxel(new Point3(0, 0, 0)));
+        Assert.Equal((byte)2, session.Document.Model.GetVoxel(new Point3(1, 1, 0)));
+        Assert.Equal((byte)4, session.Document.Model.GetVoxel(new Point3(2, 0, 1)));
+        Assert.True(session.UndoStack.CanUndo);
+
+        session.UndoStack.Undo();
+        Assert.Equal(0, session.Document.Model.GetVoxelCount());
+        session.UndoStack.Redo();
+        Assert.Equal(7, session.Document.Model.GetVoxelCount());
+    }
+
+    [Fact]
+    public void ApplyVoxelPrimitivesMcpTool_PreviewOnlyDoesNotMutateOrPushUndo()
+    {
+        var session = CreateSession();
+        var tool = new ApplyVoxelPrimitivesMcpTool(
+            new ApplyVoxelPrimitivesHandler(new VoxelPrimitiveGenerationService()),
+            session,
+            new LlmToolApplicationService(new VoxelEditingService()));
+
+        var result = tool.Invoke(JsonArguments("""
+        {
+            "preview_only": true,
+            "primitives": [
+                {
+                    "kind": "line",
+                    "from": { "x": 0, "y": 0, "z": 0 },
+                    "to": { "x": 2, "y": 0, "z": 0 },
+                    "palette_index": 5
+                }
+            ]
+        }
+        """), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Contains("Preview generated 3 voxel assignment(s)", result.Message, StringComparison.Ordinal);
+        Assert.Equal(0, session.Document.Model.GetVoxelCount());
+        Assert.False(session.UndoStack.CanUndo);
+    }
+
+    [Fact]
+    public void ApplyVoxelPrimitivesMcpTool_ValidationErrorDoesNotApplyPartialMutation()
+    {
+        var session = CreateSession();
+        var tool = new ApplyVoxelPrimitivesMcpTool(
+            new ApplyVoxelPrimitivesHandler(new VoxelPrimitiveGenerationService()),
+            session,
+            new LlmToolApplicationService(new VoxelEditingService()));
+
+        var result = tool.Invoke(JsonArguments("""
+        {
+            "primitives": [
+                {
+                    "kind": "block",
+                    "at": { "x": 0, "y": 0, "z": 0 },
+                    "palette_index": 2
+                },
+                {
+                    "kind": "block",
+                    "at": { "x": 1, "y": 0, "z": 0 },
+                    "palette_index": 0
+                }
+            ]
+        }
+        """), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("invalid palette index 0", result.Message, StringComparison.Ordinal);
+        Assert.Equal(0, session.Document.Model.GetVoxelCount());
+        Assert.False(session.UndoStack.CanUndo);
     }
 
     [Fact]
