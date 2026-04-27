@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.Core;
 using VoxelForge.Core.LLM;
@@ -20,6 +21,15 @@ public sealed class ToolLoopTests
     private static ToolLoop CreateLoop(ICompletionService completion, params IToolHandler[] handlers)
     {
         return new ToolLoop(completion, handlers, NullLogger<ToolLoop>.Instance);
+    }
+
+    private static string[] ReadStringArray(JsonElement element)
+    {
+        var values = new List<string>();
+        foreach (JsonElement item in element.EnumerateArray())
+            values.Add(item.GetString() ?? string.Empty);
+
+        return values.ToArray();
     }
 
     [Fact]
@@ -133,6 +143,130 @@ public sealed class ToolLoopTests
         var toolResultMsg = secondRequest.Messages.Last(m => m.Role == "tool");
         Assert.NotNull(toolResultMsg.ToolResults);
         Assert.True(toolResultMsg.ToolResults[0].IsError);
+    }
+
+    [Fact]
+    public async Task ApplyVoxelPrimitives_ToolCall_ProducesMutationIntentWithoutMutatingModel()
+    {
+        var fake = new FakeCompletionService();
+        fake.EnqueueToolCall("apply_voxel_primitives", "call_1", """
+        {
+            "primitives": [
+                {
+                    "id": "body",
+                    "kind": "box",
+                    "from": { "x": 0, "y": 0, "z": 0 },
+                    "to": { "x": 1, "y": 1, "z": 0 },
+                    "palette_index": 2
+                },
+                {
+                    "id": "marker",
+                    "kind": "block",
+                    "at": { "x": 0, "y": 0, "z": 0 },
+                    "palette_index": 3
+                }
+            ]
+        }
+        """);
+        fake.EnqueueTextResponse("Done building primitives.");
+
+        var model = CreateModel();
+        var loop = CreateLoop(fake, new ApplyVoxelPrimitivesHandler(new VoxelPrimitiveGenerationService()));
+
+        ToolLoopResult result = await loop.RunAsync("system", "build a body", model, CreateLabels(), []);
+
+        Assert.Equal(0, model.GetVoxelCount());
+        VoxelMutationIntent intent = Assert.Single(result.MutationIntents);
+        Assert.Equal(4, intent.Assignments.Count);
+        Assert.Contains(new VoxelAssignment(new Point3(0, 0, 0), 3), intent.Assignments);
+        Assert.Contains(new VoxelAssignment(new Point3(1, 1, 0), 2), intent.Assignments);
+        Assert.Equal("Done building primitives.", result.ResponseText);
+
+        CompletionRequest firstRequest = fake.ReceivedRequests[0];
+        ToolDefinition definition = Assert.Single(firstRequest.Tools);
+        Assert.Equal("apply_voxel_primitives", definition.Name);
+    }
+
+    [Fact]
+    public async Task ApplyVoxelPrimitives_PreviewOnly_ReturnsNoMutationIntent()
+    {
+        var fake = new FakeCompletionService();
+        fake.EnqueueToolCall("apply_voxel_primitives", "call_1", """
+        {
+            "preview_only": true,
+            "primitives": [
+                {
+                    "kind": "line",
+                    "from": { "x": 0, "y": 0, "z": 0 },
+                    "to": { "x": 2, "y": 0, "z": 0 },
+                    "palette_index": 4
+                }
+            ]
+        }
+        """);
+        fake.EnqueueTextResponse("Preview looks good.");
+
+        var loop = CreateLoop(fake, new ApplyVoxelPrimitivesHandler(new VoxelPrimitiveGenerationService()));
+        ToolLoopResult result = await loop.RunAsync("system", "preview a rail", CreateModel(), CreateLabels(), []);
+
+        Assert.Empty(result.MutationIntents);
+        var secondRequest = fake.ReceivedRequests[1];
+        var toolResultMsg = secondRequest.Messages.Last(m => m.Role == "tool");
+        Assert.NotNull(toolResultMsg.ToolResults);
+        Assert.False(toolResultMsg.ToolResults[0].IsError);
+        Assert.Contains("Preview generated 3 voxel assignment(s)", toolResultMsg.ToolResults[0].Content);
+    }
+
+    [Fact]
+    public async Task ApplyVoxelPrimitives_InvalidPaletteIndex_ReturnsToolError()
+    {
+        var fake = new FakeCompletionService();
+        fake.EnqueueToolCall("apply_voxel_primitives", "call_1", """
+        {
+            "primitives": [
+                {
+                    "kind": "block",
+                    "at": { "x": 0, "y": 0, "z": 0 },
+                    "palette_index": 0
+                }
+            ]
+        }
+        """);
+        fake.EnqueueTextResponse("Palette index zero is invalid.");
+
+        var loop = CreateLoop(fake, new ApplyVoxelPrimitivesHandler(new VoxelPrimitiveGenerationService()));
+        ToolLoopResult result = await loop.RunAsync("system", "place air", CreateModel(), CreateLabels(), []);
+
+        Assert.Empty(result.MutationIntents);
+        var secondRequest = fake.ReceivedRequests[1];
+        var toolResultMsg = secondRequest.Messages.Last(m => m.Role == "tool");
+        Assert.NotNull(toolResultMsg.ToolResults);
+        Assert.True(toolResultMsg.ToolResults[0].IsError);
+        Assert.Contains("invalid palette index 0", toolResultMsg.ToolResults[0].Content);
+    }
+
+    [Fact]
+    public void ApplyVoxelPrimitives_DefinitionMatchesPrimitiveSchema()
+    {
+        var handler = new ApplyVoxelPrimitivesHandler(new VoxelPrimitiveGenerationService());
+
+        ToolDefinition definition = handler.GetDefinition();
+
+        Assert.Equal("apply_voxel_primitives", definition.Name);
+        Assert.Equal("object", definition.ParametersSchema.GetProperty("type").GetString());
+        JsonElement properties = definition.ParametersSchema.GetProperty("properties");
+        JsonElement primitives = properties.GetProperty("primitives");
+        Assert.Equal("array", primitives.GetProperty("type").GetString());
+        Assert.Equal(1, primitives.GetProperty("minItems").GetInt32());
+
+        JsonElement primitiveProperties = primitives.GetProperty("items").GetProperty("properties");
+        Assert.Equal(["block", "box", "line"], ReadStringArray(primitiveProperties.GetProperty("kind").GetProperty("enum")));
+        Assert.Equal(1, primitiveProperties.GetProperty("palette_index").GetProperty("minimum").GetInt32());
+        Assert.Equal(255, primitiveProperties.GetProperty("palette_index").GetProperty("maximum").GetInt32());
+        Assert.Equal(["filled", "shell", "edges"], ReadStringArray(primitiveProperties.GetProperty("mode").GetProperty("enum")));
+        Assert.Equal(0, primitiveProperties.GetProperty("radius").GetProperty("minimum").GetInt32());
+        Assert.Equal(16, primitiveProperties.GetProperty("radius").GetProperty("maximum").GetInt32());
+        Assert.Equal(65536, properties.GetProperty("max_generated_voxels").GetProperty("maximum").GetInt32());
     }
 
     [Fact]
