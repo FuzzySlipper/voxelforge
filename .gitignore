@@ -77,7 +77,7 @@ content/
 # OS specific
 .DS_Store
 AGENTS.MD
-
+CLAUDE.MD
 # Task files
 # tasks.json
 # tasks/ 
