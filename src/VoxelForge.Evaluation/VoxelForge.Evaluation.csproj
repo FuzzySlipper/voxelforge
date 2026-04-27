@@ -4,4 +4,8 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\VoxelForge.Core\VoxelForge.Core.csproj" />
+  </ItemGroup>
+
 </Project>

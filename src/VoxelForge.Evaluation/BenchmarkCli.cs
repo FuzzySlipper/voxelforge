@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace VoxelForge.Evaluation;
 
 public sealed class BenchmarkCli
@@ -5,23 +7,27 @@ public sealed class BenchmarkCli
     private readonly BenchmarkRunsetLoader _loader;
     private readonly BenchmarkPlanner _planner;
     private readonly BenchmarkPlanWriter _planWriter;
+    private readonly BenchmarkComparisonService _comparisonService;
 
     public BenchmarkCli()
         : this(
             new BenchmarkRunsetLoader(new BenchmarkRunsetValidator()),
             new BenchmarkPlanner(new BenchmarkRunsetValidator()),
-            new BenchmarkPlanWriter())
+            new BenchmarkPlanWriter(),
+            new BenchmarkComparisonService())
     {
     }
 
     public BenchmarkCli(
         BenchmarkRunsetLoader loader,
         BenchmarkPlanner planner,
-        BenchmarkPlanWriter planWriter)
+        BenchmarkPlanWriter planWriter,
+        BenchmarkComparisonService comparisonService)
     {
         _loader = loader;
         _planner = planner;
         _planWriter = planWriter;
+        _comparisonService = comparisonService;
     }
 
     public int Execute(string[] args, TextWriter output, TextWriter error)
@@ -37,6 +43,27 @@ public sealed class BenchmarkCli
         }
 
         string command = args[0];
+        if (string.Equals(command, "compare", StringComparison.Ordinal))
+        {
+            if (args.Length != 2)
+            {
+                error.WriteLine("Suite artifact directory is required.");
+                return 2;
+            }
+
+            try
+            {
+                BenchmarkComparisonReport report = _comparisonService.CompareAndWrite(args[1]);
+                output.WriteLine($"Wrote comparison for {report.RunCount} runs: {args[1]}");
+                return 0;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+            {
+                error.WriteLine($"Comparison failed: {ex.Message}");
+                return 1;
+            }
+        }
+
         if (!string.Equals(command, "plan", StringComparison.Ordinal)
             && !string.Equals(command, "run", StringComparison.Ordinal))
         {
@@ -221,6 +248,7 @@ public sealed class BenchmarkCli
         writer.WriteLine("Usage:");
         writer.WriteLine("  plan <runset.json> [--case <id>] [--variant <id>] [--trials <n>] [--backend <mcp-tool-loop|stdio>] [--artifact-root <dir>]");
         writer.WriteLine("  run <runset.json> --dry-run [--case <id>] [--variant <id>] [--trials <n>] [--backend <mcp-tool-loop|stdio>] [--artifact-root <dir>] [--fail-fast]");
+        writer.WriteLine("  compare <suite-artifact-directory>");
     }
 
     private sealed class CliParseResult
