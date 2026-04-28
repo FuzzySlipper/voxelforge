@@ -187,7 +187,7 @@ The GUI watcher accepts either `--watch <path>` or `--preview-watch <path>`. It 
 
 ### Troubleshooting
 
-- **Preview window stays empty:** confirm the watched path matches the MCP project directory and preview name. With defaults, watch `content/mcp-preview.vforge` and publish `{ "name": "mcp-preview" }`.
+- **Preview window stays empty:** confirm the watched path matches the MCP project directory and preview name. The MCP `--project-dir` flag controls where `publish_preview` writes; the GUI `--watch` path should point at that same directory plus `<name>.vforge`. With defaults, watch `content/mcp-preview.vforge` and publish `{ "name": "mcp-preview" }`.
 - **File not found at startup:** this is expected if the agent has not published yet. The watcher creates/listens to the directory and loads after the first snapshot appears.
 - **Stale preview:** ask the agent to call `publish_preview` again, then check the sidecar manifest's `updated_at_utc` and `voxel_count`.
 - **Multiple agents overwrite each other:** give each agent a separate `--project-dir`, `--port`, or preview `name`.
