@@ -26,7 +26,9 @@ public sealed class ProjectFileWatcher : IDisposable
     private readonly string _fileName;
     private FileSystemWatcher? _watcher;
     private DateTimeOffset? _reloadDueAtUtc;
+    private string? _lastStatusMessage;
     private int _remainingRetries;
+    private int _successfulLoadCount;
     private bool _disposed;
 
     public ProjectFileWatcher(
@@ -61,9 +63,23 @@ public sealed class ProjectFileWatcher : IDisposable
 
     public string WatchedPath { get; }
 
-    public string? LastStatusMessage { get; private set; }
+    public string? LastStatusMessage
+    {
+        get
+        {
+            lock (_syncRoot)
+                return _lastStatusMessage;
+        }
+    }
 
-    public int SuccessfulLoadCount { get; private set; }
+    public int SuccessfulLoadCount
+    {
+        get
+        {
+            lock (_syncRoot)
+                return _successfulLoadCount;
+        }
+    }
 
     public void Start()
     {
@@ -92,7 +108,7 @@ public sealed class ProjectFileWatcher : IDisposable
         }
         else
         {
-            LastStatusMessage = $"Waiting for watched project file: {WatchedPath}";
+            SetLastStatusMessage($"Waiting for watched project file: {WatchedPath}");
             _logger.LogInformation("Waiting for watched project file: {Path}", WatchedPath);
         }
     }
@@ -133,7 +149,7 @@ public sealed class ProjectFileWatcher : IDisposable
         if (!File.Exists(WatchedPath))
         {
             string missingMessage = $"Watched project file does not exist yet: {WatchedPath}";
-            LastStatusMessage = missingMessage;
+            SetLastStatusMessage(missingMessage);
             return new ApplicationServiceResult
             {
                 Success = false,
@@ -148,10 +164,10 @@ public sealed class ProjectFileWatcher : IDisposable
                 _undoStack,
                 _events,
                 new LoadProjectRequest(WatchedPath));
-            LastStatusMessage = result.Message;
+            SetLastStatusMessage(result.Message);
             if (result.Success)
             {
-                SuccessfulLoadCount++;
+                IncrementSuccessfulLoadCount();
                 _logger.LogInformation("Reloaded watched project file {Path}: {Message}", WatchedPath, result.Message);
             }
             else
@@ -168,7 +184,7 @@ public sealed class ProjectFileWatcher : IDisposable
             or NotSupportedException)
         {
             string message = $"Failed to reload watched project file '{WatchedPath}': {ex.Message}";
-            LastStatusMessage = message;
+            SetLastStatusMessage(message);
             _logger.LogWarning(ex, "Failed to reload watched project file {Path}", WatchedPath);
             ScheduleRetryIfAvailable(nowUtc);
             return new ApplicationServiceResult
@@ -191,6 +207,18 @@ public sealed class ProjectFileWatcher : IDisposable
         }
     }
 
+    private void SetLastStatusMessage(string message)
+    {
+        lock (_syncRoot)
+            _lastStatusMessage = message;
+    }
+
+    private void IncrementSuccessfulLoadCount()
+    {
+        lock (_syncRoot)
+            _successfulLoadCount++;
+    }
+
     private void OnWatchedFileChanged(object sender, FileSystemEventArgs e)
     {
         RequestReload();
@@ -203,7 +231,7 @@ public sealed class ProjectFileWatcher : IDisposable
 
     private void OnWatchedFileDeleted(object sender, FileSystemEventArgs e)
     {
-        LastStatusMessage = $"Watched project file was deleted: {WatchedPath}";
+        SetLastStatusMessage($"Watched project file was deleted: {WatchedPath}");
     }
 
     private void ThrowIfDisposed()
