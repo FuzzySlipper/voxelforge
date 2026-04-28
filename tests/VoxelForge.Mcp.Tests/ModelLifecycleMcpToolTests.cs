@@ -154,6 +154,7 @@ public sealed class ModelLifecycleMcpToolTests
                 Assert.Equal("voxelforge.preview_manifest", manifestDocument.RootElement.GetProperty("schema").GetString());
                 Assert.Equal("agent-session", manifestDocument.RootElement.GetProperty("model_name").GetString());
                 Assert.Equal(previewPath, manifestDocument.RootElement.GetProperty("model_path").GetString());
+                Assert.Equal("live-preview.vforge", manifestDocument.RootElement.GetProperty("model_file").GetString());
                 Assert.Equal(1, manifestDocument.RootElement.GetProperty("voxel_count").GetInt32());
             }
 

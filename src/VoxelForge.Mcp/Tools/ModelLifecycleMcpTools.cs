@@ -523,6 +523,7 @@ public sealed class PublishPreviewMcpTool : ModelLifecycleMcpToolBase
                         ["model_name"] = Session.CurrentModelName,
                         ["preview_name"] = ModelPathResolver.NormalizeModelName(targetName),
                         ["model_path"] = path,
+                        ["model_file"] = Path.GetFileName(path),
                         ["updated_at_utc"] = DateTimeOffset.UtcNow,
                         ["byte_count"] = json.Length,
                         ["voxel_count"] = Session.Document.Model.GetVoxelCount(),

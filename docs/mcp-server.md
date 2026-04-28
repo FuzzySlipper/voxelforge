@@ -147,6 +147,7 @@ dotnet run --project src/VoxelForge.Engine.MonoGame -- --watch content/live-agen
 - defaults to `mcp-preview.vforge` when `name` is omitted;
 - writes the `.vforge` snapshot through a same-directory temp file and atomic replace/move;
 - writes a sidecar manifest such as `mcp-preview.preview.json` unless `write_manifest` is `false`;
+- keeps the manifest's existing absolute `model_path` field for compatibility and also writes portable `model_file` with just the `.vforge` file name;
 - returns the resolved snapshot path plus voxel, region, clip, and byte counts.
 
 Example without a sidecar manifest:
@@ -154,6 +155,8 @@ Example without a sidecar manifest:
 ```json
 { "name": "mcp-preview", "write_manifest": false }
 ```
+
+The `.vforge` snapshot metadata currently uses the MCP session's current model name. The MCP session does not yet track project author or original created-at metadata, so preview snapshots use fresh serializer defaults for those fields until session metadata tracking is added.
 
 The GUI watcher accepts either `--watch <path>` or `--preview-watch <path>`. It reloads the `.vforge` on the game update thread after file changes, so a user does not need to manually reopen the file while an agent is working.
 
