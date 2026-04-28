@@ -71,6 +71,7 @@ Do not replace the snapshot observer flow with direct GUI document manipulation 
 
 1. Keep the current file-watch + `publish_preview` workflow as the supported v1 live preview path.
 2. Collect usage feedback on whether file watcher reloads are reliable enough on target platforms.
-3. Add a small launcher/helper script only if command friction becomes noticeable.
-4. Add SSE/WebSocket reload nudges only if file-system events prove unreliable or the GUI needs richer session status.
-5. Continue treating push/launcher work as UX polish, not a prerequisite for agent collaboration.
+3. Revisit the push/launcher deferral after the first real MCP live-preview collaboration pilot, after the next major platform/client integration, or sooner if users report missed refreshes or repeated command-line setup friction.
+4. Add a small launcher/helper script only if command friction becomes noticeable.
+5. Add SSE/WebSocket reload nudges only if file-system events prove unreliable or the GUI needs richer session status.
+6. Continue treating push/launcher work as UX polish, not a prerequisite for agent collaboration.
