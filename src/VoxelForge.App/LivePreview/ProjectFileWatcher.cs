@@ -236,24 +236,31 @@ public sealed class ProjectFileWatcher : IDisposable
 
     private void ThrowIfDisposed()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_syncRoot)
+            ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
-
-        if (_watcher is not null)
+        FileSystemWatcher? watcher;
+        lock (_syncRoot)
         {
-            _watcher.EnableRaisingEvents = false;
-            _watcher.Changed -= OnWatchedFileChanged;
-            _watcher.Created -= OnWatchedFileChanged;
-            _watcher.Renamed -= OnWatchedFileRenamed;
-            _watcher.Deleted -= OnWatchedFileDeleted;
-            _watcher.Dispose();
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            watcher = _watcher;
+            _watcher = null;
         }
 
-        _disposed = true;
+        if (watcher is not null)
+        {
+            watcher.EnableRaisingEvents = false;
+            watcher.Changed -= OnWatchedFileChanged;
+            watcher.Created -= OnWatchedFileChanged;
+            watcher.Renamed -= OnWatchedFileRenamed;
+            watcher.Deleted -= OnWatchedFileDeleted;
+            watcher.Dispose();
+        }
     }
 }
