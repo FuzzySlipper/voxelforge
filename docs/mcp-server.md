@@ -156,6 +156,24 @@ Example without a sidecar manifest:
 { "name": "mcp-preview", "write_manifest": false }
 ```
 
+The sidecar manifest currently contains these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | Constant `voxelforge.preview_manifest`. |
+| `schema_version` | Manifest schema version, currently `1`. |
+| `source` | Publisher name, currently `VoxelForge.Mcp`. |
+| `tool` | Publishing tool name, currently `publish_preview`. |
+| `model_name` | Current MCP session model name. |
+| `preview_name` | Preview name without extension. |
+| `model_path` | Absolute path to the `.vforge` snapshot, preserved for compatibility. |
+| `model_file` | Portable `.vforge` file name next to the manifest. |
+| `updated_at_utc` | Publish timestamp. |
+| `byte_count` | Snapshot JSON byte/character count returned by the serializer. |
+| `voxel_count` | Occupied voxel count in the snapshot. |
+| `region_count` | Region count in the snapshot. |
+| `clip_count` | Animation clip count in the snapshot. |
+
 The `.vforge` snapshot metadata currently uses the MCP session's current model name. The MCP session does not yet track project author or original created-at metadata, so preview snapshots use fresh serializer defaults for those fields until session metadata tracking is added.
 
 The GUI watcher accepts either `--watch <path>` or `--preview-watch <path>`. It reloads the `.vforge` on the game update thread after file changes, so a user does not need to manually reopen the file while an agent is working.
