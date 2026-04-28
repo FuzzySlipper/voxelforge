@@ -172,4 +172,4 @@ The GUI watcher accepts either `--watch <path>` or `--preview-watch <path>`. It 
 - **Multiple agents overwrite each other:** give each agent a separate `--project-dir`, `--port`, or preview `name`.
 - **Headless run ignores watch mode:** `--watch` requires the GUI renderer. `dotnet run --project src/VoxelForge.Engine.MonoGame -- --headless --watch ...` prints a warning and does not start the preview watcher.
 
-Future MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.
+Future preview push/launcher options are discussed in [`architecture/mcp-live-preview-follow-up-options.md`](architecture/mcp-live-preview-follow-up-options.md). MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.
