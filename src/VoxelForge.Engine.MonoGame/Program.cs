@@ -4,12 +4,15 @@ using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Console;
 using VoxelForge.App.Events;
+using VoxelForge.App.LivePreview;
 using VoxelForge.App.Reference;
+using VoxelForge.App.Services;
 using VoxelForge.Content;
 using VoxelForge.Core;
 using VoxelForge.Engine.MonoGame;
 
 var headless = args.Contains("--headless");
+var watchPath = GetOptionValue(args, "--watch") ?? GetOptionValue(args, "--preview-watch");
 var loggerFactory = NullLoggerFactory.Instance;
 
 // Create durable state first, then wire services and adapters around it.
@@ -27,6 +30,17 @@ var editorState = new EditorState(documentState, sessionState);
 var undoHistoryService = new UndoHistoryService(NullLogger<UndoHistoryService>.Instance);
 var undoStack = new UndoStack(undoHistoryState, undoHistoryService, events);
 var refLoader = new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance);
+ProjectFileWatcher? projectWatchService = null;
+if (!string.IsNullOrWhiteSpace(watchPath))
+{
+    projectWatchService = new ProjectFileWatcher(
+        new ProjectLifecycleService(loggerFactory),
+        documentState,
+        undoStack,
+        events,
+        watchPath,
+        loggerFactory.CreateLogger<ProjectFileWatcher>());
+}
 
 // Game reference (set after construction, screenshot provider available after LoadContent)
 VoxelForgeGame? game = null;
@@ -46,6 +60,8 @@ using var cts = new CancellationTokenSource();
 if (headless)
 {
     Console.Error.WriteLine("VoxelForge headless mode");
+    if (projectWatchService is not null)
+        Console.Error.WriteLine("Project watch mode requires the GUI renderer and is ignored in headless mode.");
 
     if (Console.IsInputRedirected)
     {
@@ -63,7 +79,7 @@ if (headless)
 else
 {
     game = new VoxelForgeGame(editorState, undoStack, configState, referenceModelState, referenceImageState,
-        events, cts, router, context);
+        events, cts, router, context, projectWatchService);
 
     var consoleThread = new Thread(() =>
     {
@@ -91,4 +107,25 @@ else
 
     using (game)
         game.Run();
+}
+
+static string? GetOptionValue(string[] arguments, string optionName)
+{
+    for (int i = 0; i < arguments.Length; i++)
+    {
+        string argument = arguments[i];
+        if (string.Equals(argument, optionName, StringComparison.Ordinal))
+        {
+            if (i + 1 < arguments.Length)
+                return arguments[i + 1];
+
+            return null;
+        }
+
+        string prefix = optionName + "=";
+        if (argument.StartsWith(prefix, StringComparison.Ordinal))
+            return argument[prefix.Length..];
+    }
+
+    return null;
 }

@@ -7,6 +7,7 @@ using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Console;
 using VoxelForge.App.Events;
+using VoxelForge.App.LivePreview;
 using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
 using VoxelForge.Core.Screenshot;
@@ -28,6 +29,7 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
     private readonly IEventDispatcher _events;
     private readonly CancellationTokenSource _cts;
     private readonly MenuCommandDispatcher? _menuDispatcher;
+    private readonly ProjectFileWatcher? _projectWatchService;
 
     private BasicEffect? _effect;
     private VoxelRenderer? _voxelRenderer;
@@ -59,7 +61,8 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
 
     public VoxelForgeGame(EditorState editorState, UndoStack undoStack, EditorConfigState config,
         ReferenceModelState referenceModelState, ReferenceImageState referenceImageState,
-        IEventDispatcher events, CancellationTokenSource cts, CommandRouter? router = null, CommandContext? context = null)
+        IEventDispatcher events, CancellationTokenSource cts, CommandRouter? router = null, CommandContext? context = null,
+        ProjectFileWatcher? projectWatchService = null)
     {
         _editorState = editorState;
         _undoStack = undoStack;
@@ -72,6 +75,7 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
         _menuDispatcher = router is not null && context is not null
             ? new MenuCommandDispatcher(router, context)
             : null;
+        _projectWatchService = projectWatchService;
 
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -94,16 +98,7 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
     {
         _effect = new BasicEffect(GraphicsDevice);
 
-        // Center camera on model
-        var bounds = _editorState.ActiveModel.GetBounds();
-        if (bounds is not null)
-        {
-            var center = new Vector3(
-                (bounds.Value.Min.X + bounds.Value.Max.X) / 2f,
-                (bounds.Value.Min.Y + bounds.Value.Max.Y) / 2f,
-                (bounds.Value.Min.Z + bounds.Value.Max.Z) / 2f);
-            _camera.Target = center;
-        }
+        CenterCameraOnModel();
 
         _voxelRenderer = new VoxelRenderer(new GreedyMesher(), GraphicsDevice);
         var voxelRendererDirtyHandler = new VoxelRendererDirtyEventHandler(_voxelRenderer);
@@ -134,6 +129,12 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
 
         if (_editorLayout.MenuBar is { } menuBar)
             menuBar.Initialize(_desktop, this);
+
+        if (_projectWatchService is not null)
+        {
+            _projectWatchService.Start();
+            Window.Title = $"VoxelForge - Watching {Path.GetFileName(_projectWatchService.WatchedPath)}";
+        }
 
         _previousMouse = Mouse.GetState();
         _previousKeyboard = Keyboard.GetState();
@@ -236,6 +237,10 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
                 _editorState, _undoStack, _camera, GraphicsDevice);
         }
 
+        var watchResult = _projectWatchService?.Tick(DateTimeOffset.UtcNow);
+        if (watchResult?.Success == true)
+            CenterCameraOnModel();
+
         // Content browser drag-and-drop (driven by raw mouse state, not Myra events)
         if (_editorLayout?.DragDrop is { } dd)
         {
@@ -334,8 +339,22 @@ public sealed class VoxelForgeGame : Game, IEditorMenuActions
         base.Draw(gameTime);
     }
 
+    private void CenterCameraOnModel()
+    {
+        var bounds = _editorState.ActiveModel.GetBounds();
+        if (bounds is null)
+            return;
+
+        var center = new Vector3(
+            (bounds.Value.Min.X + bounds.Value.Max.X) / 2f,
+            (bounds.Value.Min.Y + bounds.Value.Max.Y) / 2f,
+            (bounds.Value.Min.Z + bounds.Value.Max.Z) / 2f);
+        _camera.Target = center;
+    }
+
     protected override void UnloadContent()
     {
+        _projectWatchService?.Dispose();
         _voxelRenderer?.Dispose();
         _refRenderer?.Dispose();
         _imagePanel?.Dispose();
