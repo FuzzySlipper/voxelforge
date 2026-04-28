@@ -96,14 +96,16 @@ Spatial reasoning tools:
 
 ## Live preview workflow
 
-For a lightweight collaboration preview, keep `VoxelForge.Mcp` as the agent's headless editing session and run the GUI as a watcher over a preview snapshot file:
+For a lightweight collaboration preview, keep `VoxelForge.Mcp` as the agent's headless editing session and run the GUI as a watcher over a preview snapshot file. The GUI is an observer of snapshots; the MCP session remains authoritative.
+
+### Default `content/` workflow
 
 ```bash
-# Terminal 1: MCP server
-dotnet run --project src/VoxelForge.Mcp -- --project-dir content/live
+# Terminal 1: MCP server, using the default project storage directory: content/
+dotnet run --project src/VoxelForge.Mcp
 
-# Terminal 2: GUI preview window
-dotnet run --project src/VoxelForge.Engine.MonoGame -- --watch content/live/mcp-preview.vforge
+# Terminal 2: GUI preview window watching the default preview path
+dotnet run --project src/VoxelForge.Engine.MonoGame -- --watch content/mcp-preview.vforge
 ```
 
 Then ask the agent to call `publish_preview`, for example:
@@ -112,6 +114,62 @@ Then ask the agent to call `publish_preview`, for example:
 { "name": "mcp-preview" }
 ```
 
-`publish_preview` constrains the name to the MCP server's configured project directory, writes the `.vforge` snapshot through an atomic same-directory temp-file replacement, and writes `mcp-preview.preview.json` unless `write_manifest` is `false`. The GUI watcher reloads the `.vforge` on the game update thread when the file changes. The GUI is an observer of snapshots; the MCP session remains authoritative.
+### Custom project directory workflow
+
+Use the same directory for the MCP server's `--project-dir` and the GUI watch path:
+
+```bash
+# Terminal 1: MCP server with isolated live-preview storage
+dotnet run --project src/VoxelForge.Mcp -- --project-dir content/live
+
+# Terminal 2: GUI preview window for that storage directory
+dotnet run --project src/VoxelForge.Engine.MonoGame -- --watch content/live/mcp-preview.vforge
+```
+
+Then publish to the same preview name:
+
+```json
+{ "name": "mcp-preview" }
+```
+
+For a second concurrent agent/session, use a different project directory or at least a different preview name:
+
+```bash
+dotnet run --project src/VoxelForge.Mcp -- --port 5211 --project-dir content/live-agent-b
+dotnet run --project src/VoxelForge.Engine.MonoGame -- --watch content/live-agent-b/mcp-preview.vforge
+```
+
+### What `publish_preview` writes
+
+`publish_preview`:
+
+- constrains `name` to a file name inside the MCP server's configured project directory;
+- defaults to `mcp-preview.vforge` when `name` is omitted;
+- writes the `.vforge` snapshot through a same-directory temp file and atomic replace/move;
+- writes a sidecar manifest such as `mcp-preview.preview.json` unless `write_manifest` is `false`;
+- returns the resolved snapshot path plus voxel, region, clip, and byte counts.
+
+Example without a sidecar manifest:
+
+```json
+{ "name": "mcp-preview", "write_manifest": false }
+```
+
+The GUI watcher accepts either `--watch <path>` or `--preview-watch <path>`. It reloads the `.vforge` on the game update thread after file changes, so a user does not need to manually reopen the file while an agent is working.
+
+### Limitations
+
+- The GUI preview is snapshot-based, not shared-document collaboration. User edits in the GUI are not synchronized back into the MCP session.
+- `VoxelForge.Mcp` is still headless and does not depend on FNA/Myra/Engine.
+- MCP visual tools such as `view_model`, `view_from_angle`, and `compare_reference` still return headless limitation errors. The preview window is for a human observer, not screenshot capture through MCP.
+- If an MCP process exits before `publish_preview` or `save_model`, unsaved in-memory session edits are lost.
+
+### Troubleshooting
+
+- **Preview window stays empty:** confirm the watched path matches the MCP project directory and preview name. With defaults, watch `content/mcp-preview.vforge` and publish `{ "name": "mcp-preview" }`.
+- **File not found at startup:** this is expected if the agent has not published yet. The watcher creates/listens to the directory and loads after the first snapshot appears.
+- **Stale preview:** ask the agent to call `publish_preview` again, then check the sidecar manifest's `updated_at_utc` and `voxel_count`.
+- **Multiple agents overwrite each other:** give each agent a separate `--project-dir`, `--port`, or preview `name`.
+- **Headless run ignores watch mode:** `--watch` requires the GUI renderer. `dotnet run --project src/VoxelForge.Engine.MonoGame -- --headless --watch ...` prints a warning and does not start the preview watcher.
 
 Future MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.
