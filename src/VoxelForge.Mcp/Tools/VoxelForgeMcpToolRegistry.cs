@@ -78,6 +78,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<NewModelMcpTool>();
         services.AddSingleton<LoadModelMcpTool>();
         services.AddSingleton<SaveModelMcpTool>();
+        services.AddSingleton<PublishPreviewMcpTool>();
         services.AddSingleton<ListModelsMcpTool>();
         services.AddSingleton<ListPaletteMcpTool>();
         services.AddSingleton<SetPaletteEntryMcpTool>();
@@ -108,6 +109,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, NewModelServerTool>();
         services.AddSingleton<McpServerTool, LoadModelServerTool>();
         services.AddSingleton<McpServerTool, SaveModelServerTool>();
+        services.AddSingleton<McpServerTool, PublishPreviewServerTool>();
         services.AddSingleton<McpServerTool, ListModelsServerTool>();
         services.AddSingleton<McpServerTool, ListPaletteServerTool>();
         services.AddSingleton<McpServerTool, SetPaletteEntryServerTool>();

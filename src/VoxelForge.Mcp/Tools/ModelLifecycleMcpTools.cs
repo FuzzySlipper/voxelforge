@@ -5,6 +5,7 @@ using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
 using VoxelForge.App.Services;
 using VoxelForge.Core;
+using VoxelForge.Core.Serialization;
 
 namespace VoxelForge.Mcp.Tools;
 
@@ -142,6 +143,26 @@ public abstract class ModelLifecycleMcpToolBase : IVoxelForgeMcpTool
         }
 
         hasValue = true;
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    protected static bool TryReadOptionalBool(JsonElement arguments, string propertyName, bool defaultValue, out bool value, out string errorMessage)
+    {
+        value = defaultValue;
+        if (arguments.ValueKind != JsonValueKind.Object || !arguments.TryGetProperty(propertyName, out var element) || element.ValueKind == JsonValueKind.Null)
+        {
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.True && element.ValueKind != JsonValueKind.False)
+        {
+            errorMessage = $"Property '{propertyName}' must be a boolean when provided.";
+            return false;
+        }
+
+        value = element.GetBoolean();
         errorMessage = string.Empty;
         return true;
     }
@@ -428,6 +449,135 @@ public sealed class SaveModelMcpTool : ModelLifecycleMcpToolBase
 public sealed class SaveModelServerTool : VoxelForgeMcpServerTool
 {
     public SaveModelServerTool(SaveModelMcpTool tool)
+        : base(tool)
+    {
+    }
+}
+
+public sealed class PublishPreviewMcpTool : ModelLifecycleMcpToolBase
+{
+    private readonly ModelPathResolver _pathResolver;
+    private readonly ILoggerFactory _loggerFactory;
+
+    public PublishPreviewMcpTool(VoxelForgeMcpSession session, ModelPathResolver pathResolver, ILoggerFactory loggerFactory)
+        : base(
+            session,
+            "publish_preview",
+            "Atomically publish the current MCP session as a .vforge preview snapshot for a watching GUI.",
+            McpJsonSchemas.Parse("""
+            {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Optional preview file name within the configured project directory. Defaults to mcp-preview."
+                    },
+                    "write_manifest": {
+                        "type": "boolean",
+                        "description": "Whether to write a sidecar .preview.json manifest. Defaults to true."
+                    }
+                }
+            }
+            """),
+            isReadOnly: false)
+    {
+        ArgumentNullException.ThrowIfNull(pathResolver);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        _pathResolver = pathResolver;
+        _loggerFactory = loggerFactory;
+    }
+
+    public override McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!TryReadOptionalString(arguments, "name", out var name, out var errorMessage))
+            return Fail(errorMessage);
+        if (!TryReadOptionalBool(arguments, "write_manifest", true, out bool writeManifest, out errorMessage))
+            return Fail(errorMessage);
+
+        string targetName = string.IsNullOrWhiteSpace(name) ? "mcp-preview" : name;
+        if (!_pathResolver.TryResolveModelPath(targetName, out var path, out errorMessage))
+            return Fail(errorMessage);
+
+        lock (Session.SyncRoot)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? _pathResolver.ProjectDirectory);
+                var serializer = new ProjectSerializer(_loggerFactory);
+                var metadata = new ProjectMetadata { Name = Session.CurrentModelName };
+                string json = serializer.Serialize(Session.Document.Model, Session.Document.Labels, Session.Document.Clips, metadata);
+                AtomicWriteAllText(path, json);
+
+                string? manifestPath = null;
+                if (writeManifest)
+                {
+                    manifestPath = Path.ChangeExtension(path, ".preview.json");
+                    string manifestJson = SerializeJson(new Dictionary<string, object?>
+                    {
+                        ["schema"] = "voxelforge.preview_manifest",
+                        ["schema_version"] = 1,
+                        ["source"] = "VoxelForge.Mcp",
+                        ["tool"] = Name,
+                        ["model_name"] = Session.CurrentModelName,
+                        ["preview_name"] = ModelPathResolver.NormalizeModelName(targetName),
+                        ["model_path"] = path,
+                        ["updated_at_utc"] = DateTimeOffset.UtcNow,
+                        ["byte_count"] = json.Length,
+                        ["voxel_count"] = Session.Document.Model.GetVoxelCount(),
+                        ["region_count"] = Session.Document.Labels.Regions.Count,
+                        ["clip_count"] = Session.Document.Clips.Count,
+                    });
+                    AtomicWriteAllText(manifestPath, manifestJson);
+                }
+
+                return Ok(SerializeJson(new Dictionary<string, object?>
+                {
+                    ["message"] = $"Published preview to {path} ({json.Length} bytes)",
+                    ["path"] = path,
+                    ["manifest_path"] = manifestPath,
+                    ["byte_count"] = json.Length,
+                    ["voxel_count"] = Session.Document.Model.GetVoxelCount(),
+                    ["region_count"] = Session.Document.Labels.Regions.Count,
+                    ["clip_count"] = Session.Document.Clips.Count,
+                }));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                return Fail($"Failed to publish preview: {ex.Message}");
+            }
+        }
+    }
+
+    private static void AtomicWriteAllText(string path, string content)
+    {
+        string directory = Path.GetDirectoryName(path) ?? Directory.GetCurrentDirectory();
+        Directory.CreateDirectory(directory);
+        string tempPath = Path.Combine(directory, "." + Path.GetFileName(path) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            File.WriteAllText(tempPath, content);
+            if (File.Exists(path))
+            {
+                File.Replace(tempPath, path, null);
+            }
+            else
+            {
+                File.Move(tempPath, path);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+    }
+}
+
+public sealed class PublishPreviewServerTool : VoxelForgeMcpServerTool
+{
+    public PublishPreviewServerTool(PublishPreviewMcpTool tool)
         : base(tool)
     {
     }

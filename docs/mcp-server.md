@@ -80,6 +80,7 @@ Model lifecycle and palette tools:
 
 - `new_model` — replace the active session document with a new empty model, grid hint, and optional palette entries.
 - `load_model` / `save_model` — load and save `.vforge` files by name under the configured project directory.
+- `publish_preview` — atomically write the current MCP session to a preview `.vforge` file, plus an optional `.preview.json` sidecar manifest, for a GUI started with `--watch` / `--preview-watch`.
 - `list_models` — list available `.vforge` files in the configured project directory.
 - `list_palette` — list current palette entries with RGBA colors.
 - `set_palette_entry` — add or update a palette entry through undoable App services.
@@ -92,5 +93,25 @@ Spatial reasoning tools:
 - `measure_distance` — measure point-to-point distance or region centroid / nearest-surface distance.
 - `get_cross_section` — return a compact 2D text slice along `x`, `y`, or `z`, with a legend for region or palette symbols.
 - `check_collision` — test whether two regions, boxes, or a region and box overlap in occupied voxel coordinates.
+
+## Live preview workflow
+
+For a lightweight collaboration preview, keep `VoxelForge.Mcp` as the agent's headless editing session and run the GUI as a watcher over a preview snapshot file:
+
+```bash
+# Terminal 1: MCP server
+dotnet run --project src/VoxelForge.Mcp -- --project-dir content/live
+
+# Terminal 2: GUI preview window
+dotnet run --project src/VoxelForge.Engine.MonoGame -- --watch content/live/mcp-preview.vforge
+```
+
+Then ask the agent to call `publish_preview`, for example:
+
+```json
+{ "name": "mcp-preview" }
+```
+
+`publish_preview` constrains the name to the MCP server's configured project directory, writes the `.vforge` snapshot through an atomic same-directory temp-file replacement, and writes `mcp-preview.preview.json` unless `write_manifest` is `false`. The GUI watcher reloads the `.vforge` on the game update thread when the file changes. The GUI is an observer of snapshots; the MCP session remains authoritative.
 
 Future MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.

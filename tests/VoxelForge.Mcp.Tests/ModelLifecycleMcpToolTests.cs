@@ -4,6 +4,7 @@ using VoxelForge.App;
 using VoxelForge.App.Services;
 using VoxelForge.Core;
 using VoxelForge.Core.LLM.Handlers;
+using VoxelForge.Core.Serialization;
 using VoxelForge.Core.Services;
 using VoxelForge.Mcp.Tools;
 
@@ -93,6 +94,99 @@ public sealed class ModelLifecycleMcpToolTests
                 Assert.Equal(1, infoDocument.RootElement.GetProperty("voxelCount").GetInt32());
                 Assert.Equal(3, infoDocument.RootElement.GetProperty("paletteEntries").GetArrayLength());
             }
+        }
+        finally
+        {
+            if (Directory.Exists(projectDirectory))
+                Directory.Delete(projectDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PublishPreview_WritesAtomicSnapshotAndManifestWithoutChangingSaveModelBehavior()
+    {
+        var projectDirectory = CreateTempProjectDirectory();
+        try
+        {
+            var session = CreateSession();
+            var pathResolver = new ModelPathResolver(new VoxelForgeMcpOptions { ProjectDirectory = projectDirectory });
+            var newModel = new NewModelMcpTool(session, NullLoggerFactory.Instance, new EditorConfigState());
+            var publishPreview = new PublishPreviewMcpTool(session, pathResolver, NullLoggerFactory.Instance);
+            var saveModel = new SaveModelMcpTool(
+                session,
+                new ProjectLifecycleService(NullLoggerFactory.Instance),
+                pathResolver);
+            Assert.True(newModel.Invoke(JsonArguments("""
+            {
+                "name": "agent-session",
+                "grid_hint": 24,
+                "palette_entries": [
+                    { "index": 1, "name": "preview-blue", "r": 10, "g": 20, "b": 240 }
+                ]
+            }
+            """), CancellationToken.None).Success);
+            session.Document.Model.SetVoxel(new Point3(2, 3, 4), 1);
+
+            var result = publishPreview.Invoke(JsonArguments("""{ "name": "live-preview" }"""), CancellationToken.None);
+
+            Assert.True(result.Success);
+            string previewPath = Path.Combine(projectDirectory, "live-preview.vforge");
+            string manifestPath = Path.Combine(projectDirectory, "live-preview.preview.json");
+            Assert.True(File.Exists(previewPath));
+            Assert.True(File.Exists(manifestPath));
+            Assert.False(Directory.EnumerateFiles(projectDirectory, "*.tmp", SearchOption.TopDirectoryOnly).Any());
+            Assert.False(File.Exists(Path.Combine(projectDirectory, "agent-session.vforge")));
+
+            var serializer = new ProjectSerializer(NullLoggerFactory.Instance);
+            var (model, _, _, meta) = serializer.Deserialize(File.ReadAllText(previewPath));
+            Assert.Equal("agent-session", meta.Name);
+            Assert.Equal((byte)1, model.GetVoxel(new Point3(2, 3, 4)));
+
+            using (var resultDocument = JsonDocument.Parse(result.Message))
+            {
+                Assert.Equal(previewPath, resultDocument.RootElement.GetProperty("path").GetString());
+                Assert.Equal(manifestPath, resultDocument.RootElement.GetProperty("manifest_path").GetString());
+                Assert.Equal(1, resultDocument.RootElement.GetProperty("voxel_count").GetInt32());
+            }
+
+            using (var manifestDocument = JsonDocument.Parse(File.ReadAllText(manifestPath)))
+            {
+                Assert.Equal("voxelforge.preview_manifest", manifestDocument.RootElement.GetProperty("schema").GetString());
+                Assert.Equal("agent-session", manifestDocument.RootElement.GetProperty("model_name").GetString());
+                Assert.Equal(previewPath, manifestDocument.RootElement.GetProperty("model_path").GetString());
+                Assert.Equal(1, manifestDocument.RootElement.GetProperty("voxel_count").GetInt32());
+            }
+
+            Assert.True(saveModel.Invoke(EmptyArguments(), CancellationToken.None).Success);
+            Assert.True(File.Exists(Path.Combine(projectDirectory, "agent-session.vforge")));
+        }
+        finally
+        {
+            if (Directory.Exists(projectDirectory))
+                Directory.Delete(projectDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PublishPreview_CanSkipManifestAndRejectsUnsafeNames()
+    {
+        var projectDirectory = CreateTempProjectDirectory();
+        try
+        {
+            var session = CreateSession();
+            var tool = new PublishPreviewMcpTool(
+                session,
+                new ModelPathResolver(new VoxelForgeMcpOptions { ProjectDirectory = projectDirectory }),
+                NullLoggerFactory.Instance);
+
+            var skipResult = tool.Invoke(JsonArguments("""{ "name": "no-manifest", "write_manifest": false }"""), CancellationToken.None);
+            var unsafeResult = tool.Invoke(JsonArguments("""{ "name": "../escape" }"""), CancellationToken.None);
+
+            Assert.True(skipResult.Success);
+            Assert.True(File.Exists(Path.Combine(projectDirectory, "no-manifest.vforge")));
+            Assert.False(File.Exists(Path.Combine(projectDirectory, "no-manifest.preview.json")));
+            Assert.False(unsafeResult.Success);
+            Assert.Contains("configured project directory", unsafeResult.Message, StringComparison.Ordinal);
         }
         finally
         {

@@ -61,6 +61,7 @@ public sealed class McpToolTests
                 "load_model",
                 "measure_distance",
                 "new_model",
+                "publish_preview",
                 "redo",
                 "remove_voxels",
                 "save_model",
