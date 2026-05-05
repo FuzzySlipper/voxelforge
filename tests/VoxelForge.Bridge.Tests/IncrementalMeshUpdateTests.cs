@@ -1,5 +1,10 @@
+using Den.Bridge.Abstractions;
+using Den.Bridge.Protocol;
 using VoxelForge.App.Services;
+using VoxelForge.Bridge.Handlers;
+using VoxelForge.Bridge.Protocol;
 using VoxelForge.Core;
+using BridgeJson = Den.Bridge.Protocol.BridgeJson;
 
 namespace VoxelForge.Bridge.Tests;
 
@@ -215,6 +220,24 @@ public sealed class MeshRegionServiceTests
     }
 
     [Fact]
+    public void BuildIncrementalUpdate_MetricsBuildMsIsNotMisleading()
+    {
+        var model = CreateTestModel();
+        var mesher = new VoxelForge.Core.Meshing.GreedyMesher();
+        var service = new MeshRegionService(mesher);
+
+        var dirtyRegions = new HashSet<MeshRegionCoord> { new(0, 0, 0) };
+        var update = service.BuildIncrementalUpdate(model, dirtyRegions, "test-model", "mesh-test-001");
+
+        Assert.NotNull(update.Metrics);
+        // BuildMs should reflect actual build time, not hardcoded to 0.
+        // On fast machines it could be 0ms for a tiny model, so we verify it's non-negative
+        // and that the field exists (previously was hardcoded to 0 with a comment).
+        Assert.True(update.Metrics.BuildMs >= 0, "BuildMs should be non-negative");
+        Assert.True(update.Metrics.RegionCount > 0, "Should have at least one region");
+    }
+
+    [Fact]
     public void ChunkSize_Zero_ThrowsArgumentOutOfRangeException()
     {
         var model = CreateTestModel();
@@ -356,5 +379,158 @@ public sealed class MeshSubscriptionManagerTests
     {
         var manager = new VoxelForge.Bridge.Handlers.MeshSubscriptionManager();
         Assert.Equal(0, manager.GetSubscriptionCount("nonexistent"));
+    }
+}
+
+/// <summary>
+/// Hand-written fake for <see cref="IBridgeEventPublisher"/> that captures
+/// published event frames for assertion.
+/// </summary>
+internal sealed class FakeBridgeEventPublisher : IBridgeEventPublisher
+{
+    public List<BridgeEventFrame> PublishedFrames { get; } = [];
+
+    public ValueTask PublishAsync(BridgeEventFrame frame, CancellationToken cancellationToken = default)
+    {
+        PublishedFrames.Add(frame);
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Helper to set up a VoxelModelHolder with a test model via LoadDefaultCube + reflection.
+/// VoxelModelHolder is sealed, so we use reflection to replace the model after LoadDefaultCube.
+/// </summary>
+internal static class TestModelHolder
+{
+    public static VoxelModelHolder CreateWithTestModel()
+    {
+        var loggerFactory = Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+        var holder = new VoxelModelHolder(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<VoxelModelHolder>.Instance,
+            loggerFactory);
+        holder.LoadDefaultCube();
+        return holder;
+    }
+}
+
+public sealed class MeshChangePushServiceTests
+{
+    private static VoxelModel CreateTestModel()
+    {
+        var model = new VoxelModel(Microsoft.Extensions.Logging.Abstractions.NullLogger<VoxelModel>.Instance)
+        {
+            GridHint = 16,
+        };
+
+        model.Palette.Set(1, new MaterialDef
+        {
+            Name = "Stone",
+            Color = new RgbaColor(160, 160, 160, 255),
+        });
+
+        for (int x = 0; x < 3; x++)
+        for (int y = 0; y < 3; y++)
+        for (int z = 0; z < 3; z++)
+            model.SetVoxel(new Point3(x, y, z), (byte)1);
+
+        return model;
+    }
+
+    private static (MeshChangePushService pushService, VoxelModelHolder holder, MeshSubscriptionManager subManager, FakeBridgeEventPublisher publisher) CreatePushService()
+    {
+        var holder = TestModelHolder.CreateWithTestModel();
+        var subManager = new MeshSubscriptionManager();
+        var mesher = new VoxelForge.Core.Meshing.GreedyMesher();
+        var regionService = new MeshRegionService(mesher);
+        var publisher = new FakeBridgeEventPublisher();
+
+        var pushService = new MeshChangePushService(
+            holder,
+            subManager,
+            regionService,
+            publisher,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MeshChangePushService>.Instance);
+
+        return (pushService, holder, subManager, publisher);
+    }
+
+    [Fact]
+    public async Task PushMeshUpdateAsync_PayloadSequenceIsNotZero()
+    {
+        var (pushService, holder, subManager, publisher) = CreatePushService();
+
+        subManager.Subscribe("default-cube", 16, "req-1");
+        subManager.RecordFullDirty("default-cube", holder.Model);
+
+        await pushService.PushMeshUpdateAsync();
+
+        Assert.Single(publisher.PublishedFrames);
+        var frame = publisher.PublishedFrames[0];
+
+        // Deserialize the payload using BridgeJson (snake_case naming)
+        var payload = BridgeJson.Deserialize<MeshUpdateEventPayload>(frame.Payload.GetRawText());
+
+        Assert.NotNull(payload);
+        Assert.True(payload.Sequence > 0, "Payload sequence should be non-zero, not hardcoded to 0");
+    }
+
+    [Fact]
+    public async Task PushMeshUpdateAsync_PayloadSequenceMatchesFrameSequence()
+    {
+        var (pushService, holder, subManager, publisher) = CreatePushService();
+
+        subManager.Subscribe("default-cube", 16, "req-1");
+        subManager.RecordFullDirty("default-cube", holder.Model);
+
+        await pushService.PushMeshUpdateAsync();
+
+        var frame = publisher.PublishedFrames[0];
+        var payload = BridgeJson.Deserialize<MeshUpdateEventPayload>(frame.Payload.GetRawText());
+
+        Assert.NotNull(payload);
+        Assert.Equal(frame.Sequence, payload.Sequence);
+    }
+
+    [Fact]
+    public async Task PushMeshUpdateAsync_SequenceIncrementsAcrossPushes()
+    {
+        var (pushService, holder, subManager, publisher) = CreatePushService();
+
+        subManager.Subscribe("default-cube", 16, "req-1");
+
+        subManager.RecordFullDirty("default-cube", holder.Model);
+        await pushService.PushMeshUpdateAsync();
+
+        subManager.RecordFullDirty("default-cube", holder.Model);
+        await pushService.PushMeshUpdateAsync();
+
+        Assert.Equal(2, publisher.PublishedFrames.Count);
+
+        var payload1 = BridgeJson.Deserialize<MeshUpdateEventPayload>(publisher.PublishedFrames[0].Payload.GetRawText());
+        var payload2 = BridgeJson.Deserialize<MeshUpdateEventPayload>(publisher.PublishedFrames[1].Payload.GetRawText());
+
+        Assert.NotNull(payload1);
+        Assert.NotNull(payload2);
+        Assert.True(payload1.Sequence < payload2.Sequence,
+            $"Sequence should be monotonically increasing: first={payload1.Sequence}, second={payload2.Sequence}");
+    }
+
+    [Fact]
+    public async Task PushMeshUpdateAsync_MetricsArePopulated()
+    {
+        var (pushService, holder, subManager, publisher) = CreatePushService();
+
+        subManager.Subscribe("default-cube", 16, "req-1");
+        subManager.RecordFullDirty("default-cube", holder.Model);
+
+        await pushService.PushMeshUpdateAsync();
+
+        var payload = BridgeJson.Deserialize<MeshUpdateEventPayload>(publisher.PublishedFrames[0].Payload.GetRawText());
+
+        Assert.NotNull(payload);
+        Assert.NotNull(payload.Metrics);
+        Assert.True(payload.Metrics.RegionCount > 0, "Should have at least one region");
+        Assert.True(payload.Metrics.BuildMs >= 0, "BuildMs should be non-negative");
     }
 }

@@ -103,6 +103,8 @@ public sealed class MeshRegionService
     {
         ArgumentNullException.ThrowIfNull(model);
 
+        var buildStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
         var fullSnapshot = new MeshSnapshotService(_mesher).BuildSnapshot(model);
         var dirtySet = dirtyRegions as ICollection<MeshRegionCoord> ?? dirtyRegions.ToList();
         var updates = new List<MeshRegionUpdate>();
@@ -138,6 +140,8 @@ public sealed class MeshRegionService
             });
         }
 
+        buildStopwatch.Stop();
+
         return new MeshIncrementalUpdate
         {
             ModelId = modelId,
@@ -150,7 +154,7 @@ public sealed class MeshRegionService
             Metrics = new MeshUpdateMetrics
             {
                 RegionCount = updates.Count,
-                BuildMs = 0, // callers should time this
+                BuildMs = buildStopwatch.ElapsedMilliseconds,
                 SerializeMs = 0,
             },
         };

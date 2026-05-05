@@ -1,9 +1,7 @@
-using System.Diagnostics;
 using Den.Bridge.Abstractions;
 using Den.Bridge.Protocol;
 using Microsoft.Extensions.Logging;
 using VoxelForge.App.Services;
-using VoxelForge.App.Snapshots;
 using VoxelForge.Bridge.Protocol;
 using VoxelForge.Core;
 
@@ -67,8 +65,6 @@ public sealed class MeshChangePushService
         // (this handles cases where the event didn't carry bounds info)
         bool isFullReplace = dirtyRegions is null || dirtyRegions.Count == 0;
 
-        var totalStopwatch = Stopwatch.StartNew();
-
         // Determine chunk size from first subscription (all should have same chunk size for now)
         int chunkSize = subscriptions[0].ChunkSize;
 
@@ -97,25 +93,18 @@ public sealed class MeshChangePushService
                 chunkSize);
         }
 
-        totalStopwatch.Stop();
-        update.Metrics = new MeshUpdateMetrics
-        {
-            RegionCount = update.ChangedRegions.Count,
-            BuildMs = totalStopwatch.ElapsedMilliseconds,
-            SerializeMs = 0,
-        };
-
-        // Generate new mesh ID for this update
+        // Generate new mesh ID and monotonic sequence for this update
         var newMeshId = _subscriptionManager.GenerateMeshId(modelId);
+        var sequence = _subscriptionManager.NextSequence();
 
         // Build event payload
-        var payload = MapToUpdateEventPayload(update, newMeshId);
+        var payload = MapToUpdateEventPayload(update, newMeshId, sequence);
 
         // Publish event frame
         var frame = new BridgeEventFrame
         {
             EventId = $"evt-mesh-{Guid.NewGuid():N}",
-            Sequence = _subscriptionManager.NextSequence(),
+            Sequence = sequence,
             Event = "voxelforge.mesh.update",
             Payload = Den.Bridge.Protocol.BridgeJson.ToElement(payload),
         };
@@ -124,7 +113,7 @@ public sealed class MeshChangePushService
 
         _logger.LogInformation(
             "Pushed mesh update: model={ModelId}, base={BaseMeshId}, type={UpdateType}, regions={RegionCount}, build={BuildMs}ms",
-            modelId, baseMeshId, update.UpdateType, update.ChangedRegions.Count, totalStopwatch.ElapsedMilliseconds);
+            modelId, baseMeshId, update.UpdateType, update.ChangedRegions.Count, update.Metrics?.BuildMs ?? 0);
     }
 
     /// <summary>
@@ -150,7 +139,7 @@ public sealed class MeshChangePushService
         await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static MeshUpdateEventPayload MapToUpdateEventPayload(MeshIncrementalUpdate update, string newMeshId)
+    private static MeshUpdateEventPayload MapToUpdateEventPayload(MeshIncrementalUpdate update, string newMeshId, long sequence)
     {
         var regions = new MeshRegionUpdateDto[update.ChangedRegions.Count];
         for (int i = 0; i < update.ChangedRegions.Count; i++)
@@ -181,7 +170,6 @@ public sealed class MeshChangePushService
             };
         }
 
-        var sequence = 0L; // Caller should set sequence from subscription manager
         var payload = new MeshUpdateEventPayload
         {
             ModelId = update.ModelId,
