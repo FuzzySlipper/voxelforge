@@ -4,7 +4,7 @@
   "description": "VoxelForge Electron renderer — Three.js static mesh renderer",
   "main": "dist/main/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && esbuild src/renderer/index.ts --bundle --outfile=dist/renderer/bundle.js --platform=browser --format=iife --external:none",
     "smoke-test": "npm run build && electron . --smoke-test",
     "renderer-smoke-test": "npm run build && electron . --renderer-smoke-test",
     "start": "npm run build && electron ."
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@types/ws": "^8.18.0",
     "electron": "^41.0.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.8.0"
   },
   "engines": {

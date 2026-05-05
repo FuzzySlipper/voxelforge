@@ -30,9 +30,6 @@ public sealed class Program
         }));
 
         // Core/App services
-        services.AddSingleton<ILoggerFactory>(sp => sp.GetRequiredService<ILoggerFactory>());
-
-        // VoxelModelHolder — holds the currently loaded model
         services.AddSingleton<VoxelModelHolder>();
 
         // Mesh and palette snapshot services
@@ -46,6 +43,22 @@ public sealed class Program
         services.AddSingleton<VoxelForgeSchemaHandshakeHandler>();
         services.AddSingleton<MeshSnapshotHandler>();
         services.AddSingleton<PaletteGetHandler>();
+
+        // Register bridge host before building the provider so all services
+        // (including model data) are in a single container.
+        services.AddBridgeHost(registry =>
+        {
+            registry.RegisterCommand<PingRequest, PingResponse, PingHandler>("ping");
+            registry.RegisterCommand<VersionHandshakeRequest, VersionHandshakeResponse, VersionHandshakeHandler>("version.handshake");
+            registry.RegisterCommand<VoxelForgeHandshakeRequest, VoxelForgeHandshakeResponse, VoxelForgeSchemaHandshakeHandler>("voxelforge.handshake");
+            registry.RegisterCommand<MeshSnapshotRequest, MeshSnapshotResponse, MeshSnapshotHandler>("voxelforge.mesh.request_snapshot");
+            registry.RegisterCommand<PaletteGetRequest, PaletteGetResponse, PaletteGetHandler>("voxelforge.palette.get");
+        }, host =>
+        {
+            host.AppId = appId;
+            host.AppVersion = appVersion;
+            host.SupportedTransports = ["websocket"];
+        });
 
         var provider = services.BuildServiceProvider();
         var logger = provider.GetRequiredService<ILogger<Program>>();
@@ -77,22 +90,6 @@ public sealed class Program
             }
         }
 
-        services.AddBridgeHost(registry =>
-        {
-            registry.RegisterCommand<PingRequest, PingResponse, PingHandler>("ping");
-            registry.RegisterCommand<VersionHandshakeRequest, VersionHandshakeResponse, VersionHandshakeHandler>("version.handshake");
-            registry.RegisterCommand<VoxelForgeHandshakeRequest, VoxelForgeHandshakeResponse, VoxelForgeSchemaHandshakeHandler>("voxelforge.handshake");
-            registry.RegisterCommand<MeshSnapshotRequest, MeshSnapshotResponse, MeshSnapshotHandler>("voxelforge.mesh.request_snapshot");
-            registry.RegisterCommand<PaletteGetRequest, PaletteGetResponse, PaletteGetHandler>("voxelforge.palette.get");
-        }, host =>
-        {
-            host.AppId = appId;
-            host.AppVersion = appVersion;
-            host.SupportedTransports = ["websocket"];
-        });
-
-        // Rebuild provider after AddBridgeHost
-        provider = services.BuildServiceProvider();
         var router = provider.GetRequiredService<IBridgeCommandRouter>();
 
         var serverOptions = new WebSocketBridgeServerOptions

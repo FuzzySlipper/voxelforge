@@ -250,13 +250,13 @@ async function runRenderer(repoRoot: string): Promise<void> {
     height: 800,
     title: "VoxelForge Mesh Viewer",
     webPreferences: {
-      preload: path.join(__dirname, "preload", "index.js"),
+      preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, "renderer", "renderer.html"));
+  mainWindow.loadFile(path.join(__dirname, "..", "renderer", "renderer.html"));
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -266,7 +266,13 @@ async function runRenderer(repoRoot: string): Promise<void> {
 
   // For headless smoke test: collect metrics and exit
   if (isHeadless || isRendererSmokeTest) {
+    const rendererTimeout = setTimeout(() => {
+      console.error("[electron] Timed out waiting for renderer metrics.");
+      shutdown(1);
+    }, 30000); // 30s timeout for renderer smoke
+
     ipcMain.once("renderer:metrics", (_event, metrics: Record<string, number>) => {
+      clearTimeout(rendererTimeout);
       console.log("[electron] Renderer metrics:", JSON.stringify(metrics, null, 2));
       console.log("[electron] Renderer smoke test passed.");
       setTimeout(() => shutdown(0), 500);
@@ -431,6 +437,12 @@ function findRepoRoot(startPath: string): string | null {
     dir = parent;
   }
   return null;
+}
+
+// Disable GPU acceleration for headless/smoke-test environments.
+// Must be called before app.whenReady().
+if (isHeadless || isRendererSmokeTest) {
+  app.disableHardwareAcceleration();
 }
 
 app.whenReady().then(main);

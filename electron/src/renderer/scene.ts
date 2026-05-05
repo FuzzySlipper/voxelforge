@@ -51,18 +51,25 @@ export interface RendererMetrics {
   triangle_count: number;
   mesh_transfer_ms: number;
   total_renderer_ms: number;
+  /** When true, the renderer fell back to no-GPU mode because WebGL was unavailable. */
+  webgl_fallback?: boolean;
 }
 
 export class VoxelForgeScene {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private renderer: THREE.WebGLRenderer;
-  private controls: OrbitControls;
+  private renderer: THREE.WebGLRenderer | null = null;
+  private controls: OrbitControls | null = null;
   private meshGroup: THREE.Group;
   private animationFrameId: number | null = null;
   private renderCallbacks: ((metrics: RendererMetrics) => void)[] = [];
+  private container: HTMLElement;
+  private webglAvailable: boolean;
 
   constructor(container: HTMLElement) {
+    this.container = container;
+    this.webglAvailable = true;
+
     // Scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x2b2b2b);
@@ -75,22 +82,34 @@ export class VoxelForgeScene {
       10000,
     );
 
-    // Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    container.appendChild(this.renderer.domElement);
+    // Try to create WebGL renderer; fall back gracefully if unavailable
+    try {
+      this.renderer = new THREE.WebGLRenderer({ antialias: true });
+      this.renderer.setSize(container.clientWidth, container.clientHeight);
+      this.renderer.setPixelRatio(window.devicePixelRatio);
+      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(this.renderer.domElement);
 
-    // Orbit controls for camera pan/zoom/orbit
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.1;
-    this.controls.screenSpacePanning = true;
-    this.controls.minDistance = 1;
-    this.controls.maxDistance = 500;
-    this.controls.maxPolarAngle = Math.PI;
+      // Orbit controls for camera pan/zoom/orbit
+      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+      this.controls.enableDamping = true;
+      this.controls.dampingFactor = 0.1;
+      this.controls.screenSpacePanning = true;
+      this.controls.minDistance = 1;
+      this.controls.maxDistance = 500;
+      this.controls.maxPolarAngle = Math.PI;
+
+      // Start render loop
+      this.animate();
+    } catch (err) {
+      console.warn("[scene] WebGL not available; renderer will operate in fallback mode:", err);
+      this.webglAvailable = false;
+      // Show a message in the container
+      container.innerHTML = `<div style="color: #aaa; padding: 20px; font-family: monospace;">
+        WebGL unavailable — running in fallback mode (scene construction verified, no GPU rendering).
+      </div>`;
+    }
 
     // Mesh group
     this.meshGroup = new THREE.Group();
@@ -104,17 +123,16 @@ export class VoxelForgeScene {
     this.scene.add(grid);
 
     // Handle resize
-    const onResize = () => {
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-      this.camera.aspect = width / height;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(width, height);
-    };
-    window.addEventListener("resize", onResize);
-
-    // Start render loop
-    this.animate();
+    if (this.renderer) {
+      const onResize = () => {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderer!.setSize(width, height);
+      };
+      window.addEventListener("resize", onResize);
+    }
   }
 
   private setupLights(): void {
@@ -146,10 +164,10 @@ export class VoxelForgeScene {
   /**
    * Build Three.js mesh from the C# sidecar mesh snapshot data.
    * Returns performance metrics for the construction process.
+   * Works in both WebGL and fallback mode.
    */
   buildMeshFromSnapshot(data: MeshSnapshotData): RendererMetrics {
     const startTime = performance.now();
-    const meshTransferStart = startTime;
 
     // Clear previous mesh
     while (this.meshGroup.children.length > 0) {
@@ -172,6 +190,7 @@ export class VoxelForgeScene {
         triangle_count: 0,
         mesh_transfer_ms: 0,
         total_renderer_ms: performance.now() - startTime,
+        webgl_fallback: !this.webglAvailable,
       };
       this.notifyRenderComplete(metrics);
       return metrics;
@@ -239,9 +258,12 @@ export class VoxelForgeScene {
     // Frame camera on the model bounds
     this.frameCamera(data);
 
-    // Force a render to measure first-render time
-    this.renderer.render(this.scene, this.camera);
-    const firstRenderMs = performance.now() - constructionEnd;
+    let firstRenderMs = 0;
+    if (this.renderer) {
+      // Force a render to measure first-render time (requires WebGL)
+      this.renderer.render(this.scene, this.camera);
+      firstRenderMs = performance.now() - constructionEnd;
+    }
 
     const metrics: RendererMetrics = {
       scene_construction_ms: constructionEnd - constructionStart,
@@ -250,6 +272,7 @@ export class VoxelForgeScene {
       triangle_count: data.triangle_count,
       mesh_transfer_ms: 0, // Measured on the main process side
       total_renderer_ms: performance.now() - startTime,
+      webgl_fallback: !this.webglAvailable,
     };
 
     this.notifyRenderComplete(metrics);
@@ -263,8 +286,10 @@ export class VoxelForgeScene {
     if (!data.bounds) {
       // Default camera position for empty/unbounded models
       this.camera.position.set(10, 10, 10);
-      this.controls.target.set(0, 0, 0);
-      this.controls.update();
+      if (this.controls) {
+        this.controls.target.set(0, 0, 0);
+        this.controls.update();
+      }
       return;
     }
 
@@ -284,14 +309,17 @@ export class VoxelForgeScene {
     this.camera.near = 0.1;
     this.camera.far = distance * 10;
 
-    this.controls.target.copy(center);
-    this.controls.update();
+    if (this.controls) {
+      this.controls.target.copy(center);
+      this.controls.update();
+    }
   }
 
   private animate(): void {
+    if (!this.renderer) return;
     this.animationFrameId = requestAnimationFrame(() => this.animate());
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.controls!.update();
+    this.renderer!.render(this.scene, this.camera);
   }
 
   private notifyRenderComplete(metrics: RendererMetrics): void {
@@ -320,7 +348,11 @@ export class VoxelForgeScene {
         }
       }
     }
-    this.renderer.dispose();
-    this.controls.dispose();
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
+    if (this.controls) {
+      this.controls.dispose();
+    }
   }
 }
