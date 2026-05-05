@@ -244,9 +244,6 @@ async function runRenderer(repoRoot: string): Promise<void> {
   // Set up IPC handlers for renderer bridge requests
   setupIpcHandlers(handshake);
 
-  // Set up mesh subscription and event forwarding
-  await setupMeshSubscription(handshake, mainWindow!);
-
   // Create renderer window
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -266,6 +263,9 @@ async function runRenderer(repoRoot: string): Promise<void> {
     bridgeClient?.disconnect();
     shutdown(0);
   });
+
+  // Set up mesh subscription and event forwarding (after mainWindow is created)
+  await setupMeshSubscription(handshake, mainWindow);
 
   // For headless smoke test: collect metrics and exit
   if (isHeadless || isRendererSmokeTest) {
@@ -387,38 +387,6 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
       },
       requestTimeoutMs,
     );
-    return response.result;
-  });
-
-  ipcMain.handle("bridge:mesh-subscribe", async (_event, payload: unknown) => {
-    const client = await ensureBridgeClient(handshake);
-    const response = await client.send(
-      {
-        requestId: `renderer-mesh-sub-${Date.now()}`,
-        command: "voxelforge.mesh.subscribe",
-        payload: payload as Record<string, unknown>,
-      },
-      requestTimeoutMs,
-    );
-    if (response.error) {
-      throw new Error(`Mesh subscribe error: ${response.error.message}`);
-    }
-    return response.result;
-  });
-
-  ipcMain.handle("bridge:mesh-unsubscribe", async (_event, payload: unknown) => {
-    const client = await ensureBridgeClient(handshake);
-    const response = await client.send(
-      {
-        requestId: `renderer-mesh-unsub-${Date.now()}`,
-        command: "voxelforge.mesh.unsubscribe",
-        payload: payload as Record<string, unknown>,
-      },
-      requestTimeoutMs,
-    );
-    if (response.error) {
-      throw new Error(`Mesh unsubscribe error: ${response.error.message}`);
-    }
     return response.result;
   });
 

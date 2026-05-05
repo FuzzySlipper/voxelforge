@@ -3,7 +3,7 @@
  * Owns only rendering and presentation — no model mutations.
  */
 
-import { VoxelForgeScene, type MeshSnapshotData, type RendererMetrics } from "./scene";
+import { VoxelForgeScene, type MeshSnapshotData, type MeshUpdateEventData, type PaletteUpdateEventData, type RendererMetrics } from "./scene";
 
 declare global {
   interface Window {
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
 
     // 5. Subscribe to mesh update events for incremental updates
     if (window.voxelforgeBridge) {
-      setupMeshSubscription(meshData as MeshSnapshotData);
+      setupMeshSubscription(scene, meshData as MeshSnapshotData);
     }
   } catch (err) {
     console.error("[renderer] Error:", err);
@@ -187,13 +187,15 @@ function createFallbackCube(): MeshSnapshotData {
  * Subscribe to incremental mesh update events from the C# sidecar.
  * When mesh updates arrive, apply them to the scene using incremental buffer replacement.
  */
-function setupMeshSubscription(initialSnapshot: MeshSnapshotData): void {
+function setupMeshSubscription(scene: VoxelForgeScene, initialSnapshot: MeshSnapshotData): void {
   let currentMeshId = initialSnapshot.mesh_id;
 
   // Subscribe to mesh update events
   if (window.voxelforgeBridge) {
     window.voxelforgeBridge.onEvent("voxelforge:mesh-update", (payload: unknown) => {
       const update = payload as MeshUpdateEventData;
+      // Capture scene reference for closure
+      const sceneRef = scene;
       console.log("[renderer] Mesh update received:", {
         model_id: update.model_id,
         sequence: update.sequence,
@@ -207,12 +209,12 @@ function setupMeshSubscription(initialSnapshot: MeshSnapshotData): void {
           `[renderer] Mesh update base mismatch: expected ${currentMeshId}, got ${update.base_mesh_id}. Requesting full snapshot.`,
         );
         // Out of sync — request a full snapshot to resync
-        requestFullMeshSnapshot();
+        void requestFullMeshSnapshot(scene);
         return;
       }
 
       try {
-        const metrics = scene.applyIncrementalUpdate(update);
+        const metrics = sceneRef.applyIncrementalUpdate(update);
         currentMeshId = update.base_mesh_id;
         console.log("[renderer] Incremental mesh update applied:", metrics);
 
@@ -249,7 +251,7 @@ function setupMeshSubscription(initialSnapshot: MeshSnapshotData): void {
   }
 }
 
-async function requestFullMeshSnapshot(): Promise<void> {
+async function requestFullMeshSnapshot(scene: VoxelForgeScene): Promise<void> {
   if (!window.voxelforgeBridge) return;
   try {
     const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
