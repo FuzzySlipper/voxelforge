@@ -200,7 +200,7 @@ voxelforge/
 ├── docs/
 │   ├── architecture/
 │   │   ├── electron-renderer-experiment.md   (this file)
-│   │   └── bridge-protocol.md             (NEW in task #1172) — message schema, versioning, lifecycle
+│   │   ├── bridge-protocol.md             — message schema, versioning, lifecycle (defined in task #1172)
 │   └── ...
 │
 ├── scripts/
@@ -271,11 +271,15 @@ The snapshot format is defined in the bridge protocol (task #1172) and versioned
 
 ## Bridge Protocol Lifecycle
 
+The full VoxelForge bridge protocol is defined in [`bridge-protocol.md`](bridge-protocol.md). At a high level:
+
 1. **Spawn:** Electron main spawns `VoxelForge.Bridge` as a child process, passing stdio or socket path.
-2. **Handshake:** `den-bridge` performs version handshake. If major version mismatches, Electron main shows an error and refuses to load the renderer.
+2. **Handshake:** `den-bridge` performs transport-level version handshake, followed by the VoxelForge schema handshake (`voxelforge.handshake`). If either version is incompatible, Electron main shows an error and refuses to load the renderer.
 3. **Subscribe:** Electron renderer requests state subscription. C# sidecar begins pushing state deltas and mesh snapshots.
 4. **Interaction Loop:** TS captures input, sends intents, C# applies via services, pushes updated state/mesh.
 5. **Teardown:** On Electron window close, main sends graceful shutdown. Sidecar exits cleanly. Unsaved in-memory state follows the same rules as `VoxelForge.Mcp`: it is lost unless explicitly saved.
+
+> **Note:** The current smoke-test implementation from task #1171 (`ping` and `version.handshake`) is a den-bridge connectivity probe, not the full VoxelForge protocol. See `bridge-protocol.md` for the complete message contract.
 
 ---
 
@@ -327,6 +331,7 @@ Before deciding whether to adopt, extend, or abandon the Electron renderer:
 
 ## Cross-References
 
+- [`bridge-protocol.md`](bridge-protocol.md) — complete message schema, versioning rules, ownership annotations, and mesh payload strategy.
 - [`events-states-services.md`](events-states-services.md) — adapter/service rules that apply to the bridge handlers.
 - [`state-boundaries.md`](state-boundaries.md) — state ownership map that C# retains and TS observes.
 - [`docs/mcp-server.md`](../mcp-server.md) — headless MCP adapter that remains independent of the Electron path.

@@ -50,6 +50,8 @@ The Electron renderer experiment uses a C# sidecar (`VoxelForge.Bridge`) that ho
 
 The Electron smoke test requires `cd electron && npm install` on first run (the script handles this automatically).
 
+See [`docs/architecture/bridge-protocol.md`](docs/architecture/bridge-protocol.md) for the full VoxelForge bridge protocol specification.
+
 ## Project Structure
 
 ```
