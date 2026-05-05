@@ -1,0 +1,22 @@
+{
+  "name": "voxelforge-electron",
+  "version": "0.1.0",
+  "description": "VoxelForge Electron renderer experiment — smoke test",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "tsc",
+    "smoke-test": "npm run build && electron . --smoke-test",
+    "start": "npm run build && electron ."
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0",
+    "electron": "^41.0.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

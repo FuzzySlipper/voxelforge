@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\VoxelForge.Evaluation\VoxelForge.Evaluation.csproj" />
     <ProjectReference Include="..\..\src\VoxelForge.Import\VoxelForge.Import.csproj" />
     <ProjectReference Include="..\..\src\VoxelForge.Engine.MonoGame\VoxelForge.Engine.MonoGame.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.Bridge\VoxelForge.Bridge.csproj" />
   </ItemGroup>
 
 </Project>

@@ -8,6 +8,7 @@
     <Project Path="src/VoxelForge.Evaluation/VoxelForge.Evaluation.csproj" />
     <Project Path="src/VoxelForge.Import/VoxelForge.Import.csproj" />
     <Project Path="src/VoxelForge.Engine.MonoGame/VoxelForge.Engine.MonoGame.csproj" />
+    <Project Path="src/VoxelForge.Bridge/VoxelForge.Bridge.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VoxelForge.Core.Tests/VoxelForge.Core.Tests.csproj" />
@@ -17,5 +18,6 @@
     <Project Path="tests/VoxelForge.Evaluation.Tests/VoxelForge.Evaluation.Tests.csproj" />
     <Project Path="tests/VoxelForge.Import.Tests/VoxelForge.Import.Tests.csproj" />
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
+    <Project Path="tests/VoxelForge.Bridge.Tests/VoxelForge.Bridge.Tests.csproj" />
   </Folder>
 </Solution>

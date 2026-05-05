@@ -184,6 +184,31 @@ public sealed class BoundaryTests
         Assert.DoesNotContain(refs, r => r.Contains("Anthropic", StringComparison.OrdinalIgnoreCase));
     }
 
+    // --- Bridge boundary: headless sidecar adapter over App/Core only ---
+
+    [Fact]
+    public void Bridge_MustNotReference_Engine()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var bridgePath = Path.Combine(root, "src", "VoxelForge.Bridge");
+        AssertNoUsings(bridgePath, "VoxelForge.Bridge", [
+            "using Microsoft.Xna.Framework",
+            "using Myra",
+            "using VoxelForge.Engine",
+        ]);
+    }
+
+    [Fact]
+    public void Bridge_Assembly_MustNotReference_EngineAssemblies()
+    {
+        var bridgeAsm = typeof(VoxelForge.Bridge.Program).Assembly;
+        var refs = bridgeAsm.GetReferencedAssemblies().Select(r => r.Name ?? "").ToList();
+
+        Assert.DoesNotContain(refs, r => r.Contains("MonoGame", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("Myra", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(refs, r => r.Contains("VoxelForge.Engine", StringComparison.OrdinalIgnoreCase));
+    }
+
     // --- Import boundary: headless adapter, no Engine or provider SDK coupling ---
 
     [Fact]

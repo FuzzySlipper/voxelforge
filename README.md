@@ -10,6 +10,7 @@ Built with C#/.NET 10, FNA (XNA reimplementation), and Myra UI.
 - CMake, Make, GCC
 - SDL3 (`pacman -S sdl3` on Arch)
 - Vulkan-capable GPU and drivers
+- Node.js 20+ and npm (for Electron smoke test only)
 
 ## Building
 
@@ -35,6 +36,20 @@ After the initial setup, the day-to-day cycle is just `dotnet build` + `dotnet r
 dotnet test voxelforge.slnx
 ```
 
+## Bridge Smoke Tests
+
+The Electron renderer experiment uses a C# sidecar (`VoxelForge.Bridge`) that hosts a `den-bridge` WebSocket server. Two smoke-test scripts verify the bridge end-to-end:
+
+```bash
+# C#-only smoke test (ping + version handshake via WebSocket, no Electron needed)
+./scripts/run-bridge-smoke-test.sh
+
+# Full Electron + C# sidecar smoke test (spawns sidecar, connects, pings, exits)
+./scripts/run-electron-smoke-test.sh
+```
+
+The Electron smoke test requires `cd electron && npm install` on first run (the script handles this automatically).
+
 ## Project Structure
 
 ```
@@ -44,13 +59,17 @@ src/
   VoxelForge.LLM               LLM provider adapters (Microsoft.Extensions.AI)
   VoxelForge.App               Editor state, undo/redo, tools, composition
   VoxelForge.Engine.MonoGame   FNA rendering, Myra UI panels, input handling
+  VoxelForge.Bridge            Headless bridge sidecar for Electron renderer experiment
 
 tests/
   VoxelForge.Core.Tests        Data model, labels, animation, serialization, meshing, raycasting
   VoxelForge.LLM.Tests         Tool loop, handler dispatch
   Architecture.Tests           Dependency boundary enforcement
+  VoxelForge.Bridge.Tests      Bridge handler and WebSocket transport smoke tests
 
 lib/                           Git submodules (FNA, Myra, FontStashSharp, XNAssets, den-bridge)
+
+electron/                      Electron renderer experiment (TypeScript, minimal smoke test)
 ```
 
 ## Controls
