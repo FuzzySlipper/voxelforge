@@ -9,6 +9,7 @@ declare global {
   interface Window {
     voxelforgeBridge: {
       request(channel: string, payload: unknown): Promise<unknown>;
+      onEvent(channel: string, callback: (payload: unknown) => void): () => void;
       notifyReady(): void;
       sendMetrics(metrics: Record<string, number>): void;
     };
@@ -88,6 +89,11 @@ async function main(): Promise<void> {
     if (statusEl) {
       statusEl.textContent =
         `Model: ${meshData.model_id} | Vertices: ${meshData.vertex_count} | Triangles: ${meshData.triangle_count}`;
+    }
+
+    // 5. Subscribe to mesh update events for incremental updates
+    if (window.voxelforgeBridge) {
+      setupMeshSubscription(meshData as MeshSnapshotData);
     }
   } catch (err) {
     console.error("[renderer] Error:", err);
@@ -175,6 +181,88 @@ function createFallbackCube(): MeshSnapshotData {
       "1": { name: "Stone", color: "#B47850", a: 255, visible: true },
     },
   };
+}
+
+/**
+ * Subscribe to incremental mesh update events from the C# sidecar.
+ * When mesh updates arrive, apply them to the scene using incremental buffer replacement.
+ */
+function setupMeshSubscription(initialSnapshot: MeshSnapshotData): void {
+  let currentMeshId = initialSnapshot.mesh_id;
+
+  // Subscribe to mesh update events
+  if (window.voxelforgeBridge) {
+    window.voxelforgeBridge.onEvent("voxelforge:mesh-update", (payload: unknown) => {
+      const update = payload as MeshUpdateEventData;
+      console.log("[renderer] Mesh update received:", {
+        model_id: update.model_id,
+        sequence: update.sequence,
+        update_type: update.update_type,
+        regions: update.changed_regions.length,
+      });
+
+      // Check if the update applies to our current mesh
+      if (update.base_mesh_id !== currentMeshId && update.update_type !== "full_replace") {
+        console.warn(
+          `[renderer] Mesh update base mismatch: expected ${currentMeshId}, got ${update.base_mesh_id}. Requesting full snapshot.`,
+        );
+        // Out of sync — request a full snapshot to resync
+        requestFullMeshSnapshot();
+        return;
+      }
+
+      try {
+        const metrics = scene.applyIncrementalUpdate(update);
+        currentMeshId = update.base_mesh_id;
+        console.log("[renderer] Incremental mesh update applied:", metrics);
+
+        // Update status
+        const statusEl = document.getElementById("status");
+        if (statusEl) {
+          statusEl.textContent =
+            `Model: ${update.model_id} | Vertices: ${update.full_vertex_count} | Update: ${update.update_type} | Regions: ${update.changed_regions.length}`;
+        }
+      } catch (err) {
+        console.error("[renderer] Failed to apply incremental mesh update:", err);
+      }
+    });
+
+    // Subscribe to palette update events
+    window.voxelforgeBridge.onEvent("voxelforge:palette-update", (payload: unknown) => {
+      const update = payload as PaletteUpdateEventData;
+      console.log("[renderer] Palette update received:", {
+        model_id: update.model_id,
+        sequence: update.sequence,
+        update_type: update.update_type,
+        entries: update.entry_count,
+      });
+    });
+
+    // Send mesh subscription request
+    window.voxelforgeBridge.request("bridge:mesh-subscribe", {
+      model_id: "",
+      chunk_size: 16,
+      send_full_snapshot_on_subscribe: false,
+    }).catch((err: unknown) => {
+      console.warn("[renderer] Mesh subscription failed (non-fatal for static renderer):", err);
+    });
+  }
+}
+
+async function requestFullMeshSnapshot(): Promise<void> {
+  if (!window.voxelforgeBridge) return;
+  try {
+    const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
+      model_id: "",
+      lod_level: 0,
+      payload_format: "json",
+      include_palette_mapping: true,
+    }) as MeshSnapshotData;
+    const metrics = scene.buildMeshFromSnapshot(meshData);
+    console.log("[renderer] Full mesh resync applied:", metrics);
+  } catch (err) {
+    console.error("[renderer] Failed to resync mesh:", err);
+  }
 }
 
 main().catch((err) => console.error("[renderer] Unhandled error:", err));

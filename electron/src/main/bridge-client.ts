@@ -136,6 +136,23 @@ export class BridgeClient {
     return this.connected;
   }
 
+  private eventHandlers = new Map<string, (payload: unknown) => void>();
+
+  /**
+   * Register a handler for a specific event type.
+   * The handler receives the event payload.
+   */
+  onEvent(eventType: string, handler: (payload: unknown) => void): void {
+    this.eventHandlers.set(eventType, handler);
+  }
+
+  /**
+   * Remove a previously registered event handler.
+   */
+  offEvent(eventType: string): void {
+    this.eventHandlers.delete(eventType);
+  }
+
   private handleMessage(raw: string): void {
     let frame: unknown;
     try {
@@ -145,20 +162,36 @@ export class BridgeClient {
       return;
     }
 
-    if (!isObject(frame) || frame.frame_type !== "response") {
-      // Ignore non-response frames in the smoke test.
+    if (!isObject(frame)) {
       return;
     }
 
-    const response: BridgeResponse = {
-      requestId: String((frame as Record<string, unknown>).request_id ?? ""),
-      result: (frame as Record<string, unknown>).result as unknown,
-      error: (frame as Record<string, unknown>).error as BridgeError | undefined,
-    };
+    const frameType = (frame as Record<string, unknown>).frame_type;
 
-    const resolve = this.pending.get(response.requestId);
-    if (resolve) {
-      resolve(response);
+    if (frameType === "response") {
+      const response: BridgeResponse = {
+        requestId: String((frame as Record<string, unknown>).request_id ?? ""),
+        result: (frame as Record<string, unknown>).result as unknown,
+        error: (frame as Record<string, unknown>).error as BridgeError | undefined,
+      };
+
+      const resolve = this.pending.get(response.requestId);
+      if (resolve) {
+        resolve(response);
+      }
+      return;
+    }
+
+    if (frameType === "event") {
+      const eventType = String((frame as Record<string, unknown>).event ?? "");
+      const payload = (frame as Record<string, unknown>).payload;
+      const handler = this.eventHandlers.get(eventType);
+      if (handler) {
+        handler(payload);
+      } else {
+        console.log(`[bridge-client] Unhandled event: ${eventType}`);
+      }
+      return;
     }
   }
 

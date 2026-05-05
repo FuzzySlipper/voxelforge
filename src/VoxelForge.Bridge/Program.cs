@@ -11,6 +11,7 @@ using VoxelForge.Bridge.Handlers;
 using VoxelForge.Bridge.Protocol;
 using VoxelForge.Core;
 using VoxelForge.Core.Meshing;
+using VoxelForge.App.Events;
 
 namespace VoxelForge.Bridge;
 
@@ -38,10 +39,17 @@ public sealed class Program
         services.AddSingleton<PaletteSnapshotService>();
         services.AddSingleton<EditorSnapshotService>();
 
+        // Mesh region and subscription services
+        services.AddSingleton<MeshRegionService>();
+        services.AddSingleton<MeshSubscriptionManager>();
+        services.AddSingleton<MeshChangePushService>();
+
         // Bridge handlers
         services.AddSingleton(new VersionHandshakeHandler(appId, appVersion));
         services.AddSingleton<VoxelForgeSchemaHandshakeHandler>();
         services.AddSingleton<MeshSnapshotHandler>();
+        services.AddSingleton<MeshSubscribeHandler>();
+        services.AddSingleton<MeshUnsubscribeHandler>();
         services.AddSingleton<PaletteGetHandler>();
 
         // Register bridge host before building the provider so all services
@@ -52,7 +60,12 @@ public sealed class Program
             registry.RegisterCommand<VersionHandshakeRequest, VersionHandshakeResponse, VersionHandshakeHandler>("version.handshake");
             registry.RegisterCommand<VoxelForgeHandshakeRequest, VoxelForgeHandshakeResponse, VoxelForgeSchemaHandshakeHandler>("voxelforge.handshake");
             registry.RegisterCommand<MeshSnapshotRequest, MeshSnapshotResponse, MeshSnapshotHandler>("voxelforge.mesh.request_snapshot");
+            registry.RegisterCommand<MeshSubscribeRequest, MeshSubscribeResponse, MeshSubscribeHandler>("voxelforge.mesh.subscribe");
+            registry.RegisterCommand<MeshUnsubscribeRequest, MeshUnsubscribeResponse, MeshUnsubscribeHandler>("voxelforge.mesh.unsubscribe");
             registry.RegisterCommand<PaletteGetRequest, PaletteGetResponse, PaletteGetHandler>("voxelforge.palette.get");
+            // Register event types
+            registry.RegisterEvent<MeshUpdateEventPayload>("voxelforge.mesh.update");
+            registry.RegisterEvent<PaletteUpdateEventPayload>("voxelforge.palette.update");
         }, host =>
         {
             host.AppId = appId;

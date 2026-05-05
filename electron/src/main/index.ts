@@ -244,6 +244,9 @@ async function runRenderer(repoRoot: string): Promise<void> {
   // Set up IPC handlers for renderer bridge requests
   setupIpcHandlers(handshake);
 
+  // Set up mesh subscription and event forwarding
+  await setupMeshSubscription(handshake, mainWindow!);
+
   // Create renderer window
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -329,6 +332,38 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
     return response.result;
   });
 
+  ipcMain.handle("bridge:mesh-subscribe", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-mesh-sub-${Date.now()}`,
+        command: "voxelforge.mesh.subscribe",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Mesh subscribe error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:mesh-unsubscribe", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-mesh-unsub-${Date.now()}`,
+        command: "voxelforge.mesh.unsubscribe",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Mesh unsubscribe error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
   ipcMain.handle("bridge:ping", async (_event, payload: unknown) => {
     const client = await ensureBridgeClient(handshake);
     const response = await client.send(
@@ -355,12 +390,64 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
     return response.result;
   });
 
+  ipcMain.handle("bridge:mesh-subscribe", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-mesh-sub-${Date.now()}`,
+        command: "voxelforge.mesh.subscribe",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Mesh subscribe error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:mesh-unsubscribe", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-mesh-unsub-${Date.now()}`,
+        command: "voxelforge.mesh.unsubscribe",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Mesh unsubscribe error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
   ipcMain.on("renderer:metrics", (_event, metrics: Record<string, number>) => {
     console.log("[electron] Renderer metrics:", JSON.stringify(metrics, null, 2));
   });
 
   ipcMain.on("renderer:ready", () => {
     console.log("[electron] Renderer process ready.");
+  });
+}
+
+async function setupMeshSubscription(handshake: { endpoint: string; auth_token: string }, mainWindow: BrowserWindow): Promise<void> {
+  const client = await ensureBridgeClient(handshake);
+
+  // Forward mesh update events from the bridge to the renderer
+  client.onEvent("voxelforge.mesh.update", (payload: unknown) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("voxelforge:mesh-update", payload);
+    }
+    console.log("[electron] Mesh update event received");
+  });
+
+  // Forward palette update events from the bridge to the renderer
+  client.onEvent("voxelforge.palette.update", (payload: unknown) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("voxelforge:palette-update", payload);
+    }
+    console.log("[electron] Palette update event received");
   });
 }
 

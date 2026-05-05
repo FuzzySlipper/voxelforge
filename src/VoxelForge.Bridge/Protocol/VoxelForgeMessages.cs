@@ -176,3 +176,223 @@ public sealed class PaletteEntryResponse
     public required byte A { get; set; }
     public required bool Visible { get; set; }
 }
+
+// ── Mesh Subscribe / Unsubscribe ──
+
+/// <summary>
+/// TS-owned request to subscribe to mesh update events for a model.
+/// After subscribing, the sidecar pushes voxelforge.mesh.update events
+/// whenever the model's mesh changes.
+/// </summary>
+public sealed class MeshSubscribeRequest
+{
+    /// <summary>
+    /// Model identifier. Empty or null means the currently active model.
+    /// </summary>
+    public string ModelId { get; set; } = "";
+
+    /// <summary>
+    /// Chunk size for region-based updates. Default 16.
+    /// </summary>
+    public int ChunkSize { get; set; } = 16;
+
+    /// <summary>
+    /// Whether to receive an immediate full snapshot on subscribe.
+    /// </summary>
+    public bool SendFullSnapshotOnSubscribe { get; set; } = true;
+}
+
+/// <summary>
+/// C#-owned response acknowledging mesh subscription.
+/// </summary>
+public sealed class MeshSubscribeResponse
+{
+    public required string ModelId { get; set; }
+    public required string SubscriptionId { get; set; }
+    public required int ChunkSize { get; set; }
+
+    /// <summary>
+    /// If SendFullSnapshotOnSubscribe was true, this contains the initial snapshot.
+    /// </summary>
+    public MeshSnapshotResponse? InitialSnapshot { get; set; }
+}
+
+/// <summary>
+/// TS-owned request to unsubscribe from mesh update events.
+/// </summary>
+public sealed class MeshUnsubscribeRequest
+{
+    public required string SubscriptionId { get; set; }
+}
+
+/// <summary>
+/// C#-owned response acknowledging mesh unsubscription.
+/// </summary>
+public sealed class MeshUnsubscribeResponse
+{
+    public required string SubscriptionId { get; set; }
+}
+
+// ── Mesh Update Event ──
+
+/// <summary>
+/// C#-owned event payload for voxelforge.mesh.update.
+/// Pushed to subscribed TS clients when the model mesh changes incrementally.
+/// </summary>
+public sealed class MeshUpdateEventPayload
+{
+    /// <summary>
+    /// The model identifier this update applies to.
+    /// </summary>
+    public required string ModelId { get; init; }
+
+    /// <summary>
+    /// The base mesh snapshot identifier this update is relative to.
+    /// TS uses this to verify the update applies to the currently cached mesh.
+    /// </summary>
+    public required string BaseMeshId { get; init; }
+
+    /// <summary>
+    /// The sequence number of this update (monotonically increasing per subscription).
+    /// TS can detect gaps and request a full re-sync.
+    /// </summary>
+    public required long Sequence { get; init; }
+
+    /// <summary>
+    /// Whether this update is incremental (dirty regions only) or a full replacement.
+    /// "incremental" or "full_replace".
+    /// </summary>
+    public required string UpdateType { get; init; }
+
+    /// <summary>
+    /// Per-region geometry updates.
+    /// </summary>
+    public required MeshRegionUpdateDto[] ChangedRegions { get; init; }
+
+    /// <summary>
+    /// Payload format: "json".
+    /// </summary>
+    public required string PayloadFormat { get; init; }
+
+    /// <summary>
+    /// Total vertex count in the full model (for TS validation).
+    /// </summary>
+    public required int FullVertexCount { get; init; }
+
+    /// <summary>
+    /// Total index count in the full model.
+    /// </summary>
+    public required int FullIndexCount { get; init; }
+
+    /// <summary>
+    /// Performance metrics for this update.
+    /// </summary>
+    public MeshUpdateMetricsDto? Metrics { get; init; }
+}
+
+/// <summary>
+/// A single region's geometry update within a mesh update event.
+/// </summary>
+public sealed class MeshRegionUpdateDto
+{
+    /// <summary>
+    /// Stable region identifier (e.g., "0_0_0" for region at chunk origin).
+    /// </summary>
+    public required string RegionId { get; init; }
+
+    /// <summary>
+    /// "incremental" or "full_replace".
+    /// </summary>
+    public required string UpdateKind { get; init; }
+
+    /// <summary>
+    /// Spatial bounds of this region.
+    /// </summary>
+    public required RegionBoundsDto Bounds { get; init; }
+
+    /// <summary>
+    /// Vertex offset within the full mesh buffer (0 for per-region buffers).
+    /// </summary>
+    public required int VertexOffset { get; init; }
+
+    /// <summary>
+    /// Number of vertices in this region.
+    /// </summary>
+    public required int VertexCount { get; init; }
+
+    /// <summary>
+    /// Index offset within the full mesh index buffer (0 for per-region buffers).
+    /// </summary>
+    public required int IndexOffset { get; init; }
+
+    /// <summary>
+    /// Number of indices in this region.
+    /// </summary>
+    public required int IndexCount { get; init; }
+
+    /// <summary>
+    /// Flat array of float32 vertex positions for this region.
+    /// </summary>
+    public required float[] Positions { get; init; }
+
+    /// <summary>
+    /// Flat array of float32 vertex normals for this region.
+    /// </summary>
+    public required float[] Normals { get; init; }
+
+    /// <summary>
+    /// Flat array of uint8 RGBA vertex colors for this region.
+    /// </summary>
+    public required byte[] Colors { get; init; }
+
+    /// <summary>
+    /// Per-vertex palette indices for this region. May be null.
+    /// </summary>
+    public byte[]? PaletteIndices { get; init; }
+
+    /// <summary>
+    /// Triangle indices for this region.
+    /// </summary>
+    public required int[] Indices { get; init; }
+}
+
+public sealed class RegionBoundsDto
+{
+    public required int MinX { get; init; }
+    public required int MinY { get; init; }
+    public required int MinZ { get; init; }
+    public required int MaxX { get; init; }
+    public required int MaxY { get; init; }
+    public required int MaxZ { get; init; }
+}
+
+public sealed class MeshUpdateMetricsDto
+{
+    public required int RegionCount { get; init; }
+    public required long BuildMs { get; init; }
+    public required long SerializeMs { get; init; }
+}
+
+// ── Palette Update Event ──
+
+/// <summary>
+/// C#-owned event payload for voxelforge.palette.update.
+/// Pushed when palette entries change.
+/// </summary>
+public sealed class PaletteUpdateEventPayload
+{
+    public required string ModelId { get; init; }
+    public required long Sequence { get; init; }
+
+    /// <summary>
+    /// "full_replace" for initial/complete palette, or "partial" for changed entries only.
+    /// </summary>
+    public required string UpdateType { get; init; }
+
+    /// <summary>
+    /// Changed or full palette entries.
+    /// </summary>
+    public required PaletteEntryResponse[] Entries { get; init; }
+
+    public required int EntryCount { get; init; }
+}

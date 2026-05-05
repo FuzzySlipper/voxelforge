@@ -748,7 +748,7 @@ After handshake, the TS client knows which capabilities the sidecar supports. Ca
 | `state_snapshot` | Sidecar supports snapshot-mode state delivery. |
 | `commands` | Sidecar accepts `voxelforge.command.execute` requests. |
 | `progress` | Sidecar may send `progress` frames for long-running requests. |
-| `incremental_mesh` | Sidecar supports `voxelforge.mesh.update` with `update_type: "incremental"`. (Reserved for #1176.) |
+| `incremental_mesh` | Sidecar supports `voxelforge.mesh.update` with `update_type: "incremental"`. Implemented in #1176; TS can subscribe to receive chunk-based incremental mesh updates. |
 | `diagnostics` | Sidecar emits `voxelforge.diagnostics.event` frames. |
 
 TS clients must degrade gracefully when a capability is absent. For example, if `state_delta` is unsupported, the TS client should subscribe with `delivery_mode: "snapshot"`.
@@ -831,6 +831,48 @@ The following patterns are **explicitly forbidden** by this protocol. They viola
 
 - **Binary transport implementation:** Depends on upstream `den-bridge` transport hardening (#1173).
 - **Renderer-neutral mesh services:** Task #1174 defines C# mesh generation APIs that this protocol will call.
-- **Incremental mesh updates:** Task #1176 implements the `voxelforge.mesh.update` incremental delivery path.
+- **Incremental mesh updates:** Task #1176 implements the `voxelforge.mesh.update` incremental delivery path. See implementation notes below.
 - **JSON Schema / TypeScript typings generation:** Task #1183 covers generating typed bindings from C# DTOs to prevent manual snake_case drift.
 - **Protocol round-trip tests:** Task #1177 vertical slice will exercise the full request/response/event flow.
+
+---
+
+## Implementation Notes: Incremental Mesh Update Pipeline (#1176)
+
+### C# Side
+
+- **`MeshRegionService`** (`src/VoxelForge.App/Services/MeshRegionService.cs`): Computes dirty regions from model changes using a configurable chunk size (default 16). Produces `MeshIncrementalUpdate` payloads containing per-region geometry buffers. `MeshRegionCoord` is a stable chunk coordinate (distinct from `Core.RegionId` which is a label-based region identifier).
+
+- **`MeshSubscriptionManager`** (`src/VoxelForge.Bridge/Handlers/MeshSubscriptionManager.cs`): Tracks active TS mesh subscriptions and dirty region state. Implements `IEventHandler<VoxelModelChangedEvent>` for future wiring into the app's event dispatcher. Records dirty regions per model and consumes them on push.
+
+- **`MeshChangePushService`** (`src/VoxelForge.Bridge/Handlers/MeshChangePushService.cs`): Publishes `voxelforge.mesh.update` bridge event frames to all subscribed WebSocket clients when mesh changes are detected. Generates region-keyed geometry buffers for each dirty chunk.
+
+- **`MeshSubscribeHandler` / `MeshUnsubscribeHandler`** (`src/VoxelForge.Bridge/Handlers/`): Handle `voxelforge.mesh.subscribe` and `voxelforge.mesh.unsubscribe` bridge commands. Subscribe returns a subscription ID and optionally an initial full snapshot.
+
+- **DTO types** (`src/VoxelForge.Bridge/Protocol/VoxelForgeMessages.cs`): `MeshSubscribeRequest`, `MeshSubscribeResponse`, `MeshUnsubscribeRequest`, `MeshUnsubscribeResponse`, `MeshUpdateEventPayload`, `MeshRegionUpdateDto`, `RegionBoundsDto`, `MeshUpdateMetricsDto`, `PaletteUpdateEventPayload`.
+
+- **`VoxelForgeSchemaHandshakeHandler`** now advertises the `incremental_mesh` capability.
+
+### TypeScript Side
+
+- **Bridge client** (`electron/src/main/bridge-client.ts`): Added `onEvent`/`offEvent` for subscribing to den-bridge event frames. Handles `voxelforge.mesh.update` and `voxelforge.palette.update` events.
+
+- **Scene manager** (`electron/src/renderer/scene.ts`): Added `applyIncrementalUpdate()` method that replaces region-keyed mesh buffers without full scene reload. `clearMesh()` method for state reset.
+
+- **Main process** (`electron/src/main/index.ts`): Added IPC handlers for `bridge:mesh-subscribe` and `bridge:mesh-unsubscribe`. `setupMeshSubscription()` forwards `voxelforge.mesh.update` and `voxelforge.palette.update` events to renderer.
+
+- **Preload** (`electron/src/preload/index.ts`): Added `onEvent` method and `voxelforge:mesh-update`/`voxelforge:palette-update` to the IPC allowlist.
+
+- **Renderer** (`electron/src/renderer/index.ts`): Subscribes to mesh update events after initial snapshot load. Falls back to full snapshot if base mesh ID mismatches.
+
+### Payload Format Decision
+
+JSON mesh payloads remain acceptable for this slice. Performance measurements from the static renderer in #1175 confirm that JSON serialization of typical voxel models (up to ~10K vertices) completes in well under 100ms. Binary/framing improvements are documented as a future upstream need, not a blocker for #1176.
+
+### Dirty Region Detection
+
+C# detects dirty regions using `MeshRegionCoord.FromPoint(point, chunkSize)` floor division, which correctly handles negative voxel coordinates. The `VoxelModelChangedEvent` currently lacks bounds metadata, so the pipeline falls back to re-meshing all occupied regions. A future enhancement (#1183 follow-up) should add bounds to `VoxelModelChangedEvent` for finer-grained dirty detection.
+
+### Metrics
+
+Both full snapshots and incremental updates include `metrics` fields with `build_ms` and `serialize_ms` for performance monitoring on both C# and TS sides.

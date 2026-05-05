@@ -12,7 +12,7 @@ public sealed class VoxelForgeSchemaHandshakeHandler : IBridgeCommandHandler<Vox
 {
     private const string SupportedSchemaVersion = "voxelforge@1";
     private const string SchemaBundleId = "voxelforge-schema-2026-05-05";
-    private static readonly string[] SupportedCapabilities = ["mesh_json", "state_snapshot", "commands"];
+    private static readonly string[] SupportedCapabilities = ["mesh_json", "incremental_mesh", "state_snapshot", "commands"];
 
     public ValueTask<VoxelForgeHandshakeResponse?> HandleAsync(
         VoxelForgeHandshakeRequest request,

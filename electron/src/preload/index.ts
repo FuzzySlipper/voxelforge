@@ -8,6 +8,8 @@ import { contextBridge, ipcRenderer } from "electron";
 const allowedChannels = [
   "bridge:handshake",
   "bridge:mesh-snapshot",
+  "bridge:mesh-subscribe",
+  "bridge:mesh-unsubscribe",
   "bridge:palette-get",
   "bridge:ping",
   "bridge:version-handshake",
@@ -15,9 +17,20 @@ const allowedChannels = [
   "renderer:metrics",
 ] as const;
 
+const allowedEventChannels = [
+  "voxelforge:mesh-update",
+  "voxelforge:palette-update",
+] as const;
+
 function validateChannel(channel: string): void {
   if (!(allowedChannels as readonly string[]).includes(channel)) {
     throw new Error(`IPC channel not allowed in preload: ${channel}`);
+  }
+}
+
+function validateEventChannel(channel: string): void {
+  if (!(allowedEventChannels as readonly string[]).includes(channel)) {
+    throw new Error(`IPC event channel not allowed in preload: ${channel}`);
   }
 }
 
@@ -29,6 +42,17 @@ contextBridge.exposeInMainWorld("voxelforgeBridge", {
   request(channel: string, payload: unknown): Promise<unknown> {
     validateChannel(channel);
     return ipcRenderer.invoke(channel, payload);
+  },
+
+  /**
+   * Subscribe to a bridge event forwarded from the main process.
+   * Returns a cleanup function that removes the listener.
+   */
+  onEvent(channel: string, callback: (payload: unknown) => void): () => void {
+    validateEventChannel(channel);
+    const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
   },
 
   /**

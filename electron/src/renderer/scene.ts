@@ -43,6 +43,48 @@ export interface PaletteData {
   entry_count: number;
 }
 
+/** Shape of a mesh update event from the C# sidecar. */
+export interface MeshUpdateEventData {
+  model_id: string;
+  base_mesh_id: string;
+  sequence: number;
+  update_type: "incremental" | "full_replace";
+  changed_regions: MeshRegionUpdateData[];
+  payload_format: string;
+  full_vertex_count: number;
+  full_index_count: number;
+  metrics?: {
+    region_count: number;
+    build_ms: number;
+    serialize_ms: number;
+  };
+}
+
+/** Shape of a single region update within a mesh update event. */
+export interface MeshRegionUpdateData {
+  region_id: string;
+  update_kind: "incremental" | "full_replace";
+  bounds: { min_x: number; min_y: number; min_z: number; max_x: number; max_y: number; max_z: number };
+  vertex_offset: number;
+  vertex_count: number;
+  index_offset: number;
+  index_count: number;
+  positions: number[];
+  normals: number[];
+  colors: number[];
+  palette_indices?: number[];
+  indices: number[];
+}
+
+/** Shape of a palette update event from the C# sidecar. */
+export interface PaletteUpdateEventData {
+  model_id: string;
+  sequence: number;
+  update_type: "full_replace" | "partial";
+  entries: { index: number; name: string; color: string; a: number; visible: boolean }[];
+  entry_count: number;
+}
+
 /** Performance metrics captured in the renderer. */
 export interface RendererMetrics {
   scene_construction_ms: number;
@@ -312,6 +354,176 @@ export class VoxelForgeScene {
     if (this.controls) {
       this.controls.target.copy(center);
       this.controls.update();
+    }
+  }
+
+  /**
+   * Apply an incremental mesh update by replacing buffers for dirty regions.
+   * Works in both WebGL and fallback mode.
+   * Returns performance metrics for the update process.
+   */
+  applyIncrementalUpdate(update: MeshUpdateEventData): RendererMetrics {
+    const startTime = performance.now();
+
+    if (update.update_type === "full_replace" || this.meshGroup.children.length === 0) {
+      // For full replace, rebuild the entire mesh from the first region (or all regions)
+      const fullRegion = update.changed_regions.find((r) => r.update_kind === "full_replace")
+        ?? update.changed_regions[0];
+
+      if (fullRegion && fullRegion.vertex_count > 0) {
+        // Convert region data to a full mesh snapshot for buildMeshFromSnapshot
+        const snapshotData: MeshSnapshotData = {
+          model_id: update.model_id,
+          mesh_id: update.base_mesh_id,
+          format: update.payload_format,
+          vertex_count: fullRegion.vertex_count,
+          index_count: fullRegion.index_count,
+          triangle_count: Math.floor(fullRegion.index_count / 3),
+          positions: fullRegion.positions,
+          normals: fullRegion.normals,
+          colors: fullRegion.colors,
+          palette_indices: fullRegion.palette_indices,
+          indices: fullRegion.indices,
+          bounds: fullRegion.bounds,
+        };
+
+        return this.buildMeshFromSnapshot(snapshotData);
+      } else {
+        // Empty full replace — clear the scene
+        this.clearMesh();
+        const metrics: RendererMetrics = {
+          scene_construction_ms: 0,
+          first_render_ms: 0,
+          vertex_count: 0,
+          triangle_count: 0,
+          mesh_transfer_ms: 0,
+          total_renderer_ms: performance.now() - startTime,
+          webgl_fallback: !this.webglAvailable,
+        };
+        this.notifyRenderComplete(metrics);
+        return metrics;
+      }
+    }
+
+    // Incremental update: replace region meshes
+    const constructionStart = performance.now();
+
+    for (const region of update.changed_regions) {
+      if (region.vertex_count === 0) {
+        // Remove existing region mesh if present
+        const existing = this.meshGroup.children.find(
+          (child) => child.userData?.regionId === region.region_id,
+        );
+        if (existing) {
+          this.meshGroup.remove(existing);
+          if (existing instanceof THREE.Mesh) {
+            existing.geometry.dispose();
+            if (existing.material instanceof THREE.Material) {
+              existing.material.dispose();
+            }
+          }
+        }
+        continue;
+      }
+
+      // Build or replace region geometry
+      const geometry = new THREE.BufferGeometry();
+
+      const positions = new Float32Array(region.positions);
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+      if (region.normals.length > 0) {
+        const normals = new Float32Array(region.normals);
+        geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+      } else {
+        geometry.computeVertexNormals();
+      }
+
+      if (region.colors.length > 0) {
+        const colorCount = region.vertex_count;
+        const colors = new Float32Array(colorCount * 3);
+        for (let i = 0; i < colorCount; i++) {
+          colors[i * 3] = region.colors[i * 4] / 255;
+          colors[i * 3 + 1] = region.colors[i * 4 + 1] / 255;
+          colors[i * 3 + 2] = region.colors[i * 4 + 2] / 255;
+        }
+        geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      }
+
+      if (region.indices.length > 0) {
+        const indices = new Uint32Array(region.indices);
+        geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      }
+
+      if (!region.normals.length) {
+        geometry.computeVertexNormals();
+      }
+
+      geometry.computeBoundingSphere();
+
+      const material = new THREE.MeshStandardMaterial({
+        vertexColors: region.colors.length > 0,
+        side: THREE.FrontSide,
+        roughness: 0.7,
+        metalness: 0.1,
+      });
+
+      // Remove old region mesh if present
+      const existingChild = this.meshGroup.children.find(
+        (child) => child.userData?.regionId === region.region_id,
+      );
+      if (existingChild) {
+        this.meshGroup.remove(existingChild);
+        if (existingChild instanceof THREE.Mesh) {
+          existingChild.geometry.dispose();
+          if (existingChild.material instanceof THREE.Material) {
+            existingChild.material.dispose();
+          }
+        }
+      }
+
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData = { regionId: region.region_id };
+      this.meshGroup.add(mesh);
+    }
+
+    const constructionEnd = performance.now();
+
+    let firstRenderMs = 0;
+    if (this.renderer) {
+      this.renderer.render(this.scene, this.camera);
+      firstRenderMs = performance.now() - constructionEnd;
+    }
+
+    const metrics: RendererMetrics = {
+      scene_construction_ms: constructionEnd - constructionStart,
+      first_render_ms: firstRenderMs,
+      vertex_count: update.full_vertex_count,
+      triangle_count: Math.floor(update.full_index_count / 3),
+      mesh_transfer_ms: 0,
+      total_renderer_ms: performance.now() - startTime,
+      webgl_fallback: !this.webglAvailable,
+    };
+
+    this.notifyRenderComplete(metrics);
+    return metrics;
+  }
+
+  /**
+   * Clear all mesh geometry from the scene.
+   */
+  clearMesh(): void {
+    while (this.meshGroup.children.length > 0) {
+      const child = this.meshGroup.children[0];
+      this.meshGroup.remove(child);
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        if (child.material instanceof THREE.Material) {
+          child.material.dispose();
+        }
+      }
     }
   }
 
