@@ -1,11 +1,16 @@
 using System.Text.Json;
 using Den.Bridge.Abstractions;
 using Den.Bridge.Hosting;
+using Den.Bridge.Protocol;
 using Den.Bridge.Transport.WebSockets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using VoxelForge.App.Services;
+using VoxelForge.App.Snapshots;
 using VoxelForge.Bridge.Handlers;
 using VoxelForge.Bridge.Protocol;
+using VoxelForge.Core;
+using VoxelForge.Core.Meshing;
 
 namespace VoxelForge.Bridge;
 
@@ -24,11 +29,61 @@ public sealed class Program
             options.TimestampFormat = "[HH:mm:ss] ";
         }));
 
+        // Core/App services
+        services.AddSingleton<ILoggerFactory>(sp => sp.GetRequiredService<ILoggerFactory>());
+
+        // VoxelModelHolder — holds the currently loaded model
+        services.AddSingleton<VoxelModelHolder>();
+
+        // Mesh and palette snapshot services
+        services.AddSingleton<IVoxelMesher, GreedyMesher>();
+        services.AddSingleton<MeshSnapshotService>();
+        services.AddSingleton<PaletteSnapshotService>();
+        services.AddSingleton<EditorSnapshotService>();
+
+        // Bridge handlers
         services.AddSingleton(new VersionHandshakeHandler(appId, appVersion));
+        services.AddSingleton<VoxelForgeSchemaHandshakeHandler>();
+        services.AddSingleton<MeshSnapshotHandler>();
+        services.AddSingleton<PaletteGetHandler>();
+
+        var provider = services.BuildServiceProvider();
+        var logger = provider.GetRequiredService<ILogger<Program>>();
+
+        // Load model — either from --model argument or default test cube
+        var modelHolder = provider.GetRequiredService<VoxelModelHolder>();
+        var modelPath = args.FirstOrDefault(a => a.StartsWith("--model=", StringComparison.Ordinal));
+        if (modelPath is not null)
+        {
+            var path = modelPath["--model=".Length..];
+            modelHolder.LoadFromPath(path);
+        }
+        else
+        {
+            // Try to find house-with-windows.vforge in content directory
+            var repoRoot = FindRepoRoot(AppContext.BaseDirectory);
+            var defaultModel = repoRoot is not null
+                ? Path.Combine(repoRoot, "content", "house-with-windows.vforge")
+                : null;
+
+            if (defaultModel is not null && File.Exists(defaultModel))
+            {
+                modelHolder.LoadFromPath(defaultModel);
+            }
+            else
+            {
+                logger.LogWarning("No model file found; loading default test cube");
+                modelHolder.LoadDefaultCube();
+            }
+        }
+
         services.AddBridgeHost(registry =>
         {
             registry.RegisterCommand<PingRequest, PingResponse, PingHandler>("ping");
             registry.RegisterCommand<VersionHandshakeRequest, VersionHandshakeResponse, VersionHandshakeHandler>("version.handshake");
+            registry.RegisterCommand<VoxelForgeHandshakeRequest, VoxelForgeHandshakeResponse, VoxelForgeSchemaHandshakeHandler>("voxelforge.handshake");
+            registry.RegisterCommand<MeshSnapshotRequest, MeshSnapshotResponse, MeshSnapshotHandler>("voxelforge.mesh.request_snapshot");
+            registry.RegisterCommand<PaletteGetRequest, PaletteGetResponse, PaletteGetHandler>("voxelforge.palette.get");
         }, host =>
         {
             host.AppId = appId;
@@ -36,8 +91,8 @@ public sealed class Program
             host.SupportedTransports = ["websocket"];
         });
 
-        var provider = services.BuildServiceProvider();
-        var logger = provider.GetRequiredService<ILogger<Program>>();
+        // Rebuild provider after AddBridgeHost
+        provider = services.BuildServiceProvider();
         var router = provider.GetRequiredService<IBridgeCommandRouter>();
 
         var serverOptions = new WebSocketBridgeServerOptions
@@ -98,5 +153,17 @@ public sealed class Program
         var bytes = new byte[32];
         Random.Shared.NextBytes(bytes);
         return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static string? FindRepoRoot(string startPath)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(startPath));
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Combine(dir, "voxelforge.slnx")))
+                return dir;
+            dir = dir.Length > 3 ? Path.GetDirectoryName(dir) : null;
+        }
+        return null;
     }
 }

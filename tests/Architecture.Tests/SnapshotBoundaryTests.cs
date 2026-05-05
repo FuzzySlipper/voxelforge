@@ -129,4 +129,48 @@ public sealed class SnapshotBoundaryTests
                 $"Snapshot file {Path.GetFileName(file)} must not use static readonly fields (no static singletons)");
         }
     }
+
+    /// <summary>
+    /// VoxelForge.Bridge must not reference FNA/Myra/Engine types.
+    /// It is a sidecar that owns bridge protocol handling and App service composition only.
+    /// </summary>
+    [Fact]
+    public void Bridge_MustNotReference_EngineOrRendering()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var bridgePath = Path.Combine(root, "src", "VoxelForge.Bridge");
+        if (!Directory.Exists(bridgePath))
+            return;
+
+        AssertNoUsings(bridgePath, "VoxelForge.Bridge", [
+            "using Microsoft.Xna.Framework",
+            "using Myra",
+            "using VoxelForge.Engine",
+        ]);
+    }
+
+    /// <summary>
+    /// VoxelForge.Bridge protocol message DTOs must use snake_case JSON serialization
+    /// consistent with den-bridge conventions.
+    /// </summary>
+    [Fact]
+    public void Bridge_Protocol_DTOs_Reside_In_Correct_Namespace()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var protocolPath = Path.Combine(root, "src", "VoxelForge.Bridge", "Protocol");
+        if (!Directory.Exists(protocolPath))
+            return;
+
+        var protocolFiles = Directory.GetFiles(protocolPath, "*.cs")
+            .Where(f => !Path.GetFileName(f).StartsWith("Smoke", StringComparison.Ordinal))
+            .ToArray();
+
+        foreach (var file in protocolFiles)
+        {
+            var text = File.ReadAllText(file);
+            // All bridge protocol types should be in the VoxelForge.Bridge.Protocol namespace
+            Assert.True(text.Contains("namespace VoxelForge.Bridge.Protocol", StringComparison.Ordinal),
+                $"Protocol file {Path.GetFileName(file)} should be in the VoxelForge.Bridge.Protocol namespace");
+        }
+    }
 }

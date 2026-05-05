@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' ws://localhost:*;">
+  <title>VoxelForge Mesh Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #2b2b2b; font-family: monospace; }
+    #renderer-container { width: 100%; height: calc(100% - 28px); }
+    #status-bar {
+      height: 28px;
+      background: #1a1a1a;
+      color: #888;
+      padding: 4px 10px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      border-top: 1px solid #333;
+    }
+    #status { flex: 1; }
+  </style>
+</head>
+<body>
+  <div id="renderer-container"></div>
+  <div id="status-bar">
+    <span id="status">Connecting to VoxelForge sidecar...</span>
+  </div>
+</body>
+</html>

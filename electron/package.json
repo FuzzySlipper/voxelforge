@@ -1,14 +1,17 @@
 {
   "name": "voxelforge-electron",
-  "version": "0.1.0",
-  "description": "VoxelForge Electron renderer experiment — smoke test",
+  "version": "0.2.0",
+  "description": "VoxelForge Electron renderer — Three.js static mesh renderer",
   "main": "dist/main/index.js",
   "scripts": {
     "build": "tsc",
     "smoke-test": "npm run build && electron . --smoke-test",
+    "renderer-smoke-test": "npm run build && electron . --renderer-smoke-test",
     "start": "npm run build && electron ."
   },
   "dependencies": {
+    "@types/three": "^0.184.0",
+    "three": "^0.184.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

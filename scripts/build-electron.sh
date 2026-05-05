@@ -3,23 +3,21 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "=== VoxelForge Electron Smoke Test ==="
-
-# Ensure C# sidecar is built first.
+echo "=== Building C# sidecar ==="
 dotnet build src/VoxelForge.Bridge/VoxelForge.Bridge.csproj
 
-# Ensure Electron dependencies are installed.
+echo "=== Installing Electron dependencies ==="
 cd electron
 if [ ! -d "node_modules" ]; then
-  echo "Installing Electron dependencies..."
+  echo "Installing..."
   npm install
 fi
 
+echo "=== Compiling TypeScript ==="
 npm run build
 
-# Copy renderer HTML
+echo "=== Copying renderer HTML ==="
 mkdir -p dist/renderer
 cp src/renderer/renderer.html dist/renderer/renderer.html
 
-npm run smoke-test
-echo "=== Electron smoke test passed ==="
+echo "=== Build complete ==="

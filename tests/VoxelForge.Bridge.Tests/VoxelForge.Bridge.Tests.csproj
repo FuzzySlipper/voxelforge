@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VoxelForge.Bridge\VoxelForge.Bridge.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.App\VoxelForge.App.csproj" />
+    <ProjectReference Include="..\..\src\VoxelForge.Core\VoxelForge.Core.csproj" />
     <ProjectReference Include="..\..\lib\den-bridge\src\Den.Bridge\Den.Bridge.csproj" />
   </ItemGroup>
 
