@@ -14,3 +14,7 @@
 	path = lib/XNAssets
 	url = https://github.com/rds1983/XNAssets.git
 	ignore = dirty
+[submodule "lib/den-bridge"]
+	path = lib/den-bridge
+	url = https://github.com/FuzzySlipper/den-bridge
+	ignore = dirty

@@ -133,6 +133,10 @@ Electron renderer  --(IPC)-->  Electron main  --(den-bridge client)-->  C# sidec
 - The Electron **renderer** process communicates with main over Electron IPC.
 - The C# sidecar hosts the `den-bridge` server and exposes VoxelForge-specific message handlers.
 
+### Upstream-First Policy
+
+`den-bridge` is shared upstream infrastructure consumed as a git submodule at `lib/den-bridge`. Improvements to the bridge itself—protocol features, transport hardening, C# or TypeScript API changes—should generally happen in the upstream `den-bridge` repository rather than in VoxelForge. Any VoxelForge-specific integration must live in thin adapter code outside the submodule (e.g., `VoxelForge.Bridge` message handlers or Electron main-process wrappers). Temporary VoxelForge-only bridge workarounds must be tracked with a follow-up task or note so they can be upstreamed and the local workaround removed.
+
 ### Why den-bridge Only
 
 Using a single communication path:

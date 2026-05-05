@@ -50,7 +50,7 @@ tests/
   VoxelForge.LLM.Tests         Tool loop, handler dispatch
   Architecture.Tests           Dependency boundary enforcement
 
-lib/                           Git submodules (FNA, Myra, FontStashSharp, XNAssets)
+lib/                           Git submodules (FNA, Myra, FontStashSharp, XNAssets, den-bridge)
 ```
 
 ## Controls
