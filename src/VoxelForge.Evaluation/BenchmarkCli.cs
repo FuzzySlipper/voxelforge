@@ -68,6 +68,11 @@ public sealed class BenchmarkCli
             }
         }
 
+        if (string.Equals(command, "renderer-benchmark", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteRendererBenchmark(args, output, error);
+        }
+
         if (!string.Equals(command, "plan", StringComparison.Ordinal)
             && !string.Equals(command, "run", StringComparison.Ordinal))
         {
@@ -258,6 +263,92 @@ public sealed class BenchmarkCli
         }
     }
 
+    private static int ExecuteRendererBenchmark(string[] args, TextWriter output, TextWriter error)
+    {
+        bool includeExtraLarge = false;
+        int warmup = 2;
+        int trials = 5;
+        bool help = false;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], "--help", StringComparison.Ordinal) || string.Equals(args[i], "-h", StringComparison.Ordinal))
+            {
+                help = true;
+                break;
+            }
+
+            if (string.Equals(args[i], "--extralarge", StringComparison.OrdinalIgnoreCase))
+            {
+                includeExtraLarge = true;
+                continue;
+            }
+
+            if (string.Equals(args[i], "--warmup", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 >= args.Length || !int.TryParse(args[i + 1], out warmup) || warmup < 0)
+                {
+                    error.WriteLine("--warmup requires a non-negative integer.");
+                    return 2;
+                }
+                i++;
+                continue;
+            }
+
+            if (string.Equals(args[i], "--trials", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 >= args.Length || !int.TryParse(args[i + 1], out trials) || trials < 1)
+                {
+                    error.WriteLine("--trials requires a positive integer.");
+                    return 2;
+                }
+                i++;
+                continue;
+            }
+
+            error.WriteLine($"Unknown option '{args[i]}'.");
+            return 2;
+        }
+
+        if (help)
+        {
+            output.WriteLine("VoxelForge.Evaluation renderer-benchmark");
+            output.WriteLine("Usage:");
+            output.WriteLine("  renderer-benchmark [--extralarge] [--warmup <n>] [--trials <n>]");
+            output.WriteLine();
+            output.WriteLine("Runs mesh generation, snapshot, and edit-latency benchmarks");
+            output.WriteLine("across deterministic reference scenes. Outputs JSON to stdout.");
+            output.WriteLine();
+            output.WriteLine("Options:");
+            output.WriteLine("  --extralarge    Include the 64^3 dense checkerboard scene");
+            output.WriteLine("  --warmup <n>    Warmup iterations before measurement (default 2)");
+            output.WriteLine("  --trials <n>    Measurement trials per metric (default 5, min 1)");
+            output.WriteLine();
+            output.WriteLine("Scenes (warmup + 3 standard):");
+            output.WriteLine("  SmallHollowCube        ~488 voxels, 10^3 hollow box");
+            output.WriteLine("  MediumHollowWithPillars ~5k voxels, 22^3 hollow + pillars");
+            output.WriteLine("  LargeGridRoom          ~24k voxels, 48^3 hollow + walls + pillars");
+            output.WriteLine("  ExtraLargeCheckerboard  ~131k voxels, 64^3 checkerboard (opt-in)");
+            return 0;
+        }
+
+        try
+        {
+            RendererBenchmark.Run(
+                scenes: null,
+                output: output,
+                includeExtraLarge: includeExtraLarge,
+                warmupTrials: warmup,
+                measurementTrials: trials);
+            return 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            error.WriteLine($"Renderer benchmark failed: {ex.Message}");
+            return 1;
+        }
+    }
+
     private static void WriteUsage(TextWriter writer)
     {
         writer.WriteLine("VoxelForge.Evaluation");
@@ -265,6 +356,7 @@ public sealed class BenchmarkCli
         writer.WriteLine("  plan <runset.json> [--case <id>] [--variant <id>] [--trials <n>] [--backend <mcp-tool-loop|stdio>] [--artifact-root <dir>]");
         writer.WriteLine("  run <runset.json> [--dry-run] [--case <id>] [--variant <id>] [--trials <n>] [--backend <mcp-tool-loop|stdio>] [--artifact-root <dir>] [--fail-fast]");
         writer.WriteLine("  compare <suite-artifact-directory>");
+        writer.WriteLine("  renderer-benchmark [--extralarge] [--warmup <n>] [--trials <n>]");
     }
 
     private sealed class CliParseResult
