@@ -15,7 +15,7 @@
     "start:dev": "npm run build && electron .",
     "start:sidecar": "dotnet run --project ../src/VoxelForge.Bridge",
     "preview": "npm run build && electron . --preview",
-    "publish-sidecar": "cd .. && dotnet publish src/VoxelForge.Bridge/VoxelForge.Bridge.csproj -c Release -r linux-x64 --self-contained true -o electron/sidecar --nologo",
+    "publish-sidecar": "../scripts/publish-sidecar.sh",
     "package:dir": "npm run publish-sidecar && npm run build && electron-builder build --linux dir --config electron-builder.yml",
     "package": "npm run publish-sidecar && npm run build && electron-builder build --linux --config electron-builder.yml"
   },

@@ -13,7 +13,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 show_help() {
-  sed -n '2,10p' "$0"
+  cat <<'HELP'
+Usage: publish-sidecar.sh [options]
+
+Publish VoxelForge.Bridge sidecar for Electron packaging.
+Output is placed in electron/sidecar/ for consumption by electron-builder.
+
+Options:
+  --help                  Show this help message
+  --configuration=<cfg>   Set build configuration (default: Release)
+  --runtime=<rid>         Set runtime identifier (default: linux-x64)
+HELP
   exit 0
 }
 

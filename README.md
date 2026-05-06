@@ -130,6 +130,10 @@ The Electron main process discovers the sidecar automatically:
 
 Publishes the sidecar to `electron/sidecar/` as a self-contained binary for `linux-x64`.
 
+`./scripts/publish-sidecar.sh --help` prints the supported publish options.
+
+Package-size optimization via `PublishTrimmed` was evaluated in #1210 but is not enabled: the current bridge/core serialization and DI code emits trim-analysis errors (for example `IL2026`/`IL2072` around `System.Text.Json` and handler registration). Trimming should wait for explicit source-generation/annotation work rather than being a packaging flag.
+
 ### Validation Before Review
 
 Run these commands to validate changes before requesting review:
@@ -187,7 +191,7 @@ Test fixture data lives in `tests/fixtures/` and includes known mesh snapshot da
 ### Known Limitations
 
 - **Linux only:** Packaging targets are currently Linux-only (`AppImage` + `dir`). Windows/macOS packaging is not configured (see `electron/electron-builder.yml` for target configuration).
-- **Self-contained sidecar size:** The `dotnet publish --self-contained` sidecar is approximately 60–120 MB due to the bundled .NET runtime. This could be reduced with `PublishTrimmed` / `PublishReadyToRun` in future work.
+- **Self-contained sidecar size:** The `dotnet publish --self-contained` sidecar is approximately 60–120 MB due to the bundled .NET runtime. `PublishTrimmed` was evaluated in #1210 but is currently blocked by trim-analysis errors in bridge/core serialization and DI paths; package-size reduction needs follow-up source-generation/annotation work before it can be safely enabled.
 - **AppImage validation:** `npm run package` produces an AppImage containing the bundled sidecar, but AppImage execution requires FUSE or `--appimage-extract` in headless/CI environments. Directory builds (`package:dir`) are the recommended validation path.
 - **Bootstrap context:** The `electron/` directory is a separate npm/TypeScript project. The `./scripts/build-electron.sh` script handles the combined C# + Electron build for CI-like validation.
 
