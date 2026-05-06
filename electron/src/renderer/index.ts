@@ -431,18 +431,23 @@ async function refreshAll(): Promise<void> {
  * the UI eventually current.
  */
 const refreshMesh = createCoalescer(async (): Promise<void> => {
-  const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
-    model_id: "",
-    lod_level: 0,
-    payload_format: "json",
-    include_palette_mapping: true,
-  }) as MeshSnapshotData;
+  try {
+    const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
+      model_id: "",
+      lod_level: 0,
+      payload_format: "json",
+      include_palette_mapping: true,
+    }) as MeshSnapshotData;
 
-  currentMesh = meshData;
-  const metrics = scene.buildMeshFromSnapshot(meshData);
-  latestMetrics = metrics;
-  if (wireframeVisible) scene.setWireframeVisible(true);
-  renderViewportDiagnostics();
+    currentMesh = meshData;
+    const metrics = scene.buildMeshFromSnapshot(meshData);
+    latestMetrics = metrics;
+    if (wireframeVisible) scene.setWireframeVisible(true);
+    renderViewportDiagnostics();
+  } catch (err) {
+    console.error("[renderer] refreshMesh failed:", err);
+    throw err;
+  }
 });
 
 function applyState(state: EditorUiStateSnapshot): void {
