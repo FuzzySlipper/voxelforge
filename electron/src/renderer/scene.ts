@@ -7,6 +7,38 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
+/**
+ * Decode a byte array payload from the C# bridge.
+ * C# `byte[]` serializes as a base64 string over JSON (System.Text.Json default).
+ * This handles both formats: base64 string or number[]/number-like arrays.
+ * Returns a plain number[] for backward compatibility.
+ */
+function decodeByteArray(value: string | number[] | Uint8Array | undefined | null, expectedLength?: number): number[] {
+  if (value === null || value === undefined) {
+    return [];
+  }
+  if (typeof value === "string") {
+    // Base64-encoded byte array from C# System.Text.Json
+    const binaryStr = atob(value);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    if (expectedLength !== undefined && bytes.length !== expectedLength) {
+      console.warn(`[scene] Byte array length mismatch: expected ${expectedLength}, got ${bytes.length}`);
+    }
+    return Array.from(bytes);
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value instanceof Uint8Array) {
+    return Array.from(value);
+  }
+  console.warn("[scene] Unknown byte array format:", typeof value);
+  return [];
+}
+
 /** Shape of the mesh snapshot response from the C# sidecar. */
 export interface MeshSnapshotData {
   model_id: string;
@@ -17,8 +49,9 @@ export interface MeshSnapshotData {
   triangle_count: number;
   positions: number[];
   normals: number[];
-  colors: number[];
-  palette_indices?: number[];
+  /** RGBA vertex colors. From C# `byte[]` — may be a base64 string over JSON or a number array. */
+  colors: number[] | string;
+  palette_indices?: number[] | string;
   indices: number[];
   bounds?: {
     min_x: number;
@@ -71,8 +104,9 @@ export interface MeshRegionUpdateData {
   index_count: number;
   positions: number[];
   normals: number[];
-  colors: number[];
-  palette_indices?: number[];
+  /** RGBA vertex colors. From C# `byte[]` — may be a base64 string over JSON or a number array. */
+  colors: number[] | string;
+  palette_indices?: number[] | string;
   indices: number[];
 }
 
@@ -275,13 +309,15 @@ export class VoxelForgeScene {
     }
 
     // Colors: flat array [r0,g0,b0,a0, ...] — convert from uint8 RGBA
-    if (data.colors.length > 0) {
+    // C# `byte[]` may arrive as base64 string; decode robustly.
+    const decodedColors = decodeByteArray(data.colors, data.vertex_count * 4);
+    if (decodedColors.length > 0) {
       const colorCount = data.vertex_count;
       const colors = new Float32Array(colorCount * 3);
       for (let i = 0; i < colorCount; i++) {
-        colors[i * 3] = data.colors[i * 4] / 255;
-        colors[i * 3 + 1] = data.colors[i * 4 + 1] / 255;
-        colors[i * 3 + 2] = data.colors[i * 4 + 2] / 255;
+        colors[i * 3] = decodedColors[i * 4] / 255;
+        colors[i * 3 + 1] = decodedColors[i * 4 + 1] / 255;
+        colors[i * 3 + 2] = decodedColors[i * 4 + 2] / 255;
       }
       geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     }
@@ -305,7 +341,7 @@ export class VoxelForgeScene {
     // Check winding/culling: VoxelForge greedy mesher produces CCW faces for front-facing,
     // which aligns with Three.js default FrontSide culling.
     const material = new THREE.MeshStandardMaterial({
-      vertexColors: data.colors.length > 0,
+      vertexColors: decodedColors.length > 0,
       side: THREE.FrontSide,
       roughness: 0.7,
       metalness: 0.1,
@@ -458,13 +494,15 @@ export class VoxelForgeScene {
         geometry.computeVertexNormals();
       }
 
-      if (region.colors.length > 0) {
+      // C# `byte[]` may arrive as base64 string; decode robustly.
+      const decodedColors = decodeByteArray(region.colors, region.vertex_count * 4);
+      if (decodedColors.length > 0) {
         const colorCount = region.vertex_count;
         const colors = new Float32Array(colorCount * 3);
         for (let i = 0; i < colorCount; i++) {
-          colors[i * 3] = region.colors[i * 4] / 255;
-          colors[i * 3 + 1] = region.colors[i * 4 + 1] / 255;
-          colors[i * 3 + 2] = region.colors[i * 4 + 2] / 255;
+          colors[i * 3] = decodedColors[i * 4] / 255;
+          colors[i * 3 + 1] = decodedColors[i * 4 + 1] / 255;
+          colors[i * 3 + 2] = decodedColors[i * 4 + 2] / 255;
         }
         geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
       }
@@ -481,7 +519,7 @@ export class VoxelForgeScene {
       geometry.computeBoundingSphere();
 
       const material = new THREE.MeshStandardMaterial({
-        vertexColors: region.colors.length > 0,
+        vertexColors: decodedColors.length > 0,
         side: THREE.FrontSide,
         roughness: 0.7,
         metalness: 0.1,

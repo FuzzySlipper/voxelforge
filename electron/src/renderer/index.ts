@@ -111,8 +111,18 @@ let editingLatencyCount = 0;
 let lastHoveredVoxel: { x: number; y: number; z: number } | null = null;
 let lastHoverNormal: { x: number; y: number; z: number } | null = null;
 
+/** Loading placeholder element created during startup. */
+let loadingPlaceholder: HTMLDivElement | null = null;
+
 async function main(): Promise<void> {
-  ui.container.innerHTML = '<div style="color: #aaa; padding: 20px;">Loading VoxelForge renderer…</div>';
+  // Create a loading placeholder as a separate element so we can remove it later
+  // without affecting the canvas that VoxelForgeScene appends to the container.
+  const loadingEl = document.createElement("div");
+  loadingEl.style.cssText = "color: #aaa; padding: 20px;";
+  loadingEl.textContent = "Loading VoxelForge renderer…";
+  loadingPlaceholder = loadingEl;
+  ui.container.appendChild(loadingEl);
+
   scene = new VoxelForgeScene(ui.container);
 
   scene.onRenderComplete((metrics: RendererMetrics) => {
@@ -125,6 +135,8 @@ async function main(): Promise<void> {
       triangle_count: metrics.triangle_count,
       total_renderer_ms: metrics.total_renderer_ms,
     });
+    // Remove the loading placeholder on first successful render
+    clearLoadingPlaceholder();
   });
 
   wireControls();
@@ -136,13 +148,27 @@ async function main(): Promise<void> {
     await refreshMesh();
     setupBridgeEvents();
     setBridgeStatus("Bridge connected. C# owns editor state; TS owns presentation.", true);
+    clearLoadingPlaceholder();
   } catch (err) {
     console.error("[renderer] startup failed:", err);
     setBridgeStatus(`Startup failed: ${formatError(err)}`, false);
-    ui.container.innerHTML = `<div style="color: #ff7979; padding: 20px;">${escapeHtml(formatError(err))}</div>`;
+    clearLoadingPlaceholder();
+    // Show error in container without removing the canvas
+    const errorEl = document.createElement("div");
+    errorEl.style.cssText = "color: #ff7979; padding: 20px;";
+    errorEl.textContent = formatError(err);
+    ui.container.appendChild(errorEl);
   }
 
   window.voxelforgeBridge?.notifyReady();
+}
+
+/** Remove the loading placeholder element if it still exists. */
+function clearLoadingPlaceholder(): void {
+  if (loadingPlaceholder && loadingPlaceholder.parentNode) {
+    loadingPlaceholder.parentNode.removeChild(loadingPlaceholder);
+    loadingPlaceholder = null;
+  }
 }
 
 async function handshake(): Promise<void> {
@@ -393,19 +419,34 @@ async function refreshAll(): Promise<void> {
   }
 }
 
-async function refreshMesh(): Promise<void> {
-  const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
-    model_id: "",
-    lod_level: 0,
-    payload_format: "json",
-    include_palette_mapping: true,
-  }) as MeshSnapshotData;
+/** Guard against concurrent refreshMesh calls. */
+let refreshMeshInProgress = false;
 
-  currentMesh = meshData;
-  const metrics = scene.buildMeshFromSnapshot(meshData);
-  latestMetrics = metrics;
-  if (wireframeVisible) scene.setWireframeVisible(true);
-  renderViewportDiagnostics();
+async function refreshMesh(): Promise<void> {
+  if (refreshMeshInProgress) {
+    console.warn("[renderer] refreshMesh already in progress; skipping duplicate.");
+    return;
+  }
+  refreshMeshInProgress = true;
+  try {
+    const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
+      model_id: "",
+      lod_level: 0,
+      payload_format: "json",
+      include_palette_mapping: true,
+    }) as MeshSnapshotData;
+
+    currentMesh = meshData;
+    const metrics = scene.buildMeshFromSnapshot(meshData);
+    latestMetrics = metrics;
+    if (wireframeVisible) scene.setWireframeVisible(true);
+    renderViewportDiagnostics();
+  } catch (err) {
+    console.error("[renderer] refreshMesh failed:", err);
+    throw err;
+  } finally {
+    refreshMeshInProgress = false;
+  }
 }
 
 function applyState(state: EditorUiStateSnapshot): void {

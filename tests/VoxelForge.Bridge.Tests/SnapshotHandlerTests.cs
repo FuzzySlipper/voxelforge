@@ -365,6 +365,92 @@ public sealed class BridgeSerializationRoundTripTests
         Assert.Equal("voxelforge@1", request.ClientSchemaVersion);
         Assert.Equal(["mesh_json"], request.SupportedCapabilities);
     }
+
+    [Fact]
+    public void ByteArray_SerializesAsBase64String_NotNumberArray()
+    {
+        // Regression: C# `byte[]` serializes as base64 string via System.Text.Json.
+        // This caused TS-side "black voxels" because the renderer treated the
+        // string as number[] (char codes instead of RGBA byte values).
+        var colors = new byte[] { 255, 128, 64, 255, 0, 0, 255, 255 };
+        var snapshot = new MeshSnapshotResponse
+        {
+            ModelId = "test",
+            MeshId = "mesh-test",
+            Format = "json",
+            VertexCount = 2,
+            IndexCount = 6,
+            TriangleCount = 2,
+            Positions = [0, 0, 0, 1, 0, 0],
+            Normals = [0, 1, 0, 0, 1, 0],
+            Colors = colors,
+            Indices = [0, 1, 2, 2, 3, 0],
+            Bounds = new BoundsDto { MinX = 0, MinY = 0, MinZ = 0, MaxX = 1, MaxY = 1, MaxZ = 1 },
+        };
+
+        var json = BridgeJson.Serialize(snapshot);
+        var doc = JsonDocument.Parse(json);
+
+        // The "colors" field must be a JSON string (base64), not a JSON array of numbers
+        var colorsElement = doc.RootElement.GetProperty("colors");
+        Assert.Equal(JsonValueKind.String, colorsElement.ValueKind);
+
+        // Decode the base64 string back and verify the values
+        var base64 = colorsElement.GetString()!;
+        var binaryStr = Convert.FromBase64String(base64);
+        Assert.Equal((byte)255, binaryStr[0]);
+        Assert.Equal((byte)128, binaryStr[1]);
+        Assert.Equal((byte)64, binaryStr[2]);
+        Assert.Equal((byte)255, binaryStr[3]);
+        Assert.Equal((byte)0, binaryStr[4]);
+        Assert.Equal((byte)0, binaryStr[5]);
+        Assert.Equal((byte)255, binaryStr[6]);
+        Assert.Equal((byte)255, binaryStr[7]);
+
+        // Verify the TS-side decoding: atob string → char codes → same bytes.
+        // atob() in JS returns a "binary string" where each char's code point
+        // (0-255) equals the byte value. In C# we simulate this via Latin-1 encoding
+        // which maps byte values 0-255 directly to char codes.
+        var binaryString = System.Text.Encoding.GetEncoding("ISO-8859-1").GetString(binaryStr);
+        var tsBytes = new byte[binaryString.Length];
+        for (int i = 0; i < binaryString.Length; i++)
+        {
+            tsBytes[i] = (byte)binaryString[i];
+        }
+        Assert.Equal(colors, tsBytes);
+    }
+
+    [Fact]
+    public void PaletteIndices_SerializesAsBase64String_WhenNonNull()
+    {
+        // Regression: C# `byte[]?` PaletteIndices also serializes as base64
+        var paletteIndices = new byte[] { 1, 2, 1, 0 };
+        var snapshot = new MeshSnapshotResponse
+        {
+            ModelId = "test",
+            MeshId = "mesh-test",
+            Format = "json",
+            VertexCount = 4,
+            IndexCount = 6,
+            TriangleCount = 2,
+            Positions = [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0],
+            Normals = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+            Colors = [255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255],
+            PaletteIndices = paletteIndices,
+            Indices = [0, 1, 2, 2, 3, 0],
+            Bounds = new BoundsDto { MinX = 0, MinY = 0, MinZ = 0, MaxX = 1, MaxY = 1, MaxZ = 1 },
+        };
+
+        var json = BridgeJson.Serialize(snapshot);
+        var doc = JsonDocument.Parse(json);
+
+        // palette_indices must be a base64 string
+        Assert.True(doc.RootElement.TryGetProperty("palette_indices", out var piElement));
+        Assert.Equal(JsonValueKind.String, piElement.ValueKind);
+
+        var decoded = Convert.FromBase64String(piElement.GetString()!);
+        Assert.Equal(paletteIndices, decoded);
+    }
 }
 
 public sealed class VoxelForgeSchemaHandshakeHandlerTests

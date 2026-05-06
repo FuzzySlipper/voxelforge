@@ -19,7 +19,8 @@ if (previewPath && !isSmokeTest && !isRendererSmokeTest) {
   console.log(`[electron] Preview mode: will load ${previewPath} on startup`);
 }
 const sidecarReadyTimeoutMs = 15000;
-const requestTimeoutMs = 30000; // Mesh snapshots can be large
+const requestTimeoutMs = 30000;
+const meshSnapshotTimeoutMs = 120000; // Full mesh snapshots (with base64-encoded byte arrays) need extra time
 
 let sidecarProcess: ReturnType<typeof spawn> | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -392,13 +393,14 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
 
   ipcMain.handle("bridge:mesh-snapshot", async (_event, payload: unknown) => {
     const client = await ensureBridgeClient(handshake);
+    // Use longer timeout for mesh snapshots (large payload with base64-encoded byte arrays)
     const response = await client.send(
       {
         requestId: `renderer-mesh-${Date.now()}`,
         command: "voxelforge.mesh.request_snapshot",
         payload: payload as Record<string, unknown>,
       },
-      requestTimeoutMs,
+      meshSnapshotTimeoutMs,
     );
     if (response.error) {
       throw new Error(`Mesh snapshot error: ${response.error.message}`);
