@@ -16,5 +16,5 @@
 	ignore = dirty
 [submodule "lib/den-bridge"]
 	path = lib/den-bridge
-	url = https://github.com/FuzzySlipper/den-bridge
+	url = git@github.com:FuzzySlipper/den-bridge.git
 	ignore = dirty
