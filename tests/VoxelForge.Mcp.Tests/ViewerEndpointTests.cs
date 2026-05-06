@@ -151,6 +151,113 @@ public sealed class ViewerEndpointTests
         Assert.Equal(0, second.B);
     }
 
+    // ── SSE / live-event tests ──
+
+    [Fact]
+    public async Task SubscribeViewerEvents_ReturnsReaderAndUnsubscribe()
+    {
+        var session = CreateSession();
+
+        var (reader, unsubscribe) = session.SubscribeViewerEvents();
+
+        Assert.NotNull(reader);
+        Assert.NotNull(unsubscribe);
+
+        // Cleanup
+        unsubscribe();
+    }
+
+    [Fact]
+    public async Task IncrementRevision_NotifiesSubscribers()
+    {
+        var session = CreateSession();
+        var (reader, unsubscribe) = session.SubscribeViewerEvents();
+
+        // Increment revision multiple times
+        session.IncrementViewerRevision(); // rev 1
+        session.IncrementViewerRevision(); // rev 2
+        session.IncrementViewerRevision(); // rev 3
+
+        // Read from the channel (all should be available)
+        var revisions = new List<int>();
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        try
+        {
+            await foreach (var rev in reader.ReadAllAsync(cts.Token))
+            {
+                revisions.Add(rev);
+                if (revisions.Count >= 3) break;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout — accept what we got
+        }
+
+        Assert.Contains(1, revisions);
+        Assert.Contains(2, revisions);
+        Assert.Contains(3, revisions);
+
+        unsubscribe();
+    }
+
+    [Fact]
+    public async Task Unsubscribe_StopsNotifications()
+    {
+        var session = CreateSession();
+        var (reader, unsubscribe) = session.SubscribeViewerEvents();
+
+        // Read initial state then unsubscribe
+        session.IncrementViewerRevision();
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        try
+        {
+            await foreach (var rev in reader.ReadAllAsync(cts.Token))
+            {
+                break; // consume first item
+            }
+        }
+        catch (OperationCanceledException) { }
+
+        unsubscribe();
+
+        // After unsubscribe, further revisions should not reach this reader
+        session.IncrementViewerRevision();
+        session.IncrementViewerRevision();
+
+        // The channel should be completed, so ReadAllAsync should end immediately
+        var remaining = new List<int>();
+        await foreach (var rev in reader.ReadAllAsync())
+        {
+            remaining.Add(rev);
+        }
+
+        Assert.Empty(remaining);
+    }
+
+    [Fact]
+    public async Task MultipleSubscribers_AllReceiveNotifications()
+    {
+        var session = CreateSession();
+        var (reader1, unsub1) = session.SubscribeViewerEvents();
+        var (reader2, unsub2) = session.SubscribeViewerEvents();
+
+        session.IncrementViewerRevision(); // rev 1
+
+        // Both subscribers should receive the revision
+        int? r1 = null, r2 = null;
+        var cts1 = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var cts2 = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        try { await foreach (var rev in reader1.ReadAllAsync(cts1.Token)) { r1 = rev; break; } } catch (OperationCanceledException) { }
+        try { await foreach (var rev in reader2.ReadAllAsync(cts2.Token)) { r2 = rev; break; } } catch (OperationCanceledException) { }
+
+        Assert.Equal(1, r1);
+        Assert.Equal(1, r2);
+
+        unsub1();
+        unsub2();
+    }
+
     [Fact]
     public void ViewerMeshSnapshotResponse_SerializesWithSnakeCase()
     {

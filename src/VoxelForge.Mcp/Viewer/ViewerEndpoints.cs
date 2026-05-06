@@ -23,42 +23,52 @@ public static class ViewerEndpoints
             await context.Response.WriteAsync(ViewerHtml.Content);
         });
 
-        // ── Viewer API: lightweight state summary (no mesh data) ──
+        // ── Viewer API: lightweight state summary (no mesh data, thread-safe) ──
         routes.MapGet("/api/viewer-state", (VoxelForgeMcpSession session) =>
         {
             int revision;
+            string modelName;
+            int voxelCount;
+            int gridHint;
+            List<ViewerPaletteEntry> paletteEntries;
+            ViewerBounds? bounds;
+
             lock (session.SyncRoot)
             {
                 revision = session.ViewerRevision;
-            }
+                modelName = session.CurrentModelName;
+                var model = session.Document.Model;
+                voxelCount = model.GetVoxelCount();
+                gridHint = model.GridHint;
 
-            var model = session.Document.Model;
-            var palette = model.Palette;
-            var bounds = model.GetBounds();
-            int voxelCount = model.GetVoxelCount();
-            string modelName = session.CurrentModelName;
-
-            return Results.Ok(new ViewerStateResponse
-            {
-                Revision = revision,
-                ModelName = modelName,
-                VoxelCount = voxelCount,
-                GridHint = model.GridHint,
-                PaletteEntries = palette.Entries.Select(kvp => new ViewerPaletteEntry
+                var palette = model.Palette;
+                paletteEntries = palette.Entries.Select(kvp => new ViewerPaletteEntry
                 {
                     Index = kvp.Key,
                     Name = kvp.Value.Name,
                     Color = $"#{kvp.Value.Color.R:X2}{kvp.Value.Color.G:X2}{kvp.Value.Color.B:X2}",
                     A = kvp.Value.Color.A,
                     Visible = kvp.Key != 0,
-                }).OrderBy(e => e.Index).ToList(),
-                Bounds = bounds is { } b
+                }).OrderBy(e => e.Index).ToList();
+
+                var modelBounds = model.GetBounds();
+                bounds = modelBounds is { } b
                     ? new ViewerBounds { MinX = b.Min.X, MinY = b.Min.Y, MinZ = b.Min.Z, MaxX = b.Max.X, MaxY = b.Max.Y, MaxZ = b.Max.Z }
-                    : null,
+                    : null;
+            }
+
+            return Results.Ok(new ViewerStateResponse
+            {
+                Revision = revision,
+                ModelName = modelName,
+                VoxelCount = voxelCount,
+                GridHint = gridHint,
+                PaletteEntries = paletteEntries,
+                Bounds = bounds,
             });
         });
 
-        // ── Viewer API: full mesh snapshot ──
+        // ── Viewer API: full mesh snapshot (thread-safe) ──
         routes.MapGet("/api/mesh-snapshot", (VoxelForgeMcpSession session, MeshSnapshotService meshService, PaletteSnapshotService paletteService) =>
         {
             MeshSnapshot mesh;
@@ -117,23 +127,72 @@ public static class ViewerEndpoints
             return Results.Ok(response);
         });
 
-        // ── Viewer API: palette only ──
+        // ── Viewer API: palette only (thread-safe) ──
         routes.MapGet("/api/palette", (VoxelForgeMcpSession session) =>
         {
-            var palette = session.Document.Model.Palette;
+            string modelName;
+            int entryCount;
+            List<ViewerPaletteEntry> entries;
+
+            lock (session.SyncRoot)
+            {
+                modelName = session.CurrentModelName;
+                var palette = session.Document.Model.Palette;
+                entries = palette.Entries.Select(kvp => new ViewerPaletteEntry
+                {
+                    Index = kvp.Key,
+                    Name = kvp.Value.Name,
+                    Color = $"#{kvp.Value.Color.R:X2}{kvp.Value.Color.G:X2}{kvp.Value.Color.B:X2}",
+                    A = kvp.Value.Color.A,
+                    Visible = kvp.Key != 0,
+                }).OrderBy(e => e.Index).ToList();
+                entryCount = palette.Count;
+            }
+
             return Results.Ok(new
             {
-                palette_id = session.CurrentModelName,
-                entries = palette.Entries.Select(kvp => new
-                {
-                    index = kvp.Key,
-                    name = kvp.Value.Name,
-                    color = $"#{kvp.Value.Color.R:X2}{kvp.Value.Color.G:X2}{kvp.Value.Color.B:X2}",
-                    a = kvp.Value.Color.A,
-                    visible = kvp.Key != 0,
-                }).OrderBy(e => e.index).ToList(),
-                entry_count = palette.Count,
+                palette_id = modelName,
+                entries,
+                entry_count = entryCount,
             });
+        });
+
+        // ── Viewer API: Server-Sent Events for live revision updates ──
+        routes.MapGet("/api/viewer-events", async (HttpContext context, VoxelForgeMcpSession session) =>
+        {
+            context.Response.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            context.Response.Headers["X-Accel-Buffering"] = "no";
+
+            var cancellationToken = context.RequestAborted;
+            var (reader, unsubscribe) = session.SubscribeViewerEvents();
+
+            try
+            {
+                // Send initial keepalive with current revision.
+                int currentRevision = session.ViewerRevision;
+                await context.Response.WriteAsync(
+                    $"data: {{\"type\":\"connected\",\"revision\":{currentRevision}}}\n\n",
+                    cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+
+                // Stream revision events as they arrive.
+                await foreach (var revision in reader.ReadAllAsync(cancellationToken))
+                {
+                    await context.Response.WriteAsync(
+                        $"data: {{\"type\":\"revision\",\"revision\":{revision}}}\n\n",
+                        cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected — normal cleanup.
+            }
+            finally
+            {
+                unsubscribe();
+            }
         });
 
         return routes;

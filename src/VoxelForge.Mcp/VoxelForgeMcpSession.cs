@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using VoxelForge.App;
 using VoxelForge.App.Commands;
@@ -14,6 +15,8 @@ public sealed class VoxelForgeMcpSession
 {
     private readonly object _syncRoot = new();
     private int _viewerRevision;
+    private readonly List<Channel<int>> _sseChannels = [];
+    private readonly object _sseChannelsLock = new();
 
     public VoxelForgeMcpSession(EditorConfigState config, ILoggerFactory loggerFactory)
     {
@@ -70,11 +73,38 @@ public sealed class VoxelForgeMcpSession
     }
 
     /// <summary>
-    /// Increment the viewer revision. Thread-safe.
+    /// Increment the viewer revision and notify SSE subscribers. Thread-safe.
     /// </summary>
     public void IncrementViewerRevision()
     {
-        lock (_syncRoot) { _viewerRevision++; }
+        int revision;
+        lock (_syncRoot) { revision = ++_viewerRevision; }
+
+        // Broadcast to all active SSE subscribers (non-blocking, drop if full).
+        List<Channel<int>> channels;
+        lock (_sseChannelsLock) { channels = [.._sseChannels]; }
+        foreach (var ch in channels)
+        {
+            ch.Writer.TryWrite(revision);
+        }
+    }
+
+    /// <summary>
+    /// Subscribe to viewer revision events via a bounded channel.
+    /// Returns the reader and an unsubscribe action for cleanup.
+    /// </summary>
+    public (ChannelReader<int> Reader, Action Unsubscribe) SubscribeViewerEvents()
+    {
+        var ch = Channel.CreateBounded<int>(new BoundedChannelOptions(64)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+        });
+        lock (_sseChannelsLock) { _sseChannels.Add(ch); }
+        return (ch.Reader, () =>
+        {
+            lock (_sseChannelsLock) { _sseChannels.Remove(ch); }
+            ch.Writer.TryComplete();
+        });
     }
 
     /// <summary>

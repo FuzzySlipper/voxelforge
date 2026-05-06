@@ -119,9 +119,16 @@ check "Has palette_id field" bash -c "echo '$PALETTE' | python3 -c \"import json
 check "Has entries array" bash -c "echo '$PALETTE' | python3 -c \"import json,sys; assert 'entries' in json.load(sys.stdin)\""
 check "Has entry_count field" bash -c "echo '$PALETTE' | python3 -c \"import json,sys; assert 'entry_count' in json.load(sys.stdin)\""
 
-# ── 7. MCP Endpoint Still Works ──
+# ── 7. SSE Events Endpoint ──
 echo ""
-echo "=== 7. MCP Endpoint ==="
+echo "=== 7. SSE Events Endpoint ==="
+SSE_OUTPUT=$(curl -sf -N --max-time 2 "$BASE/api/viewer-events" 2>/dev/null || echo "")
+check "Returns SSE data lines" bash -c "echo '$SSE_OUTPUT' | grep -q 'data:'"
+check "Includes connected event with revision" bash -c "echo '$SSE_OUTPUT' | grep -q 'connected.*revision'"
+
+# ── 8. MCP Endpoint Still Works ──
+echo ""
+echo "=== 8. MCP Endpoint ==="
 check "MCP endpoint registered (from /)" bash -c "echo '$ROOT' | python3 -c \"import json,sys; assert json.load(sys.stdin).get('mcp_endpoint')=='/mcp'\""
 
 # ── Summary ──

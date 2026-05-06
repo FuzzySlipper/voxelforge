@@ -64,6 +64,11 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- SSE indicator color -->
+  <style>
+    .sse-dot { display: none; }
+    .sse-dot.active { display: inline-block; }
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script>
     // ═══════════════════════════════════════════════════════════════════════
@@ -78,7 +83,12 @@
     (function () {
       "use strict";
 
-      const POLL_INTERVAL_MS = 2000;
+      // Update sources: SSE preferred (EventSource), polling fallback.
+      const POLL_INTERVAL_MS = 5000;
+      const SSE_FALLBACK_POLL_MS = 2000;
+      let sseSource = null;
+      let sseConnected = false;
+      let usingSse = false;
 
       // ── DOM refs ──
       const container = document.getElementById("renderer-container");
@@ -107,6 +117,56 @@
       let connected = false;
       let webglAvailable = true;
       let lastError = null;
+
+      // ── SSE EventSource connection ──
+      function connectSse() {
+        try {
+          sseSource = new EventSource("/api/viewer-events");
+          sseSource.onopen = function () {
+            sseConnected = true;
+            usingSse = true;
+            console.log("[viewer] SSE connected");
+          };
+          sseSource.onmessage = function (event) {
+            try {
+              var data = JSON.parse(event.data);
+              if (data.type === "revision" && data.revision !== lastRevision) {
+                lastRevision = data.revision;
+                // Fetch and update mesh immediately on revision change.
+                fetchAndBuildMesh();
+                fetchStateAndDiagnostics();
+              } else if (data.type === "connected") {
+                lastRevision = data.revision;
+                fetchStateAndDiagnostics();
+                fetchAndBuildMesh();
+              }
+            } catch (e) {
+              console.warn("[viewer] SSE parse error:", e);
+            }
+          };
+          sseSource.onerror = function () {
+            console.warn("[viewer] SSE connection lost, falling back to polling");
+            sseConnected = false;
+            usingSse = false;
+            if (sseSource) {
+              sseSource.close();
+              sseSource = null;
+            }
+          };
+        } catch (err) {
+          console.warn("[viewer] Failed to create EventSource:", err);
+          usingSse = false;
+        }
+      }
+
+      function disconnectSse() {
+        if (sseSource) {
+          sseSource.close();
+          sseSource = null;
+        }
+        sseConnected = false;
+        usingSse = false;
+      }
 
       // ── Lights ──
       function setupLights(scene) {
@@ -293,6 +353,32 @@
         frameCamera(data.bounds);
       }
 
+      // ── Fetch mesh and rebuild scene ──
+      async function fetchAndBuildMesh() {
+        var mesh = await fetchMesh();
+        if (mesh) {
+          lastMeshId = mesh.mesh_id;
+          buildMesh(mesh);
+          if (!animationId && renderer) animate();
+          // Fetch updated state for diagnostics after mesh update.
+          var state = await fetchState();
+          if (state) {
+            connected = true;
+            updateDiagnostics(state, mesh);
+          }
+        }
+      }
+
+      // ── Fetch state and refresh diagnostics ──
+      async function fetchStateAndDiagnostics() {
+        var state = await fetchState();
+        if (state) {
+          connected = true;
+          var mesh = lastMeshId ? { vertex_count: "—", triangle_count: "—" } : null;
+          updateDiagnostics(state, mesh);
+        }
+      }
+
       // ── Update diagnostics ──
       function updateDiagnostics(state, mesh) {
         if (state) {
@@ -335,8 +421,20 @@
         }
       }
 
-      // ── Main update cycle ──
+      // ── Main update cycle (polling fallback, only used when SSE is unavailable) ──
       async function updateViewer() {
+        if (usingSse && sseConnected) {
+          // SSE is active — no polling needed. We still periodically refresh
+          // diagnostics to handle stale SSE connections gracefully.
+          var state = await fetchState();
+          if (state) {
+            connected = true;
+            updateDiagnostics(state, null);
+          }
+          return;
+        }
+
+        // Polling fallback: full state + mesh refresh.
         const state = await fetchState();
         if (!state) {
           connected = false;
@@ -383,11 +481,14 @@
             return;
           }
 
+          // Connect to SSE for live updates
+          connectSse();
+
           // Load initial data
           await updateViewer();
 
-          // Start polling
-          pollTimer = setInterval(updateViewer, POLL_INTERVAL_MS);
+          // Start polling (will short-circuit if SSE is active)
+          pollTimer = setInterval(updateViewer, SSE_FALLBACK_POLL_MS);
 
           loadingEl.classList.add("hidden");
         } catch (err) {
@@ -418,6 +519,8 @@
         fetchState: fetchState,
         fetchMesh: fetchMesh,
         frameCamera: frameCamera,
+        connectSse: connectSse,
+        disconnectSse: disconnectSse,
         dispose: dispose,
       };
     })();
