@@ -157,7 +157,7 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
                 message = result.Message;
                 affectedDomains = ["document", "session", "history"];
                 meshChanged = result.Success;
-                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+                if (meshChanged) meshUpdateMs = await TimedMeshPushAsync(cancellationToken).ConfigureAwait(false);
             }
             else if (string.Equals(commandName, "remove_voxel", StringComparison.OrdinalIgnoreCase))
             {
@@ -168,7 +168,7 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
                 message = result.Message;
                 affectedDomains = ["document", "session", "history"];
                 meshChanged = result.Success;
-                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+                if (meshChanged) meshUpdateMs = await TimedMeshPushAsync(cancellationToken).ConfigureAwait(false);
             }
             else if (string.Equals(commandName, "paint_voxel", StringComparison.OrdinalIgnoreCase))
             {
@@ -180,7 +180,7 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
                 message = result.Message;
                 affectedDomains = ["document", "session", "history"];
                 meshChanged = result.Success;
-                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+                if (meshChanged) meshUpdateMs = await TimedMeshPushAsync(cancellationToken).ConfigureAwait(false);
             }
             else if (string.Equals(commandName, "fill_region", StringComparison.OrdinalIgnoreCase))
             {
@@ -193,7 +193,7 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
                 message = result.Message;
                 affectedDomains = ["document", "session", "history"];
                 meshChanged = result.Success;
-                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+                if (meshChanged) meshUpdateMs = await TimedMeshPushAsync(cancellationToken).ConfigureAwait(false);
             }
             else if (string.Equals(commandName, "clear_model", StringComparison.OrdinalIgnoreCase))
             {
@@ -202,7 +202,7 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
                 message = result.Message;
                 affectedDomains = ["document", "session", "history"];
                 meshChanged = result.Success;
-                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+                if (meshChanged) meshUpdateMs = await TimedMeshPushAsync(cancellationToken).ConfigureAwait(false);
             }
             // ── Selection commands (no mesh change) ──
             else if (string.Equals(commandName, "select_voxel", StringComparison.OrdinalIgnoreCase))
@@ -252,25 +252,25 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
             _logger.LogWarning(
                 "Editing command '{CommandName}' took {TotalMs}ms (exceeds {ThresholdMs}ms threshold)",
                 commandName, totalMs, LatencyWarningThreshold.TotalMilliseconds);
-
-            // Publish latency diagnostic event
-            var latencyPayload = new EditingLatencyEventPayload
-            {
-                CommandName = commandName,
-                CSharpProcessingMs = stopwatch.ElapsedMilliseconds,
-                MeshUpdateMs = meshUpdateMs,
-                TotalMs = totalMs,
-                Timestamp = DateTimeOffset.UtcNow,
-            };
-            var latencyFrame = new BridgeEventFrame
-            {
-                EventId = $"evt-latency-{Guid.NewGuid():N}",
-                Sequence = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Event = "voxelforge.diagnostics.editing_latency",
-                Payload = BridgeJson.ToElement(latencyPayload),
-            };
-            await _bridgeEventPublisher.PublishAsync(latencyFrame, cancellationToken).ConfigureAwait(false);
         }
+
+        // Publish latency diagnostic event unconditionally
+        var latencyPayload = new EditingLatencyEventPayload
+        {
+            CommandName = commandName,
+            CSharpProcessingMs = stopwatch.ElapsedMilliseconds,
+            MeshUpdateMs = meshUpdateMs,
+            TotalMs = totalMs,
+            Timestamp = DateTimeOffset.UtcNow,
+        };
+        var latencyFrame = new BridgeEventFrame
+        {
+            EventId = $"evt-latency-{Guid.NewGuid():N}",
+            Sequence = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Event = "voxelforge.diagnostics.editing_latency",
+            Payload = BridgeJson.ToElement(latencyPayload),
+        };
+        await _bridgeEventPublisher.PublishAsync(latencyFrame, cancellationToken).ConfigureAwait(false);
 
         return new CommandExecuteResponse
         {
@@ -280,6 +280,14 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
             MeshChanged = meshChanged,
             State = _stateService.BuildSnapshot(),
         };
+    }
+
+    private async ValueTask<long> TimedMeshPushAsync(CancellationToken cancellationToken)
+    {
+        var meshSw = Stopwatch.StartNew();
+        await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+        meshSw.Stop();
+        return meshSw.ElapsedMilliseconds;
     }
 
     private async ValueTask PushMeshUpdateAsync(CancellationToken cancellationToken)

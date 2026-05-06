@@ -49,8 +49,8 @@ public sealed class EditorUiStateHandlerTests
         Assert.False(response.MeshChanged);
         Assert.Equal("paint", response.State.ActiveTool);
         Assert.Equal("paint", holder.Session.ActiveTool.ToString().ToLowerInvariant());
-        Assert.Single(publisher.PublishedFrames);
-        Assert.Equal("voxelforge.state.delta", publisher.PublishedFrames[0].Event);
+        Assert.Contains(publisher.PublishedFrames, f => f.Event == "voxelforge.state.delta");
+        Assert.Contains(publisher.PublishedFrames, f => f.Event == "voxelforge.diagnostics.editing_latency");
     }
 
     [Fact]
@@ -286,6 +286,238 @@ public sealed class EditorUiStateHandlerTests
         holder.UndoStack.Redo();
         Assert.Equal(startingCount + 1, holder.Model.GetVoxelCount());
         Assert.NotNull(holder.Model.GetVoxel(new Point3(20, 20, 20)));
+    }
+
+    [Fact]
+    public async Task CommandExecute_RemoveNonexistentVoxel_DoesNotThrow()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-remove-nonex", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var startingCount = holder.Model.GetVoxelCount();
+
+        // Remove a voxel at a position that does not exist
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "remove_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 999,
+                    ["y"] = 999,
+                    ["z"] = 999,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        // Removing a non-existent voxel should be a no-op (count unchanged)
+        Assert.Equal(startingCount, holder.Model.GetVoxelCount());
+    }
+
+    [Fact]
+    public async Task CommandExecute_PlaceAtOccupiedPosition_OverwritesExisting()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-place-occupied", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // Position (0,0,0) is occupied in the default cube with palette index 1
+        Assert.NotNull(holder.Model.GetVoxel(new Point3(0, 0, 0)));
+
+        var startingCount = holder.Model.GetVoxelCount();
+
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "place_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 0,
+                    ["y"] = 0,
+                    ["z"] = 0,
+                    ["palette_index"] = 2,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.True(response.MeshChanged);
+        // Voxel count should remain the same (overwrite, not add)
+        Assert.Equal(startingCount, holder.Model.GetVoxelCount());
+        // Palette index should have changed
+        Assert.Equal((byte)2, holder.Model.GetVoxel(new Point3(0, 0, 0)));
+    }
+
+    [Fact]
+    public async Task CommandExecute_FillRegionWithMinGreaterThanMax_IsNoOp()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-fill-reversed", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var startingCount = holder.Model.GetVoxelCount();
+
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "fill_region",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["min_x"] = 10,
+                    ["min_y"] = 10,
+                    ["min_z"] = 10,
+                    ["max_x"] = 5,
+                    ["max_y"] = 5,
+                    ["max_z"] = 5,
+                    ["palette_index"] = 1,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        // With min > max, the loop body never executes, so no voxels change
+        Assert.Equal(startingCount, holder.Model.GetVoxelCount());
+    }
+
+    [Fact]
+    public async Task CommandExecute_InvalidPaletteIndexOutOfRange_ThrowsValidationError()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-invalid-pal", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var ex = await Assert.ThrowsAsync<BridgeHandlerException>(async () =>
+        {
+            await commandHandler.HandleAsync(
+                new CommandExecuteRequest
+                {
+                    CommandName = "place_voxel",
+                    Arguments = new Dictionary<string, object?>
+                    {
+                        ["x"] = 5,
+                        ["y"] = 5,
+                        ["z"] = 5,
+                        ["palette_index"] = -1,
+                    },
+                },
+                context,
+                CancellationToken.None);
+        });
+
+        Assert.Equal("voxelforge.command.invalid_palette_index", ex.Code);
+        Assert.Equal(BridgeErrorCategories.Validation, ex.Category);
+    }
+
+    [Fact]
+    public async Task CommandExecute_MissingRequiredArgument_ThrowsValidationError()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-missing-arg", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var ex = await Assert.ThrowsAsync<BridgeHandlerException>(async () =>
+        {
+            await commandHandler.HandleAsync(
+                new CommandExecuteRequest
+                {
+                    CommandName = "place_voxel",
+                    Arguments = new Dictionary<string, object?>
+                    {
+                        ["x"] = 5,
+                        ["y"] = 5,
+                        // Missing "z" and "palette_index"
+                    },
+                },
+                context,
+                CancellationToken.None);
+        });
+
+        Assert.Equal("voxelforge.command.missing_argument", ex.Code);
+        Assert.Equal(BridgeErrorCategories.Validation, ex.Category);
+    }
+
+    [Fact]
+    public async Task CommandExecute_AddToSelection_Accumulates()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-addsel", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // Add first selection
+        var response1 = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "add_to_selection",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 0,
+                    ["y"] = 0,
+                    ["z"] = 0,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response1);
+        Assert.True(response1.Success);
+        Assert.False(response1.MeshChanged);
+        Assert.Equal(1, response1.State.SelectedVoxelCount);
+
+        // Add second selection (accumulates)
+        var response2 = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "add_to_selection",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 1,
+                    ["y"] = 1,
+                    ["z"] = 1,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response2);
+        Assert.Equal(2, response2.State.SelectedVoxelCount);
+        Assert.Equal(2, holder.Session.SelectedVoxels.Count);
+        Assert.Contains(new Point3(0, 0, 0), holder.Session.SelectedVoxels);
+        Assert.Contains(new Point3(1, 1, 1), holder.Session.SelectedVoxels);
+    }
+
+    [Fact]
+    public async Task CommandExecute_LatencyEventIsEmittedUnconditionally()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler(out var publisher);
+        var context = new BridgeRequestContext("req-latency", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // Execute a fast command (set_active_tool) that completes well under 100ms
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "set_active_tool",
+                Arguments = new Dictionary<string, object?> { ["tool"] = "select" },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+
+        // Verify a latency diagnostic event was published
+        var latencyFrames = publisher.PublishedFrames
+            .Where(f => f.Event == "voxelforge.diagnostics.editing_latency")
+            .ToList();
+
+        Assert.NotEmpty(latencyFrames);
+        var latencyPayload = BridgeJson.Deserialize<EditingLatencyEventPayload>(latencyFrames[0].Payload.GetRawText());
+        Assert.NotNull(latencyPayload);
+        Assert.Equal("set_active_tool", latencyPayload.CommandName);
+        Assert.True(latencyPayload.TotalMs >= 0);
+        Assert.True(latencyPayload.CSharpProcessingMs >= 0);
+        Assert.True(latencyPayload.MeshUpdateMs >= 0);
     }
 
     private static (EditorUiStateBridgeService stateService, VoxelModelHolder holder, CommandExecuteHandler handler) CreateCommandHandler()

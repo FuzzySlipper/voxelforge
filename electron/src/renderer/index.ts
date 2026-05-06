@@ -255,55 +255,66 @@ function wireViewportEditing(): void {
 
     const tool = state.active_tool;
     const paletteIdx = state.active_palette_index;
+    const shiftKey = event.shiftKey;
 
     const editStartMs = performance.now();
 
     try {
-      switch (tool) {
-        case "place": {
-          // Placement position = hit voxel + face normal
-          const placePos = scene.computePlacementPosition(hit);
-          await executeCommand("place_voxel", {
-            x: placePos.x,
-            y: placePos.y,
-            z: placePos.z,
-            palette_index: paletteIdx,
-          });
-          setStatus(`Placed voxel at (${placePos.x},${placePos.y},${placePos.z})`);
-          break;
+      // Shift+click always adds to selection regardless of active tool
+      if (shiftKey) {
+        await executeCommand("add_to_selection", {
+          x: hit.position.x,
+          y: hit.position.y,
+          z: hit.position.z,
+        });
+        setStatus(`Added (${hit.position.x},${hit.position.y},${hit.position.z}) to selection`);
+      } else {
+        switch (tool) {
+          case "place": {
+            // Placement position = hit voxel + face normal
+            const placePos = scene.computePlacementPosition(hit);
+            await executeCommand("place_voxel", {
+              x: placePos.x,
+              y: placePos.y,
+              z: placePos.z,
+              palette_index: paletteIdx,
+            });
+            setStatus(`Placed voxel at (${placePos.x},${placePos.y},${placePos.z})`);
+            break;
+          }
+          case "remove": {
+            await executeCommand("remove_voxel", {
+              x: hit.position.x,
+              y: hit.position.y,
+              z: hit.position.z,
+            });
+            setStatus(`Removed voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
+            break;
+          }
+          case "paint": {
+            await executeCommand("paint_voxel", {
+              x: hit.position.x,
+              y: hit.position.y,
+              z: hit.position.z,
+              palette_index: paletteIdx,
+            });
+            setStatus(`Painted voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
+            break;
+          }
+          case "select": {
+            await executeCommand("select_voxel", {
+              x: hit.position.x,
+              y: hit.position.y,
+              z: hit.position.z,
+            });
+            setStatus(`Selected voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
+            break;
+          }
+          default:
+            // Other tools (fill, label) require region/box selection;
+            // not yet wired through click interaction.
+            setStatus(`Tool "${tool}" requires additional interaction (not yet wired for click).`);
         }
-        case "remove": {
-          await executeCommand("remove_voxel", {
-            x: hit.position.x,
-            y: hit.position.y,
-            z: hit.position.z,
-          });
-          setStatus(`Removed voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
-          break;
-        }
-        case "paint": {
-          await executeCommand("paint_voxel", {
-            x: hit.position.x,
-            y: hit.position.y,
-            z: hit.position.z,
-            palette_index: paletteIdx,
-          });
-          setStatus(`Painted voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
-          break;
-        }
-        case "select": {
-          await executeCommand("select_voxel", {
-            x: hit.position.x,
-            y: hit.position.y,
-            z: hit.position.z,
-          });
-          setStatus(`Selected voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
-          break;
-        }
-        default:
-          // Other tools (fill, label) require region/box selection;
-          // not yet wired through click interaction.
-          setStatus(`Tool "${tool}" requires additional interaction (not yet wired for click).`);
       }
     } catch (err) {
       setStatus(`Edit failed: ${formatError(err)}`);
