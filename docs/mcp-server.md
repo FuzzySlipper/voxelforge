@@ -185,6 +185,57 @@ The GUI watcher accepts either `--watch <path>` or `--preview-watch <path>`. It 
 - MCP visual tools such as `view_model`, `view_from_angle`, and `compare_reference` still return headless limitation errors. The preview window is for a human observer, not screenshot capture through MCP.
 - If an MCP process exits before `publish_preview` or `save_model`, unsaved in-memory session edits are lost.
 
+### Electron renderer preview workflow
+
+The Electron renderer (`electron/`) is an **alternative preview surface** for published snapshots. Unlike the MonoGame `--watch` path, the Electron renderer loads `.vforge` files on demand through the `VoxelForge.Bridge` sidecar protocol — not via file-system watchers. This keeps the bridge protocol as the single C#↔TS communication path.
+
+The Electron renderer does **not** replace the MonoGame `--watch` path or the MCP headless session. All three workflows remain independent:
+
+| Path | Renderer | Launch | How previews load |
+|------|----------|--------|-------------------|
+| MonoGame `--watch` | FNA/Myra | `dotnet run --project src/VoxelForge.Engine.MonoGame -- --watch <path>` | File-system watcher, hot-reloads on write |
+| Electron Open button | Three.js/Electron | `cd electron && npm start` | User clicks Open in the renderer UI; sidecar sends `voxelforge.project.load` over bridge |
+| Electron `--preview` | Three.js/Electron | `cd electron && npm start -- --preview <path>` | Sidecar auto-loads the specified `.vforge` file at startup via bridge |
+
+#### Workflow: open a published preview in Electron
+
+```bash
+# Terminal 1: MCP server, publishing to content/
+dotnet run --project src/VoxelForge.Mcp
+
+# In the agent session, call publish_preview:
+# { "name": "mcp-preview" }
+
+# Terminal 2: Electron renderer loading that preview
+cd electron
+npm start -- --preview ../content/mcp-preview.vforge
+```
+
+Or open it through the Electron UI:
+
+1. Start the Electron renderer: `cd electron && npm start`
+2. The sidecar starts automatically and loads a default model.
+3. In the renderer's **Project I/O** panel, enter `content/mcp-preview.vforge` (or the full path) and click **Open**.
+4. The sidecar loads the preview file and sends a mesh snapshot to the renderer.
+
+#### Live refresh
+
+After the initial load, ask the agent to call `publish_preview` again with the same name, then click **Refresh** in the Electron UI or use the **Refresh** button in the toolbar. The renderer fetches the updated state snapshot and mesh from the sidecar via the bridge protocol.
+
+> **Future work:** An automated refresh-on-event path could listen for sidecar state-change events (`voxelforge.state.delta`) after a publish and re-request the mesh snapshot automatically. This is deferred until the bridge protocol's event model is exercised by real usage.
+
+#### Architecture notes
+
+- The Electron renderer does **not** watch `.vforge` files directly. It loads them through the bridge's `voxelforge.project.load` command, which triggers mesh snapshot generation on the C# side.
+- The `--preview` flag is an Electron-only argument (handled by `electron/src/main/index.ts`). It does not affect `VoxelForge.Mcp`, `VoxelForge.Bridge`, or `VoxelForge.Engine.MonoGame`.
+- MCP/headless/stdio workflows remain fully C#-only and do not require Electron or the bridge sidecar.
+- The bridge sidecar (`VoxelForge.Bridge`) is always started by Electron main; it is not started by `VoxelForge.Mcp` or by `dotnet run` of the Engine.
+
+#### See also
+
+- [`architecture/electron-renderer-experiment.md`](architecture/electron-renderer-experiment.md) — Electron experiment architecture and MCP preservation rules.
+- [`architecture/bridge-protocol.md`](architecture/bridge-protocol.md) — Bridge message schema for project load and state subscriptions.
+
 ### Troubleshooting
 
 - **Preview window stays empty:** confirm the watched path matches the MCP project directory and preview name. The MCP `--project-dir` flag controls where `publish_preview` writes; the GUI `--watch` path should point at that same directory plus `<name>.vforge`. With defaults, watch `content/mcp-preview.vforge` and publish `{ "name": "mcp-preview" }`.

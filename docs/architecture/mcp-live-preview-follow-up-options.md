@@ -63,6 +63,21 @@ Costs/risks:
 
 Recommendation: prefer a documented helper command/script over MCP auto-launch. Do not make `publish_preview` spawn windows.
 
+## Electron renderer as optional viewer surface
+
+The Electron renderer experiment (task #1177+) provides a separate viewer/editor surface for published previews.
+The Electron path loads `.vforge` files through the `VoxelForge.Bridge` sidecar protocol rather than file-system
+watchers, which means:
+
+- The Electron renderer can be pointed at any `publish_preview` snapshot (via the Open button or `--preview` CLI arg).
+- It does not replace or require the MonoGame `--watch` file-watcher workflow; both remain independent.
+- It does not implement file-watching itself — previews are loaded on demand through the bridge's `voxelforge.project.load` command.
+- The Electron renderer is an **optional** viewer; MCP/headless/stdio workflows do not require it.
+
+This partially addresses the "reader viewer" scenario from Option B above: instead of a launcher script,
+the Electron renderer (when running) can open a preview file via its UI or the `--preview` argument.
+The recommendation to avoid MCP auto-launch of GUI processes still stands.
+
 ## Non-goal: true live shared-document editing
 
 Do not replace the snapshot observer flow with direct GUI document manipulation unless a separate product decision approves collaborative editing. A direct shared-document model would need explicit ownership, conflict handling, undo semantics, thread dispatch rules, and UI state synchronization.

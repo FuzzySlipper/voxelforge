@@ -293,6 +293,19 @@ During the entire experiment:
 - Live preview and MCP workflows ([`docs/mcp-server.md`](../mcp-server.md)) continue to function independently of the Electron path. The Electron renderer is an additional viewer/editor surface, not a replacement for MCP headless sessions or preview watchers.
 - If an implementation choice would require changing FNA/Myra internals, prefer adding a neutral service in `VoxelForge.App` rather than coupling the two renderers.
 
+#### Live preview paths at a glance
+
+The existing MonoGame `--watch`/`--preview-watch` file-watcher path and the Electron renderer's bridge-based project-load path are both valid ways to view published MCP preview snapshots, but they serve different use cases:
+
+| Path | Process coordination | Refresh mechanism | Dependencies |
+|------|----------------------|-------------------|-------------|
+| MonoGame `--watch` (FNA/Myra) | File-system: `publish_preview` writes `.vforge`; watcher reloads on write | Automatic hot-reload on write | FNA, Myra, `VoxelForge.Engine.MonoGame` |
+| Electron Open / `--preview` (Three.js) | Bridge protocol: sidecar loads file via `voxelforge.project.load` | Manual Refresh button or future state-delta-driven reload | Electron, `VoxelForge.Bridge` sidecar |
+
+Both paths use the same `publish_preview` snapshot format. The MCP session remains the authoritative editing session in both cases.
+
+Electron-specific preview launch details are documented in [`docs/mcp-server.md`](../mcp-server.md) under the "Electron renderer preview workflow" section.
+
 ---
 
 ## Success Metrics

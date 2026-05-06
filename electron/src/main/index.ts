@@ -6,6 +6,18 @@ import { BridgeClient } from "./bridge-client";
 const isSmokeTest = process.argv.includes("--smoke-test");
 const isRendererSmokeTest = process.argv.includes("--renderer-smoke-test");
 const isHeadless = isSmokeTest || process.argv.includes("--headless");
+
+// Parse --preview <path> for auto-loading a .vforge preview file on startup
+const previewArgIndex = process.argv.indexOf("--preview");
+const previewPath = previewArgIndex >= 0 && previewArgIndex + 1 < process.argv.length
+  ? process.argv[previewArgIndex + 1]
+  : null;
+if (previewArgIndex >= 0 && !previewPath) {
+  console.warn("[electron] --preview specified without a path argument; ignoring.");
+}
+if (previewPath && !isSmokeTest && !isRendererSmokeTest) {
+  console.log(`[electron] Preview mode: will load ${previewPath} on startup`);
+}
 const sidecarReadyTimeoutMs = 15000;
 const requestTimeoutMs = 30000; // Mesh snapshots can be large
 
@@ -32,6 +44,29 @@ async function main(): Promise<void> {
 
   // For the renderer, spawn sidecar, create window, and render mesh
   await runRenderer(repoRoot);
+}
+
+async function loadPreviewOnStartup(
+  handshake: { endpoint: string; auth_token: string },
+  path: string,
+): Promise<void> {
+  const client = await ensureBridgeClient(handshake);
+  console.log(`[electron] Auto-loading preview from ${path}...`);
+  const response = await client.send(
+    {
+      requestId: `preview-load-${Date.now()}`,
+      command: "voxelforge.project.load",
+      payload: { path },
+    },
+    requestTimeoutMs,
+  );
+  if (response.error) {
+    console.error(`[electron] Failed to load preview from ${path}: ${response.error.message}`);
+  } else {
+    console.log(`[electron] Preview loaded successfully from ${path}.`);
+    // The sidecar will push a state delta automatically after loading,
+    // which the renderer will pick up via the forwarder in setupMeshSubscription.
+  }
 }
 
 async function runSmokeTest(repoRoot: string): Promise<void> {
@@ -314,6 +349,13 @@ async function runRenderer(repoRoot: string): Promise<void> {
 
   // Set up mesh subscription and event forwarding (after mainWindow is created)
   await setupMeshSubscription(handshake, mainWindow);
+
+  // Auto-load preview file if --preview was specified
+  if (previewPath) {
+    // Wait briefly for the renderer to start before triggering preview load
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await loadPreviewOnStartup(handshake, previewPath);
+  }
 
   // For headless smoke test: collect metrics and exit
   if (isHeadless || isRendererSmokeTest) {
