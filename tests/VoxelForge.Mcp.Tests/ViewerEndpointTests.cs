@@ -1,0 +1,200 @@
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using VoxelForge.App;
+using VoxelForge.App.Services;
+using VoxelForge.Core;
+using VoxelForge.Core.Meshing;
+using VoxelForge.Mcp.Viewer;
+
+namespace VoxelForge.Mcp.Tests;
+
+public sealed class ViewerEndpointTests
+{
+    private static VoxelForgeMcpSession CreateSession(Action<VoxelForgeMcpSession>? setup = null)
+    {
+        var session = new VoxelForgeMcpSession(
+            new EditorConfigState { DefaultGridHint = 32, MaxUndoDepth = 50 },
+            NullLoggerFactory.Instance);
+        setup?.Invoke(session);
+        return session;
+    }
+
+    private static (MeshSnapshotService, PaletteSnapshotService) CreateServices()
+    {
+        var mesher = new GreedyMesher();
+        var meshService = new MeshSnapshotService(mesher);
+        var paletteService = new PaletteSnapshotService();
+        return (meshService, paletteService);
+    }
+
+    [Fact]
+    public void ViewerState_EmptyModel_ReturnsZeroVoxels()
+    {
+        var session = CreateSession();
+        using var scope = new ServiceCollection().BuildServiceProvider().CreateScope();
+
+        // The viewer-state endpoint doesn't take DI services directly; we test the
+        // logic by reading session state that the endpoint handler uses.
+        var model = session.Document.Model;
+        Assert.Equal(0, model.GetVoxelCount());
+        Assert.Equal("untitled", session.CurrentModelName);
+        Assert.Equal(0, session.ViewerRevision);
+    }
+
+    [Fact]
+    public void ViewerState_AfterSetVoxels_ReflectsRevisionAndCount()
+    {
+        var session = CreateSession();
+        var model = session.Document.Model;
+
+        // Add some voxels directly (simulating what MCP tools do)
+        model.SetVoxel(new Point3(0, 0, 0), 1);
+        model.SetVoxel(new Point3(1, 0, 0), 1);
+        model.SetVoxel(new Point3(0, 1, 0), 2);
+
+        // Simulate palette entries (needed for mesh snapshot)
+        model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(128, 128, 128, 255) });
+        model.Palette.Set(2, new MaterialDef { Name = "Red", Color = new RgbaColor(255, 0, 0, 255) });
+
+        // Increment revision (normally done by event handler)
+        session.IncrementViewerRevision();
+
+        Assert.Equal(3, model.GetVoxelCount());
+        Assert.True(session.ViewerRevision > 0);
+    }
+
+    [Fact]
+    public void MeshSnapshot_EmptyModel_ReturnsEmptyArrays()
+    {
+        var session = CreateSession();
+        var (meshService, _) = CreateServices();
+
+        var mesh = meshService.BuildSnapshot(session.Document.Model);
+
+        Assert.Empty(mesh.Positions);
+        Assert.Empty(mesh.Normals);
+        Assert.Empty(mesh.Colors);
+        Assert.Empty(mesh.Indices);
+        Assert.Null(mesh.Bounds);
+        Assert.Equal(0, mesh.VertexCount);
+        Assert.Equal(0, mesh.TriangleCount);
+    }
+
+    [Fact]
+    public void MeshSnapshot_WithVoxels_ReturnsValidGeometry()
+    {
+        var session = CreateSession();
+        var (meshService, _) = CreateServices();
+
+        var model = session.Document.Model;
+        model.SetVoxel(new Point3(0, 0, 0), 1);
+        model.SetVoxel(new Point3(1, 0, 0), 1);
+        model.SetVoxel(new Point3(0, 1, 0), 2);
+        model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(128, 128, 128, 255) });
+        model.Palette.Set(2, new MaterialDef { Name = "Red", Color = new RgbaColor(255, 0, 0, 255) });
+
+        var mesh = meshService.BuildSnapshot(model);
+
+        // Greedy mesher should produce at least some geometry for 3 voxels
+        Assert.True(mesh.VertexCount > 0, "Mesh should have vertices for 3 voxels");
+        Assert.True(mesh.TriangleCount > 0, "Mesh should have triangles for 3 voxels");
+
+        // Vertices are quads (4 verts per quad face)
+        Assert.Equal(mesh.VertexCount * 3, mesh.Positions.Length);
+        Assert.Equal(mesh.VertexCount * 3, mesh.Normals.Length);
+        Assert.Equal(mesh.VertexCount * 4, mesh.Colors.Length);
+        Assert.Equal(mesh.TriangleCount * 3, mesh.Indices.Length);
+
+        // Bounds should be set
+        Assert.NotNull(mesh.Bounds);
+
+        // Colors should be non-default (we added colored voxels)
+        bool hasNonDefaultColor = false;
+        for (int i = 0; i < mesh.Colors.Length; i++)
+        {
+            if (mesh.Colors[i] != 0) { hasNonDefaultColor = true; break; }
+        }
+        Assert.True(hasNonDefaultColor, "Vertex colors should be non-zero for colored voxels");
+    }
+
+    [Fact]
+    public void Palette_WithEntries_ReturnsCorrectShape()
+    {
+        var session = CreateSession();
+        var (_, paletteService) = CreateServices();
+
+        var model = session.Document.Model;
+        model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(128, 128, 128, 255) });
+        model.Palette.Set(2, new MaterialDef { Name = "Red", Color = new RgbaColor(255, 0, 0, 255) });
+
+        var palette = paletteService.BuildSnapshot(model.Palette);
+
+        Assert.Equal(2, palette.EntryCount);
+        Assert.Equal(2, palette.Entries.Count);
+
+        // Check first entry
+        var first = palette.Entries[0];
+        Assert.Equal(1, first.Index);
+        Assert.Equal("Stone", first.Name);
+        Assert.Equal(128, first.R);
+        Assert.Equal(128, first.G);
+        Assert.Equal(128, first.B);
+        Assert.Equal(255, first.A);
+
+        // Check second entry  
+        var second = palette.Entries[1];
+        Assert.Equal(2, second.Index);
+        Assert.Equal("Red", second.Name);
+        Assert.Equal(255, second.R);
+        Assert.Equal(0, second.G);
+        Assert.Equal(0, second.B);
+    }
+
+    [Fact]
+    public void ViewerMeshSnapshotResponse_SerializesWithSnakeCase()
+    {
+        // Verify that serialization uses snake_case naming
+        var response = new ViewerMeshSnapshotResponse
+        {
+            ModelId = "test",
+            MeshId = "mesh-test-001",
+            Format = "json",
+            VertexCount = 4,
+            IndexCount = 6,
+            TriangleCount = 2,
+            Positions = [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0],
+            Normals = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+            Colors = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 0, 255, 255],
+            Indices = [0, 1, 2, 0, 2, 3],
+            Bounds = new ViewerBounds { MinX = 0, MinY = 0, MinZ = 0, MaxX = 1, MaxY = 1, MaxZ = 1 },
+            PaletteMapping = new Dictionary<string, object>
+            {
+                ["1"] = new { name = "Red", color = "#FF0000", a = 255, visible = true },
+            },
+        };
+
+        var json = JsonSerializer.Serialize(response, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        });
+
+        Assert.Contains("\"model_id\"", json);
+        Assert.Contains("\"mesh_id\"", json);
+        Assert.Contains("\"vertex_count\"", json);
+        Assert.Contains("\"index_count\"", json);
+        Assert.Contains("\"triangle_count\"", json);
+        Assert.Contains("\"positions\"", json);
+        Assert.Contains("\"normals\"", json);
+        Assert.Contains("\"colors\"", json);
+        Assert.Contains("\"indices\"", json);
+        Assert.Contains("\"palette_mapping\"", json);
+        Assert.Contains("\"min_x\"", json);
+
+        using var document = JsonDocument.Parse(json);
+        var colors = document.RootElement.GetProperty("colors");
+        Assert.Equal(JsonValueKind.Array, colors.ValueKind);
+        Assert.Equal(16, colors.GetArrayLength());
+        Assert.Equal(255, colors[0].GetInt32());
+    }
+}

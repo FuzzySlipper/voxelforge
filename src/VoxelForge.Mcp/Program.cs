@@ -2,8 +2,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ModelContextProtocol;
 using VoxelForge.App;
+using VoxelForge.App.Services;
+using VoxelForge.Core.Meshing;
 using VoxelForge.Mcp;
 using VoxelForge.Mcp.Tools;
+using VoxelForge.Mcp.Viewer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,16 +33,25 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(EditorConfigState.Load());
 builder.Services.AddSingleton<VoxelForgeMcpSession>();
+
+// Register viewer services
+builder.Services.AddSingleton<IVoxelMesher>(_ => new GreedyMesher());
+builder.Services.AddSingleton<MeshSnapshotService>();
+builder.Services.AddSingleton<PaletteSnapshotService>();
+
 builder.Services.AddVoxelForgeMcpTools();
 builder.Services.AddMcpServer()
     .WithHttpTransport();
 
 var app = builder.Build();
 
+app.UseStaticFiles();
+
 app.MapGet("/", () => Results.Ok(new
 {
     name = "VoxelForge.Mcp",
     mcp_endpoint = "/mcp",
+    viewer_endpoint = "/viewer",
 }));
 
 app.MapGet("/health", (VoxelForgeMcpOptions currentOptions, VoxelForgeMcpSession session) => Results.Ok(new
@@ -49,9 +61,11 @@ app.MapGet("/health", (VoxelForgeMcpOptions currentOptions, VoxelForgeMcpSession
     voxel_count = session.Document.Model.GetVoxelCount(),
     region_count = session.Document.Labels.Regions.Count,
     tool_endpoint = "/mcp",
+    viewer_endpoint = "/viewer",
 }));
 
 app.MapMcp("/mcp");
+app.MapViewerEndpoints();
 
 app.Run();
 

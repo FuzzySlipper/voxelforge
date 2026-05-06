@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoxelForge Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #171a1f; color: #d9e2ef; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+    #viewport-wrap { position: relative; width: 100%; height: 100%; }
+    #renderer-container { width: 100%; height: 100%; }
+    /* Diagnostics overlay — top-left, no editing controls */
+    .diag-overlay { position: absolute; top: 10px; left: 10px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; z-index: 10; }
+    .diag-pill { background: rgba(13, 17, 23, 0.82); border: 1px solid rgba(121, 153, 190, 0.3); padding: 4px 9px; border-radius: 999px; color: #dbe9fa; font-size: 11px; white-space: nowrap; }
+    .diag-pill.ok { border-color: rgba(127, 214, 138, 0.4); }
+    .diag-pill.warn { border-color: rgba(255, 202, 110, 0.5); }
+    /* Bottom status bar */
+    .status-bar { position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px; padding: 5px 12px; background: rgba(17, 21, 27, 0.88); border-top: 1px solid rgba(48, 56, 70, 0.6); color: #93a4b8; font-size: 11px; z-index: 10; pointer-events: none; }
+    .status-bar .spacer { flex: 1; }
+    .status-ok { color: #7fd68a; }
+    .status-warn { color: #ffca6e; }
+    .status-err { color: #ff7979; }
+    /* Loading */
+    #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #171a1f; z-index: 20; font-size: 14px; color: #8fa7c4; }
+    #loading.hidden { display: none; }
+    /* Fallback message */
+    .fallback-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 15; padding: 30px; text-align: center; line-height: 1.6; }
+    .fallback-msg.hidden { display: none; }
+    /* Connection indicator dot */
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .dot.ok { background: #7fd68a; box-shadow: 0 0 4px #7fd68a88; }
+    .dot.warn { background: #ffca6e; }
+  </style>
+</head>
+<body>
+  <div id="viewport-wrap">
+    <div id="renderer-container"></div>
+
+    <div id="loading">Loading VoxelForge Viewer…</div>
+
+    <div id="fallback-msg" class="fallback-msg hidden">
+      <div style="max-width: 480px;">
+        <p style="margin-bottom: 12px;">WebGL is not available in this browser.</p>
+        <p style="font-size: 12px; color: #8495aa;">
+          VoxelForge Viewer requires WebGL to render the 3D voxel model.
+          Try a different browser or check that hardware acceleration is enabled.
+        </p>
+      </div>
+    </div>
+
+    <div class="diag-overlay" id="diag-overlay">
+      <div class="diag-pill" id="diag-model">Model: —</div>
+      <div class="diag-pill" id="diag-mesh">Mesh: —</div>
+      <div class="diag-pill" id="diag-connection" class="ok">Connecting…</div>
+    </div>
+
+    <div class="status-bar">
+      <span><span class="dot" id="conn-dot"></span><span id="status-text">Loading…</span></span>
+      <span class="spacer"></span>
+      <span id="status-revision">rev —</span>
+      <span id="status-voxels">0 voxels</span>
+      <span id="status-tris">0 tris</span>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script>
+    // ═══════════════════════════════════════════════════════════════════════
+    // VoxelForge Viewer — read-only WebGL renderer served from MCP host
+    //
+    // This file is intentionally output-only: no palette/tool panels, no
+    // voxel editing controls, no project save/load UI.
+    //
+    // Data source: REST API at /api/mesh-snapshot, /api/viewer-state
+    // ═══════════════════════════════════════════════════════════════════════
+
+    (function () {
+      "use strict";
+
+      const POLL_INTERVAL_MS = 2000;
+
+      // ── DOM refs ──
+      const container = document.getElementById("renderer-container");
+      const loadingEl = document.getElementById("loading");
+      const fallbackEl = document.getElementById("fallback-msg");
+      const diagModel = document.getElementById("diag-model");
+      const diagMesh = document.getElementById("diag-mesh");
+      const diagConn = document.getElementById("diag-connection");
+      const connDot = document.getElementById("conn-dot");
+      const statusText = document.getElementById("status-text");
+      const statusRev = document.getElementById("status-revision");
+      const statusVoxels = document.getElementById("status-voxels");
+      const statusTris = document.getElementById("status-tris");
+
+      // ── Scene state ──
+      let scene = null;
+      let renderer = null;
+      let camera = null;
+      let controls = null;
+      let meshGroup = null;
+      let gridHelper = null;
+      let lastMeshId = null;
+      let lastRevision = -1;
+      let animationId = null;
+      let pollTimer = null;
+      let connected = false;
+      let webglAvailable = true;
+      let lastError = null;
+
+      // ── Lights ──
+      function setupLights(scene) {
+        const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+        scene.add(ambient);
+
+        const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+        dir.position.set(10, 20, 15);
+        dir.castShadow = true;
+        dir.shadow.mapSize.width = 2048;
+        dir.shadow.mapSize.height = 2048;
+        const sc = dir.shadow.camera;
+        sc.near = 0.5; sc.far = 100;
+        sc.left = -30; sc.right = 30; sc.top = 30; sc.bottom = -30;
+        scene.add(dir);
+
+        const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+        fill.position.set(-5, 5, -10);
+        scene.add(fill);
+      }
+
+      // ── Initialize scene ──
+      function initScene() {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        // Scene
+        const s = new THREE.Scene();
+        s.background = new THREE.Color(0x2b2b2b);
+
+        // Camera
+        const cam = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+        cam.position.set(10, 10, 10);
+
+        // Try WebGL renderer
+        let r = null;
+        try {
+          r = new THREE.WebGLRenderer({ antialias: true });
+          r.setSize(width, height);
+          r.setPixelRatio(window.devicePixelRatio || 1);
+          r.shadowMap.enabled = true;
+          r.shadowMap.type = THREE.PCFSoftShadowMap;
+          container.appendChild(r.domElement);
+        } catch (err) {
+          console.warn("[viewer] WebGL unavailable:", err);
+          webglAvailable = false;
+          fallbackEl.classList.remove("hidden");
+        }
+
+        // OrbitControls
+        let ctrl = null;
+        if (r) {
+          // Use basic orbit controls from the included standalone
+          ctrl = new THREE.OrbitControls(cam, r.domElement);
+          ctrl.enableDamping = true;
+          ctrl.dampingFactor = 0.1;
+          ctrl.screenSpacePanning = true;
+          ctrl.minDistance = 1;
+          ctrl.maxDistance = 500;
+        }
+
+        // Mesh group
+        const mg = new THREE.Group();
+        s.add(mg);
+
+        // Lights
+        setupLights(s);
+
+        // Grid
+        const gh = new THREE.GridHelper(100, 100, 0x555555, 0x333333);
+        s.add(gh);
+
+        // Handle resize
+        if (r) {
+          window.addEventListener("resize", function () {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            cam.aspect = w / h;
+            cam.updateProjectionMatrix();
+            r.setSize(w, h);
+          });
+        }
+
+        return { scene: s, camera: cam, renderer: r, controls: ctrl, meshGroup: mg, gridHelper: gh };
+      }
+
+      // ── Animate loop ──
+      function animate() {
+        if (!renderer) return;
+        animationId = requestAnimationFrame(animate);
+        if (controls) controls.update();
+        renderer.render(scene, camera);
+      }
+
+      // ── Frame camera to model bounds ──
+      function frameCamera(bounds) {
+        if (!bounds) {
+          camera.position.set(10, 10, 10);
+          if (controls) { controls.target.set(0, 0, 0); controls.update(); }
+          return;
+        }
+        const min = new THREE.Vector3(bounds.min_x, bounds.min_y, bounds.min_z);
+        const max = new THREE.Vector3(bounds.max_x, bounds.max_y, bounds.max_z);
+        const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+        const size = new THREE.Vector3().subVectors(max, min);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const distance = Math.max(maxDim * 2.5, 5);
+        camera.position.set(
+          center.x + distance * 0.6,
+          center.y + distance * 0.6,
+          center.z + distance * 0.6
+        );
+        camera.near = 0.1;
+        camera.far = distance * 10;
+        camera.lookAt(center);
+        if (controls) {
+          controls.target.copy(center);
+          controls.update();
+        }
+      }
+
+      // ── Build mesh from snapshot data ──
+      function buildMesh(data) {
+        // Clear existing mesh
+        while (meshGroup.children.length > 0) {
+          const child = meshGroup.children[0];
+          meshGroup.remove(child);
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+          }
+        }
+
+        if (data.vertex_count === 0 || !data.positions || data.positions.length === 0) {
+          return;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        const positions = new Float32Array(data.positions);
+        geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+        // Normals
+        if (data.normals && data.normals.length > 0) {
+          const normals = new Float32Array(data.normals);
+          geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+        } else {
+          geo.computeVertexNormals();
+        }
+
+        // Colors — convert uint8 RGBA to float RGB
+        if (data.colors && data.colors.length > 0) {
+          const vc = data.vertex_count;
+          const colors = new Float32Array(vc * 3);
+          for (let i = 0; i < vc; i++) {
+            colors[i * 3]     = data.colors[i * 4] / 255;
+            colors[i * 3 + 1] = data.colors[i * 4 + 1] / 255;
+            colors[i * 3 + 2] = data.colors[i * 4 + 2] / 255;
+          }
+          geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        }
+
+        // Indices
+        if (data.indices && data.indices.length > 0) {
+          const indices = new Uint32Array(data.indices);
+          geo.setIndex(new THREE.BufferAttribute(indices, 1));
+        }
+
+        if (!data.normals || data.normals.length === 0) {
+          geo.computeVertexNormals();
+        }
+        geo.computeBoundingSphere();
+
+        const mat = new THREE.MeshStandardMaterial({
+          vertexColors: data.colors && data.colors.length > 0,
+          side: THREE.FrontSide,
+          roughness: 0.7,
+          metalness: 0.1,
+        });
+
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        meshGroup.add(mesh);
+
+        frameCamera(data.bounds);
+      }
+
+      // ── Update diagnostics ──
+      function updateDiagnostics(state, mesh) {
+        if (state) {
+          const isUp = connected;
+          diagModel.textContent = "Model: " + state.model_name + " (" + state.voxel_count + " voxels)";
+          diagConn.textContent = isUp ? "Connected · rev " + state.revision : "Disconnected";
+          diagConn.className = "diag-pill " + (isUp ? "ok" : "warn");
+          connDot.className = "dot " + (isUp ? "ok" : "warn");
+          statusText.textContent = isUp ? "Connected" : "Disconnected — retrying…";
+          statusRev.textContent = "rev " + state.revision;
+          statusVoxels.textContent = state.voxel_count + " voxels";
+        }
+        if (mesh) {
+          diagMesh.textContent = "Mesh: " + mesh.vertex_count + " verts · " + mesh.triangle_count + " tris";
+          statusTris.textContent = mesh.triangle_count + " tris";
+        }
+      }
+
+      // ── Fetch viewer state ──
+      async function fetchState() {
+        try {
+          const resp = await fetch("/api/viewer-state");
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          return await resp.json();
+        } catch (err) {
+          console.warn("[viewer] fetchState error:", err);
+          return null;
+        }
+      }
+
+      // ── Fetch mesh snapshot ──
+      async function fetchMesh() {
+        try {
+          const resp = await fetch("/api/mesh-snapshot");
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          return await resp.json();
+        } catch (err) {
+          console.warn("[viewer] fetchMesh error:", err);
+          return null;
+        }
+      }
+
+      // ── Main update cycle ──
+      async function updateViewer() {
+        const state = await fetchState();
+        if (!state) {
+          connected = false;
+          updateDiagnostics({ model_name: "—", voxel_count: 0, revision: "?" }, null);
+          return;
+        }
+        connected = true;
+
+        if (state.revision !== lastRevision) {
+          lastRevision = state.revision;
+          const mesh = await fetchMesh();
+          if (mesh) {
+            lastMeshId = mesh.mesh_id;
+            buildMesh(mesh);
+            if (!animationId && renderer) animate();
+            updateDiagnostics(state, mesh);
+          } else {
+            updateDiagnostics(state, null);
+          }
+        } else {
+          updateDiagnostics(state, null);
+        }
+      }
+
+      // ── Start ──
+      async function start() {
+        try {
+          const init = initScene();
+          scene = init.scene;
+          camera = init.camera;
+          renderer = init.renderer;
+          controls = init.controls;
+          meshGroup = init.meshGroup;
+          gridHelper = init.gridHelper;
+
+          if (!webglAvailable) {
+            // Still try to fetch state for display even without WebGL
+            const state = await fetchState();
+            if (state) {
+              connected = true;
+              updateDiagnostics(state, null);
+              loadingEl.classList.add("hidden");
+            }
+            return;
+          }
+
+          // Load initial data
+          await updateViewer();
+
+          // Start polling
+          pollTimer = setInterval(updateViewer, POLL_INTERVAL_MS);
+
+          loadingEl.classList.add("hidden");
+        } catch (err) {
+          console.error("[viewer] start error:", err);
+          lastError = err;
+          statusText.textContent = "Error: " + (err.message || String(err));
+          statusText.className = "status-err";
+        }
+      }
+
+      // ── Cleanup ──
+      function dispose() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        if (animationId) { cancelAnimationFrame(animationId); animationId = null; }
+        if (renderer) { renderer.dispose(); }
+        if (controls) { controls.dispose(); }
+      }
+
+      // Start when DOM is ready
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start);
+      } else {
+        start();
+      }
+
+      // Expose for dev console debugging
+      window.__voxelforgeViewer = {
+        fetchState: fetchState,
+        fetchMesh: fetchMesh,
+        frameCamera: frameCamera,
+        dispose: dispose,
+      };
+    })();
+  </script>
+</body>
+</html>
