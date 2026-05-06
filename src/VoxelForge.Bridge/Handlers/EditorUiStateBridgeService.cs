@@ -80,7 +80,7 @@ public sealed class EditorUiStateBridgeService
             CanUndo = historySnapshot.CanUndo,
             CanRedo = historySnapshot.CanRedo,
             UndoDepth = historySnapshot.UndoDepth,
-            RedoDepth = _modelHolder.UndoHistory.RedoCount,
+            RedoDepth = historySnapshot.RedoDepth,
             LastCommandDescription = historySnapshot.LastCommandDescription,
             SelectedVoxelCount = _modelHolder.Session.SelectedVoxels.Count,
             ActiveFrameIndex = _modelHolder.Session.ActiveFrameIndex,

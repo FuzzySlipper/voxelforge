@@ -117,6 +117,12 @@ public sealed class MeshSnapshotService
 
     /// <summary>
     /// Build a reverse color→palette-index map from a palette.
+    /// If two palette entries share the same RGBA color, the later (higher-index
+    /// iteration order) entry wins. Both produce the same rendered color, so this
+    /// is semantically correct for rendering but means palette index recovery is
+    /// ambiguous when duplicate colors exist. This is acceptable because the meshers
+    /// produce vertex colors from palette entries and the resulting visuals are
+    /// identical regardless of which index is recovered.
     /// </summary>
     private static Dictionary<uint, byte> BuildColorToPaletteIndexMap(Palette palette)
     {

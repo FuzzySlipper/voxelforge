@@ -60,6 +60,38 @@ public sealed class PaletteSnapshotServiceTests
     }
 
     [Fact]
+    public void BuildSnapshot_EntryCountEqualsEntriesCount()
+    {
+        var palette = new Palette();
+        palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(128, 128, 128) });
+        palette.Set(5, new MaterialDef { Name = "Wood", Color = new RgbaColor(139, 90, 43) });
+        palette.Set(12, new MaterialDef { Name = "Dirt", Color = new RgbaColor(101, 67, 33) });
+
+        var service = new PaletteSnapshotService();
+        var snapshot = service.BuildSnapshot(palette);
+
+        // EntryCount always equals Entries.Count because Palette is a sparse
+        // dictionary with no gap entries
+        Assert.Equal(snapshot.Entries.Count, snapshot.EntryCount);
+        Assert.Equal(3, snapshot.EntryCount);
+    }
+
+    [Fact]
+    public void BuildSnapshot_Index0NeverIncluded()
+    {
+        var palette = new Palette();
+        // Index 0 is silently ignored by Palette.Set
+        palette.Set(0, new MaterialDef { Name = "Air", Color = new RgbaColor(0, 0, 0, 0) });
+
+        var service = new PaletteSnapshotService();
+        var snapshot = service.BuildSnapshot(palette);
+
+        // Index 0 is reserved for air and never added to the palette
+        Assert.Equal(0, snapshot.EntryCount);
+        Assert.Empty(snapshot.Entries);
+    }
+
+    [Fact]
     public void BuildSnapshot_ColorComponentsPreserved()
     {
         var palette = new Palette();

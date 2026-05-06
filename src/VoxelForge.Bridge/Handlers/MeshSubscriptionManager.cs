@@ -185,14 +185,16 @@ public sealed class MeshSubscriptionManager : IEventHandler<VoxelModelChangedEve
 
     void IEventHandler<VoxelModelChangedEvent>.Handle(VoxelModelChangedEvent applicationEvent)
     {
-        // Determine dirty regions from the event kind.
-        // For this implementation, we don't have exact changed-bounds in the event,
-        // so we mark the entire model's occupied regions as dirty.
-        // The MeshChangePushService will then compute incremental updates from
-        // these dirty regions.
+        // Intentionally a no-op. Dirty region recording for mesh updates is done
+        // synchronously by the bridge command handlers (CommandExecuteHandler,
+        // HistoryUndoHandler, HistoryRedoHandler, ProjectLoadHandler), which call
+        // RecordFullDirty() directly after mutating the model. The event-based path
+        // is reserved for future enhancement when VoxelModelChangedEvent carries
+        // exact changed-bounds metadata, enabling finer-grained dirty region tracking.
         //
-        // Future enhancement: add bounds metadata to VoxelModelChangedEvent
-        // so we can compute finer-grained dirty regions.
+        // Until then, marking all occupied regions dirty via the command handler's
+        // RecordFullDirty() call is safe and produces correct mesh updates at the
+        // cost of re-meshing regions that may not have changed.
     }
 }
 

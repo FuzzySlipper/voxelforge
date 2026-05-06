@@ -82,6 +82,42 @@ public sealed class MeshSnapshotServiceTests
     }
 
     [Fact]
+    public void BuildSnapshot_DuplicateColors_LaterEntryWins_RenderedColorsSame()
+    {
+        // Two palette entries with identical RGBA colors
+        var model = new VoxelModel(NullLogger<VoxelModel>.Instance);
+        model.Palette.Set(1, new MaterialDef { Name = "RedOne", Color = new RgbaColor(255, 0, 0, 255) });
+        model.Palette.Set(2, new MaterialDef { Name = "RedTwo", Color = new RgbaColor(255, 0, 0, 255) });
+        model.SetVoxel(new Point3(0, 0, 0), 1);
+        model.SetVoxel(new Point3(2, 0, 0), 2);
+
+        var service = new MeshSnapshotService(new GreedyMesher());
+        var snapshot = service.BuildSnapshot(model);
+
+        // Both voxels produce the same RGBA colors in the mesh, so the palette
+        // index recovery from color is ambiguous. The later entry (index 2) wins
+        // in the reverse map. But the rendered colors are identical.
+        Assert.NotNull(snapshot.PaletteIndices);
+        Assert.Equal(snapshot.VertexCount, snapshot.PaletteIndices!.Length);
+
+        // All vertices should have color (255, 0, 0, 255) → packed key matches index 2
+        foreach (var ci in snapshot.PaletteIndices)
+        {
+            // Later duplicate color entry wins: index 2
+            Assert.Equal((byte)2, ci);
+        }
+
+        // All vertex colors should be (255, 0, 0, 255)
+        for (int i = 0; i < snapshot.VertexCount; i++)
+        {
+            Assert.Equal(255, snapshot.Colors[i * 4 + 0]);
+            Assert.Equal(0, snapshot.Colors[i * 4 + 1]);
+            Assert.Equal(0, snapshot.Colors[i * 4 + 2]);
+            Assert.Equal(255, snapshot.Colors[i * 4 + 3]);
+        }
+    }
+
+    [Fact]
     public void BuildSnapshot_PaletteIndicesMatchVoxelMaterial()
     {
         var model = CreateModel();

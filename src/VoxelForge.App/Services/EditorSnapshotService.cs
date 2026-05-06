@@ -212,6 +212,7 @@ public sealed class EditorSnapshotService
             CanUndo = undoHistory.UndoCount > 0,
             CanRedo = undoHistory.RedoCount > 0,
             UndoDepth = undoHistory.UndoCount,
+            RedoDepth = undoHistory.RedoCount,
             LastCommandDescription = lastCmd,
         };
     }

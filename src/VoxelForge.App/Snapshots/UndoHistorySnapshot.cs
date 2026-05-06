@@ -21,6 +21,11 @@ public sealed class UndoHistorySnapshot
     public required int UndoDepth { get; init; }
 
     /// <summary>
+    /// Number of redo steps available.
+    /// </summary>
+    public required int RedoDepth { get; init; }
+
+    /// <summary>
     /// Description of the most recently executed command, or null/empty.
     /// </summary>
     public string? LastCommandDescription { get; init; }

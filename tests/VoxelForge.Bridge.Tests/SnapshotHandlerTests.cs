@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Den.Bridge.Abstractions;
 using Den.Bridge.Protocol;
 using Microsoft.Extensions.Logging;
@@ -272,6 +273,100 @@ public sealed class PaletteGetHandlerTests
     }
 }
 
+public sealed class BridgeSerializationRoundTripTests
+{
+    [Fact]
+    public void VersionHandshakeRequest_SerializesToSnakeCase()
+    {
+        var request = new VersionHandshakeRequest
+        {
+            ClientProtocolVersion = "1.0",
+        };
+
+        var json = BridgeJson.Serialize(request);
+        var doc = JsonDocument.Parse(json);
+
+        // Property names must be snake_case
+        Assert.True(doc.RootElement.TryGetProperty("client_protocol_version", out _));
+        Assert.Equal("1.0", doc.RootElement.GetProperty("client_protocol_version").GetString());
+    }
+
+    [Fact]
+    public void VoxelForgeHandshakeResponse_SerializesToSnakeCase()
+    {
+        var response = new VoxelForgeHandshakeResponse
+        {
+            SidecarSchemaVersion = "voxelforge@1",
+            SupportedCapabilities = ["mesh_json", "commands"],
+            Compatible = true,
+            SchemaBundleId = "voxelforge-schema-2026-05-05",
+        };
+
+        var json = BridgeJson.Serialize(response);
+        var doc = JsonDocument.Parse(json);
+
+        Assert.True(doc.RootElement.TryGetProperty("sidecar_schema_version", out _));
+        Assert.True(doc.RootElement.TryGetProperty("supported_capabilities", out _));
+        Assert.True(doc.RootElement.TryGetProperty("compatible", out _));
+        Assert.True(doc.RootElement.TryGetProperty("schema_bundle_id", out _));
+        Assert.Equal("voxelforge@1", doc.RootElement.GetProperty("sidecar_schema_version").GetString());
+        Assert.True(doc.RootElement.GetProperty("compatible").GetBoolean());
+    }
+
+    [Fact]
+    public void VoxelForgeHandshakeRequest_RoundTripsFromSnakeCaseJson()
+    {
+        // This is the exact JSON shape the TypeScript client would send
+        var tsJson = @"{""client_schema_version"":""voxelforge@1"",""supported_capabilities"":[""mesh_json"",""commands""]}";
+
+        // Deserialize using BridgeJson (snake_case naming policy)
+        var request = BridgeJson.Deserialize<VoxelForgeHandshakeRequest>(tsJson);
+        Assert.NotNull(request);
+        Assert.Equal("voxelforge@1", request.ClientSchemaVersion);
+        Assert.Contains("mesh_json", request.SupportedCapabilities);
+    }
+
+    [Fact]
+    public void EditorStateSubscribeRequest_DeserializesFromSnakeCaseJson()
+    {
+        // Exact shape the TS client sends for voxelforge.state.subscribe
+        var tsJson = @"{""domains"":[""document"",""session"",""history""],""delivery_mode"":""snapshot"",""full_snapshot_on_subscribe"":true}";
+
+        var request = BridgeJson.Deserialize<EditorStateSubscribeRequest>(tsJson);
+        Assert.NotNull(request);
+        Assert.Contains("document", request.Domains);
+        Assert.Equal("snapshot", request.DeliveryMode);
+        Assert.True(request.FullSnapshotOnSubscribe);
+    }
+
+    [Fact]
+    public void CommandExecuteRequest_DeserializesArgumentsFromSnakeCaseJson()
+    {
+        // Exact shape the TS client sends for voxelforge.command.execute
+        var tsJson = @"{""command_name"":""place_voxel"",""arguments"":{""x"":1,""y"":2,""z"":3,""palette_index"":2}}";
+
+        var request = BridgeJson.Deserialize<CommandExecuteRequest>(tsJson);
+        Assert.NotNull(request);
+        Assert.Equal("place_voxel", request.CommandName);
+        Assert.NotNull(request.Arguments);
+        Assert.True(request.Arguments.ContainsKey("x"));
+        Assert.True(request.Arguments.ContainsKey("palette_index"));
+    }
+
+    [Fact]
+    public void BridgeSerialization_IsCaseSensitive()
+    {
+        // PropertyNameCaseInsensitive is false, so camelCase keys should not match
+        var camelCaseJson = "{\"clientSchemaVersion\":\"voxelforge@1\",\"supportedCapabilities\":[\"mesh_json\"]}";
+
+        var request = BridgeJson.Deserialize<VoxelForgeHandshakeRequest>(camelCaseJson);
+        Assert.NotNull(request);
+        // camelCase properties should not be deserialized, leaving defaults
+        Assert.Equal("voxelforge@1", request.ClientSchemaVersion);
+        Assert.Equal(["mesh_json"], request.SupportedCapabilities);
+    }
+}
+
 public sealed class VoxelForgeSchemaHandshakeHandlerTests
 {
     [Fact]
@@ -312,5 +407,91 @@ public sealed class VoxelForgeSchemaHandshakeHandlerTests
 
         Assert.NotNull(response);
         Assert.False(response.Compatible);
+    }
+
+    [Fact]
+    public async Task SchemaHandshake_ExactV1Required_SubMinorNotAccepted()
+    {
+        var handler = new VoxelForgeSchemaHandshakeHandler();
+        var context = new BridgeRequestContext("req-schema-subminor", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // "voxelforge@1.0" is not the same as "voxelforge@1" — strict v1 policy
+        var response = await handler.HandleAsync(
+            new VoxelForgeHandshakeRequest
+            {
+                ClientSchemaVersion = "voxelforge@1.0",
+                SupportedCapabilities = ["mesh_json"],
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.False(response.Compatible);
+    }
+
+    [Fact]
+    public async Task SchemaHandshake_RejectsEmptyOrNullVersion()
+    {
+        var handler = new VoxelForgeSchemaHandshakeHandler();
+        var context = new BridgeRequestContext("req-schema-empty", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var response = await handler.HandleAsync(
+            new VoxelForgeHandshakeRequest
+            {
+                ClientSchemaVersion = "",
+                SupportedCapabilities = ["mesh_json"],
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.False(response.Compatible);
+    }
+
+    [Fact]
+    public async Task SchemaHandshake_SuppliesAllExpectedCapabilities()
+    {
+        var handler = new VoxelForgeSchemaHandshakeHandler();
+        var context = new BridgeRequestContext("req-schema-caps", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var response = await handler.HandleAsync(
+            new VoxelForgeHandshakeRequest
+            {
+                ClientSchemaVersion = "voxelforge@1",
+                SupportedCapabilities = [],
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Compatible);
+        Assert.Contains("mesh_json", response.SupportedCapabilities);
+        Assert.Contains("incremental_mesh", response.SupportedCapabilities);
+        Assert.Contains("state_snapshot", response.SupportedCapabilities);
+        Assert.Contains("state_delta", response.SupportedCapabilities);
+        Assert.Contains("commands", response.SupportedCapabilities);
+        Assert.Contains("history", response.SupportedCapabilities);
+        Assert.Contains("project_io", response.SupportedCapabilities);
+        Assert.Equal(7, response.SupportedCapabilities.Length);
+    }
+
+    [Fact]
+    public async Task SchemaHandshake_SchemaBundleIdIsStable()
+    {
+        var handler = new VoxelForgeSchemaHandshakeHandler();
+        var context = new BridgeRequestContext("req-schema-bundle", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var response = await handler.HandleAsync(
+            new VoxelForgeHandshakeRequest
+            {
+                ClientSchemaVersion = "voxelforge@1",
+                SupportedCapabilities = ["mesh_json"],
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Compatible);
+        Assert.Equal("voxelforge-schema-2026-05-05", response.SchemaBundleId);
     }
 }

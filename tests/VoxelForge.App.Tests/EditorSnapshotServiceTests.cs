@@ -146,6 +146,35 @@ public sealed class EditorSnapshotServiceTests
     }
 
     [Fact]
+    public void BuildUndoHistorySnapshot_IncludesRedoDepth()
+    {
+        var undoHistory = new UndoHistoryState(100);
+        var events = new ApplicationEventDispatcher();
+        var undoStack = new UndoStack(undoHistory, NullLogger<UndoStack>.Instance, events);
+
+        var model = CreateModel();
+        var document = new EditorDocumentState(model, CreateLabels());
+
+        // Execute a command so undo history has content
+        undoStack.Execute(new SetVoxelCommand(document.Model, new Point3(0, 0, 0), 1));
+
+        var snapshot = EditorSnapshotService.BuildUndoHistorySnapshot(undoHistory);
+
+        Assert.True(snapshot.CanUndo);
+        Assert.False(snapshot.CanRedo);
+        Assert.Equal(1, snapshot.UndoDepth);
+        Assert.Equal(0, snapshot.RedoDepth);
+
+        // Undo so redo history has content
+        undoStack.Undo();
+        var snapshotAfterUndo = EditorSnapshotService.BuildUndoHistorySnapshot(undoHistory);
+        Assert.False(snapshotAfterUndo.CanUndo);
+        Assert.True(snapshotAfterUndo.CanRedo);
+        Assert.Equal(0, snapshotAfterUndo.UndoDepth);
+        Assert.Equal(1, snapshotAfterUndo.RedoDepth);
+    }
+
+    [Fact]
     public void BuildUndoHistorySnapshot_ReflectsState()
     {
         var undoHistory = new UndoHistoryState(100);

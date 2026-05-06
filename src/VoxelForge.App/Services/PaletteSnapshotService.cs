@@ -11,6 +11,10 @@ public sealed class PaletteSnapshotService
 {
     /// <summary>
     /// Build a renderer-neutral palette snapshot from the given palette.
+    /// Index 0 (air) is never included in the snapshot because
+    /// <see cref="Core.Palette.Set"/> silently ignores index 0.
+    /// <see cref="PaletteSnapshot.EntryCount"/> reflects the actual number of
+    /// palette entries, not the full 0–255 range.
     /// </summary>
     public PaletteSnapshot BuildSnapshot(Palette palette)
     {

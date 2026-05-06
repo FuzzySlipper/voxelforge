@@ -413,6 +413,113 @@ public sealed class EditorUiStateHandlerTests
     }
 
     [Fact]
+    public async Task CommandExecute_MalformedStringArgument_ThrowsValidationError()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-malformed-str", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // The tool argument should be a string; passing a number should throw
+        var ex = await Assert.ThrowsAsync<BridgeHandlerException>(async () =>
+        {
+            await commandHandler.HandleAsync(
+                new CommandExecuteRequest
+                {
+                    CommandName = "set_active_tool",
+                    Arguments = new Dictionary<string, object?>
+                    {
+                        ["tool"] = new System.Text.Json.JsonElement()  // Non-string JsonElement
+                    },
+                },
+                context,
+                CancellationToken.None);
+        });
+
+        Assert.Equal("voxelforge.command.invalid_argument", ex.Code);
+        Assert.Equal(BridgeErrorCategories.Validation, ex.Category);
+    }
+
+    [Fact]
+    public async Task CommandExecute_MalformedIntArgument_ThrowsValidationError()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-malformed-int", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // The x argument should be an integer; passing a string should throw
+        var ex = await Assert.ThrowsAsync<BridgeHandlerException>(async () =>
+        {
+            await commandHandler.HandleAsync(
+                new CommandExecuteRequest
+                {
+                    CommandName = "place_voxel",
+                    Arguments = new Dictionary<string, object?>
+                    {
+                        ["x"] = "not-a-number",
+                        ["y"] = 0,
+                        ["z"] = 0,
+                        ["palette_index"] = 1,
+                    },
+                },
+                context,
+                CancellationToken.None);
+        });
+
+        Assert.Equal("voxelforge.command.invalid_argument", ex.Code);
+    }
+
+    [Fact]
+    public async Task CommandExecute_MalformedIntArgument_NonNumericJsonElement_ThrowsValidationError()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-malformed-json", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // Simulate a JsonElement that is not a Number (e.g., True/False/Object)
+        var jsonElement = System.Text.Json.JsonDocument.Parse("true").RootElement;
+
+        var ex = await Assert.ThrowsAsync<BridgeHandlerException>(async () =>
+        {
+            await commandHandler.HandleAsync(
+                new CommandExecuteRequest
+                {
+                    CommandName = "place_voxel",
+                    Arguments = new Dictionary<string, object?>
+                    {
+                        ["x"] = jsonElement,
+                        ["y"] = 0,
+                        ["z"] = 0,
+                        ["palette_index"] = 1,
+                    },
+                },
+                context,
+                CancellationToken.None);
+        });
+
+        Assert.Equal("voxelforge.command.invalid_argument", ex.Code);
+        Assert.Equal(BridgeErrorCategories.Validation, ex.Category);
+    }
+
+    [Fact]
+    public async Task CommandExecute_UnsupportedCommand_ThrowsBridgeHandlerException()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-unsupported", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var ex = await Assert.ThrowsAsync<BridgeHandlerException>(async () =>
+        {
+            await commandHandler.HandleAsync(
+                new CommandExecuteRequest
+                {
+                    CommandName = "nonexistent_command",
+                    Arguments = new Dictionary<string, object?>(),
+                },
+                context,
+                CancellationToken.None);
+        });
+
+        Assert.Equal("voxelforge.command.unsupported", ex.Code);
+        Assert.Equal(BridgeErrorCategories.UnsupportedCapability, ex.Category);
+    }
+
+    [Fact]
     public async Task CommandExecute_MissingRequiredArgument_ThrowsValidationError()
     {
         var (stateService, holder, commandHandler) = CreateCommandHandler();
@@ -488,6 +595,64 @@ public sealed class EditorUiStateHandlerTests
     }
 
     [Fact]
+    public async Task CommandExecute_PlaceVoxel_RecordsDirtyRegionsForMeshPush()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler(out var publisher, out var meshSubManager);
+        var context = new BridgeRequestContext("req-mesh-event", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // Subscribe to mesh updates so the push service sends events
+        meshSubManager.Subscribe(holder.ModelId, 16, "req-sub");
+
+        await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "place_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 10,
+                    ["y"] = 10,
+                    ["z"] = 10,
+                    ["palette_index"] = 1,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        // Should have published a mesh update event
+        var meshUpdateFrames = publisher.PublishedFrames
+            .Where(f => f.Event == "voxelforge.mesh.update")
+            .ToList();
+
+        Assert.NotEmpty(meshUpdateFrames);
+        var meshFrame = meshUpdateFrames[0];
+        Assert.Equal("voxelforge.mesh.update", meshFrame.Event);
+        Assert.True(meshFrame.Sequence > 0);
+    }
+
+    [Fact]
+    public async Task CommandExecute_SetActiveTool_DoesNotPublishMeshUpdate()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler(out var publisher);
+        var context = new BridgeRequestContext("req-no-mesh", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "set_active_tool",
+                Arguments = new Dictionary<string, object?> { ["tool"] = "paint" },
+            },
+            context,
+            CancellationToken.None);
+
+        // No mesh update events should be published for non-mesh commands
+        var meshUpdateFrames = publisher.PublishedFrames
+            .Where(f => f.Event == "voxelforge.mesh.update")
+            .ToList();
+
+        Assert.Empty(meshUpdateFrames);
+    }
+
+    [Fact]
     public async Task CommandExecute_LatencyEventIsEmittedUnconditionally()
     {
         var (stateService, holder, commandHandler) = CreateCommandHandler(out var publisher);
@@ -527,6 +692,11 @@ public sealed class EditorUiStateHandlerTests
 
     private static (EditorUiStateBridgeService stateService, VoxelModelHolder holder, CommandExecuteHandler handler) CreateCommandHandler(out FakeBridgeEventPublisher publisher)
     {
+        return CreateCommandHandler(out publisher, out _);
+    }
+
+    private static (EditorUiStateBridgeService stateService, VoxelModelHolder holder, CommandExecuteHandler handler) CreateCommandHandler(out FakeBridgeEventPublisher publisher, out MeshSubscriptionManager meshSubManager)
+    {
         var loggerFactory = NullLoggerFactory.Instance;
         var holder = new VoxelModelHolder(NullLogger<VoxelModelHolder>.Instance, loggerFactory);
         holder.LoadDefaultCube();
@@ -536,7 +706,7 @@ public sealed class EditorUiStateHandlerTests
 
         var voxelEditing = new VoxelEditingService();
         var eventPublisher = new NoopAppEventPublisher();
-        var meshSubManager = new MeshSubscriptionManager();
+        meshSubManager = new MeshSubscriptionManager();
         var meshPushService = new MeshChangePushService(
             holder,
             meshSubManager,
