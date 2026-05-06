@@ -6,6 +6,7 @@
 
 import { VoxelForgeScene, type MeshSnapshotData, type MeshUpdateEventData, type PaletteUpdateEventData, type RendererMetrics, type VoxelRaycastHit } from "./scene";
 import { titleCase, formatError, escapeHtml } from "../shared/string-utils";
+import { createCoalescer } from "../shared/refresh-coalescer";
 
 declare global {
   interface Window {
@@ -420,35 +421,29 @@ async function refreshAll(): Promise<void> {
   }
 }
 
-/** Guard against concurrent refreshMesh calls. */
-let refreshMeshInProgress = false;
+/**
+ * Coalesced mesh refresh: at most one bridge:mesh-snapshot in-flight at a
+ * time.  Calls made during an in-flight request are deferred and run once
+ * after the current request completes, collapsing multiple overlapping
+ * requests into a single final refresh.
+ *
+ * This prevents cascading timeouts during rapid edits while still keeping
+ * the UI eventually current.
+ */
+const refreshMesh = createCoalescer(async (): Promise<void> => {
+  const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
+    model_id: "",
+    lod_level: 0,
+    payload_format: "json",
+    include_palette_mapping: true,
+  }) as MeshSnapshotData;
 
-async function refreshMesh(): Promise<void> {
-  if (refreshMeshInProgress) {
-    console.warn("[renderer] refreshMesh already in progress; skipping duplicate.");
-    return;
-  }
-  refreshMeshInProgress = true;
-  try {
-    const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
-      model_id: "",
-      lod_level: 0,
-      payload_format: "json",
-      include_palette_mapping: true,
-    }) as MeshSnapshotData;
-
-    currentMesh = meshData;
-    const metrics = scene.buildMeshFromSnapshot(meshData);
-    latestMetrics = metrics;
-    if (wireframeVisible) scene.setWireframeVisible(true);
-    renderViewportDiagnostics();
-  } catch (err) {
-    console.error("[renderer] refreshMesh failed:", err);
-    throw err;
-  } finally {
-    refreshMeshInProgress = false;
-  }
-}
+  currentMesh = meshData;
+  const metrics = scene.buildMeshFromSnapshot(meshData);
+  latestMetrics = metrics;
+  if (wireframeVisible) scene.setWireframeVisible(true);
+  renderViewportDiagnostics();
+});
 
 function applyState(state: EditorUiStateSnapshot): void {
   currentState = state;
