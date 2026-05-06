@@ -68,9 +68,12 @@
         </section>
 
         <section class="section">
-          <h2>Editing Commands</h2>
+          <h2>Viewport Editing</h2>
           <div class="callout">
-            Viewport voxel placement/removal is intentionally disabled in this slice. Tool and palette selection, history, and project actions are authoritative C# bridge commands; direct editing interactions are reserved for #1178.
+            Click on a voxel in the viewport to edit. Active tool determines the action:
+            <strong>Place</strong> (add adjacent voxel), <strong>Remove</strong>, <strong>Paint</strong>, or <strong>Select</strong>.
+            C# validates and applies all edits through the undoable command pipeline.
+            TS captures input and performs raw raycasting only.
           </div>
         </section>
       </aside>

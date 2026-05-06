@@ -4,7 +4,7 @@
  * route through Electron main -> den-bridge -> C# sidecar commands/state.
  */
 
-import { VoxelForgeScene, type MeshSnapshotData, type MeshUpdateEventData, type PaletteUpdateEventData, type RendererMetrics } from "./scene";
+import { VoxelForgeScene, type MeshSnapshotData, type MeshUpdateEventData, type PaletteUpdateEventData, type RendererMetrics, type VoxelRaycastHit } from "./scene";
 
 declare global {
   interface Window {
@@ -101,6 +101,15 @@ let currentMesh: MeshSnapshotData | null = null;
 let latestMetrics: RendererMetrics | null = null;
 let gridVisible = true;
 let wireframeVisible = false;
+let editingLatencyMs = 0;
+
+// Editing latency tracking stats (rolling window)
+let editingLatencyTotalMs = 0;
+let editingLatencyCount = 0;
+
+// Last hovered voxel position for diagnostics
+let lastHoveredVoxel: { x: number; y: number; z: number } | null = null;
+let lastHoverNormal: { x: number; y: number; z: number } | null = null;
 
 async function main(): Promise<void> {
   ui.container.innerHTML = '<div style="color: #aaa; padding: 20px;">Loading VoxelForge renderer…</div>';
@@ -119,6 +128,7 @@ async function main(): Promise<void> {
   });
 
   wireControls();
+  wireViewportEditing();
 
   try {
     await handshake();
@@ -226,6 +236,110 @@ function wireControls(): void {
   });
   ui.saveButton.addEventListener("click", () => void runAction("Save", "bridge:project-save", { path: ui.projectPath.value }));
   ui.openButton.addEventListener("click", () => void runAction("Open", "bridge:project-load", { path: ui.projectPath.value }));
+}
+
+function wireViewportEditing(): void {
+  const canvas = scene.getCanvas();
+  if (!canvas) {
+    console.warn("[renderer] No WebGL canvas available for viewport editing.");
+    return;
+  }
+
+  // ── Mouse click → raycast → C# editing command ──
+  canvas.addEventListener("click", async (event: MouseEvent) => {
+    const hit = scene.raycast(event.clientX, event.clientY);
+    if (!hit) return;
+
+    const state = currentState;
+    if (!state) return;
+
+    const tool = state.active_tool;
+    const paletteIdx = state.active_palette_index;
+
+    const editStartMs = performance.now();
+
+    try {
+      switch (tool) {
+        case "place": {
+          // Placement position = hit voxel + face normal
+          const placePos = scene.computePlacementPosition(hit);
+          await executeCommand("place_voxel", {
+            x: placePos.x,
+            y: placePos.y,
+            z: placePos.z,
+            palette_index: paletteIdx,
+          });
+          setStatus(`Placed voxel at (${placePos.x},${placePos.y},${placePos.z})`);
+          break;
+        }
+        case "remove": {
+          await executeCommand("remove_voxel", {
+            x: hit.position.x,
+            y: hit.position.y,
+            z: hit.position.z,
+          });
+          setStatus(`Removed voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
+          break;
+        }
+        case "paint": {
+          await executeCommand("paint_voxel", {
+            x: hit.position.x,
+            y: hit.position.y,
+            z: hit.position.z,
+            palette_index: paletteIdx,
+          });
+          setStatus(`Painted voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
+          break;
+        }
+        case "select": {
+          await executeCommand("select_voxel", {
+            x: hit.position.x,
+            y: hit.position.y,
+            z: hit.position.z,
+          });
+          setStatus(`Selected voxel at (${hit.position.x},${hit.position.y},${hit.position.z})`);
+          break;
+        }
+        default:
+          // Other tools (fill, label) require region/box selection;
+          // not yet wired through click interaction.
+          setStatus(`Tool "${tool}" requires additional interaction (not yet wired for click).`);
+      }
+    } catch (err) {
+      setStatus(`Edit failed: ${formatError(err)}`);
+    }
+
+    const editDurationMs = performance.now() - editStartMs;
+    editingLatencyTotalMs += editDurationMs;
+    editingLatencyCount++;
+    editingLatencyMs = editingLatencyCount > 0 ? editingLatencyTotalMs / editingLatencyCount : 0;
+    renderViewportDiagnostics();
+  });
+
+  // ── Mouse move → hover diagnostics ──
+  canvas.addEventListener("mousemove", (event: MouseEvent) => {
+    const hit = scene.raycast(event.clientX, event.clientY);
+    if (hit) {
+      lastHoveredVoxel = hit.position;
+      lastHoverNormal = hit.normal;
+    } else {
+      lastHoveredVoxel = null;
+      lastHoverNormal = null;
+    }
+  });
+
+  // ── Keyboard shortcuts ──
+  document.addEventListener("keydown", async (event: KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey) {
+      if (event.key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        await runAction("Undo", "bridge:history-undo", {});
+      } else if ((event.key === "z" && event.shiftKey) || event.key === "Z" || event.key === "y") {
+        event.preventDefault();
+        await runAction("Redo", "bridge:history-redo", {});
+      }
+    }
+  });
 }
 
 async function runAction(label: string, channel: string, payload: unknown): Promise<void> {
@@ -354,6 +468,14 @@ function renderStateDiagnostics(state: EditorUiStateSnapshot): void {
 function renderViewportDiagnostics(): void {
   if (!currentMesh) return;
   ui.hudMesh.textContent = `Mesh: ${currentMesh.vertex_count} verts · ${currentMesh.triangle_count} tris`;
+
+  const hoverInfo = lastHoveredVoxel
+    ? `hit (${lastHoveredVoxel.x},${lastHoveredVoxel.y},${lastHoveredVoxel.z})`
+    : "—";
+  const hoverNormalInfo = lastHoverNormal
+    ? `n (${lastHoverNormal.x},${lastHoverNormal.y},${lastHoverNormal.z})`
+    : "—";
+
   setKeyValues(ui.viewportDiagnostics, [
     ["mesh id", currentMesh.mesh_id],
     ["vertices", String(currentMesh.vertex_count)],
@@ -364,6 +486,9 @@ function renderViewportDiagnostics(): void {
     ["scene", `${latestMetrics?.scene_construction_ms.toFixed(2) ?? "—"} ms`],
     ["first render", `${latestMetrics?.first_render_ms.toFixed(2) ?? "—"} ms`],
     ["webgl", latestMetrics?.webgl_fallback ? "fallback" : "active"],
+    ["hover", hoverInfo],
+    ["hover normal", hoverNormalInfo],
+    ["editing latency", editingLatencyCount > 0 ? `${editingLatencyMs.toFixed(1)} ms avg (${editingLatencyCount} edits)` : "—"],
   ]);
 }
 

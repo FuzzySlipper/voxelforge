@@ -755,6 +755,57 @@ TS clients must degrade gracefully when a capability is absent. For example, if 
 
 ---
 
+## Raycasting and Picking Responsibilities
+
+Raycasting (computing which voxel is under the pointer) is a **TS rendering responsibility**. The following rules govern the boundary:
+
+### TS May Compute (Raw Render Hit Information)
+
+- Screen-space → world-space ray construction from camera and pointer position.
+- Intersection testing against the Three.js mesh buffers (vertex positions, indices).
+- Per-face normal extraction at the hit point.
+- Computation of the voxel position the ray entered/exited using the hit point and face normal.
+- Reporting the raw hit data (position, normal, screen coordinates, distance) to C# via command arguments.
+
+### C# Decides (Semantic Edit Behavior)
+
+- Whether the hit position is a valid target (e.g., not out of bounds, valid palette index).
+- Whether the current tool should place, remove, paint, or select at the hit position.
+- What undoes the operation (the `IEditorCommand` pipeline on the C# side).
+- Whether to snap the placement position to grid constraints.
+- Selection expansion, flood fill, or tool-specific behavior.
+
+### Latency Measurement
+
+Every viewport editing command is timed on the C# side using a `Stopwatch`.
+Commands exceeding 100ms generate a `voxelforge.diagnostics.editing_latency` bridge event.
+
+| Metric | Where Measured | Reported Via |
+|--------|---------------|--------------|
+| C# processing time | C# `CommandExecuteHandler` | `EditingLatencyEventPayload.CSharpProcessingMs` |
+| Mesh update time | C# `CommandExecuteHandler` | `EditingLatencyEventPayload.MeshUpdateMs` |
+| Total round-trip (C# side) | C# `CommandExecuteHandler` | `EditingLatencyEventPayload.TotalMs` |
+| TS round-trip (renderer) | TS `canvas click` handler | Viewport diagnostics HUD |
+
+TS may also measure its own round-trip time from click → command → state/mesh update and display it in the viewport diagnostics HUD. This TS-side measurement is advisory (for developer insight), not authoritative.
+
+### Boundary Rule
+
+TS must **never**:
+
+- Decide whether to place a voxel based on raycast results without C# validation.
+- Compute flood-fill, box selection, or tool results from hit data on the TS side.
+- Maintain an authoritative copy of voxel positions or palette data derived from raycasting.
+- Apply mesh modifications inferred from hit data (e.g., "remove the hit voxel from the mesh directly in TS").
+
+C# must **never**:
+
+- Perform GPU-side raycasting (that is TS's job via the Three.js raycaster).
+- Accept TS-supplied placement positions without checking that the current tool is appropriate.
+- Assume the TS-supplied hit normal is authoritative for physics/collision purposes.
+
+---
+
 ## Forbidden Patterns
 
 The following patterns are **explicitly forbidden** by this protocol. They violate the C#/TS ownership boundary and must not appear in bridge messages or adapter code.

@@ -36,6 +36,7 @@ public sealed class Program
         services.AddSingleton<IEventDispatcher>(provider => provider.GetRequiredService<ApplicationEventDispatcher>());
         services.AddSingleton<VoxelModelHolder>();
         services.AddSingleton<ProjectLifecycleService>();
+        services.AddSingleton<VoxelEditingService>();
         services.AddSingleton<BridgeEventPublisherRelay>();
         services.AddSingleton<IBridgeEventPublisher>(provider => provider.GetRequiredService<BridgeEventPublisherRelay>());
 
@@ -88,6 +89,7 @@ public sealed class Program
             registry.RegisterEvent<MeshUpdateEventPayload>("voxelforge.mesh.update");
             registry.RegisterEvent<PaletteUpdateEventPayload>("voxelforge.palette.update");
             registry.RegisterEvent<EditorStateDeltaEventPayload>("voxelforge.state.delta");
+            registry.RegisterEvent<EditingLatencyEventPayload>("voxelforge.diagnostics.editing_latency");
         }, host =>
         {
             host.AppId = appId;

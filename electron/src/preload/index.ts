@@ -28,6 +28,7 @@ const allowedEventChannels = [
   "voxelforge:mesh-update",
   "voxelforge:palette-update",
   "voxelforge:state-delta",
+  "voxelforge:editing-latency",
 ] as const;
 
 function validateChannel(channel: string): void {

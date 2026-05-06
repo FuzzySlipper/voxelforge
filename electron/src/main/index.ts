@@ -585,6 +585,15 @@ async function setupMeshSubscription(handshake: { endpoint: string; auth_token: 
     }
     console.log("[electron] State delta event received");
   });
+
+  // Forward editing latency diagnostic events from the bridge to the renderer
+  client.onEvent("voxelforge.diagnostics.editing_latency", (payload: unknown) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("voxelforge:editing-latency", payload);
+    }
+    const p = payload as { command_name?: string; total_ms?: number };
+    console.log(`[electron] Editing latency: ${p.command_name} took ${p.total_ms}ms`);
+  });
 }
 
 async function ensureBridgeClient(handshake: { endpoint: string; auth_token: string }): Promise<BridgeClient> {

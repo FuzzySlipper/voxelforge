@@ -1,9 +1,11 @@
 using Den.Bridge.Abstractions;
 using Den.Bridge.Protocol;
 using Microsoft.Extensions.Logging.Abstractions;
+using VoxelForge.App.Events;
 using VoxelForge.App.Services;
 using VoxelForge.Bridge.Handlers;
 using VoxelForge.Bridge.Protocol;
+using VoxelForge.Core;
 
 namespace VoxelForge.Bridge.Tests;
 
@@ -30,11 +32,10 @@ public sealed class EditorUiStateHandlerTests
     [Fact]
     public async Task CommandExecute_SetActiveTool_MutatesCSharpSessionStateAndPublishesStateEvent()
     {
-        var (stateService, holder) = CreateStateService(out var publisher);
-        var handler = new CommandExecuteHandler(holder, stateService);
+        var (stateService, holder, commandHandler) = CreateCommandHandler(out var publisher);
         var context = new BridgeRequestContext("req-command", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
 
-        var response = await handler.HandleAsync(
+        var response = await commandHandler.HandleAsync(
             new CommandExecuteRequest
             {
                 CommandName = "set_active_tool",
@@ -55,13 +56,12 @@ public sealed class EditorUiStateHandlerTests
     [Fact]
     public async Task CommandExecute_SetActivePalette_RejectsUnknownPaletteIndex()
     {
-        var (stateService, holder) = CreateStateService();
-        var handler = new CommandExecuteHandler(holder, stateService);
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
         var context = new BridgeRequestContext("req-command-invalid", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
 
         var ex = await Assert.ThrowsAsync<BridgeHandlerException>(async () =>
         {
-            await handler.HandleAsync(
+            await commandHandler.HandleAsync(
                 new CommandExecuteRequest
                 {
                     CommandName = "set_active_palette",
@@ -73,6 +73,256 @@ public sealed class EditorUiStateHandlerTests
 
         Assert.Equal("voxelforge.command.invalid_palette_index", ex.Code);
         Assert.Equal(BridgeErrorCategories.Validation, ex.Category);
+    }
+
+    [Fact]
+    public async Task CommandExecute_PlaceVoxel_UpdatesAuthoritativeModel()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-place", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var startingCount = holder.Model.GetVoxelCount();
+
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "place_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 10,
+                    ["y"] = 10,
+                    ["z"] = 10,
+                    ["palette_index"] = 1,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.True(response.MeshChanged);
+        Assert.Equal(startingCount + 1, holder.Model.GetVoxelCount());
+        Assert.NotNull(holder.Model.GetVoxel(new Point3(10, 10, 10)));
+        Assert.True(holder.UndoStack.CanUndo);
+    }
+
+    [Fact]
+    public async Task CommandExecute_RemoveVoxel_UpdatesAuthoritativeModel()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-remove", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var startingCount = holder.Model.GetVoxelCount();
+
+        // Remove voxel at origin (0,0,0) which exists in the default cube
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "remove_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 0,
+                    ["y"] = 0,
+                    ["z"] = 0,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.True(response.MeshChanged);
+        Assert.Equal(startingCount - 1, holder.Model.GetVoxelCount());
+        Assert.Null(holder.Model.GetVoxel(new Point3(0, 0, 0)));
+    }
+
+    [Fact]
+    public async Task CommandExecute_PaintVoxel_UpdatesAuthoritativeModel()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-paint", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "paint_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 0,
+                    ["y"] = 0,
+                    ["z"] = 0,
+                    ["palette_index"] = 2,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.True(response.MeshChanged);
+        Assert.Equal((byte)2, holder.Model.GetVoxel(new Point3(0, 0, 0)));
+    }
+
+    [Fact]
+    public async Task CommandExecute_SelectVoxel_UpdatesSessionState()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-select", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "select_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 0,
+                    ["y"] = 0,
+                    ["z"] = 0,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.False(response.MeshChanged);
+        Assert.Single(holder.Session.SelectedVoxels);
+        Assert.Contains(new Point3(0, 0, 0), holder.Session.SelectedVoxels);
+        Assert.Equal(1, response.State.SelectedVoxelCount);
+    }
+
+    [Fact]
+    public async Task CommandExecute_ClearSelection_UpdatesSessionState()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-clear-sel", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        // Add a selection first
+        holder.Session.SelectedVoxels.Add(new Point3(0, 0, 0));
+        Assert.Single(holder.Session.SelectedVoxels);
+
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "clear_selection",
+                Arguments = new Dictionary<string, object?>(),
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.False(response.MeshChanged);
+        Assert.Empty(holder.Session.SelectedVoxels);
+        Assert.Equal(0, response.State.SelectedVoxelCount);
+    }
+
+    [Fact]
+    public async Task CommandExecute_FillRegion_UpdatesAuthoritativeModel()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-fill", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var startingCount = holder.Model.GetVoxelCount();
+
+        var response = await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "fill_region",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["min_x"] = 5,
+                    ["min_y"] = 5,
+                    ["min_z"] = 5,
+                    ["max_x"] = 7,
+                    ["max_y"] = 7,
+                    ["max_z"] = 7,
+                    ["palette_index"] = 1,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.True(response.MeshChanged);
+        // 3x3x3 = 27 new voxels
+        Assert.Equal(startingCount + 27, holder.Model.GetVoxelCount());
+    }
+
+    [Fact]
+    public async Task CommandExecute_EditingCommands_SupportUndo()
+    {
+        var (stateService, holder, commandHandler) = CreateCommandHandler();
+        var context = new BridgeRequestContext("req-undotest", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
+
+        var startingCount = holder.Model.GetVoxelCount();
+
+        // Place a voxel
+        await commandHandler.HandleAsync(
+            new CommandExecuteRequest
+            {
+                CommandName = "place_voxel",
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x"] = 20,
+                    ["y"] = 20,
+                    ["z"] = 20,
+                    ["palette_index"] = 1,
+                },
+            },
+            context,
+            CancellationToken.None);
+
+        Assert.True(holder.UndoStack.CanUndo);
+        Assert.Equal(startingCount + 1, holder.Model.GetVoxelCount());
+
+        // Undo via UndoStack
+        holder.UndoStack.Undo();
+        Assert.Equal(startingCount, holder.Model.GetVoxelCount());
+        Assert.Null(holder.Model.GetVoxel(new Point3(20, 20, 20)));
+
+        // Redo via UndoStack
+        holder.UndoStack.Redo();
+        Assert.Equal(startingCount + 1, holder.Model.GetVoxelCount());
+        Assert.NotNull(holder.Model.GetVoxel(new Point3(20, 20, 20)));
+    }
+
+    private static (EditorUiStateBridgeService stateService, VoxelModelHolder holder, CommandExecuteHandler handler) CreateCommandHandler()
+    {
+        return CreateCommandHandler(out _);
+    }
+
+    private static (EditorUiStateBridgeService stateService, VoxelModelHolder holder, CommandExecuteHandler handler) CreateCommandHandler(out FakeBridgeEventPublisher publisher)
+    {
+        var loggerFactory = NullLoggerFactory.Instance;
+        var holder = new VoxelModelHolder(NullLogger<VoxelModelHolder>.Instance, loggerFactory);
+        holder.LoadDefaultCube();
+        var paletteService = new PaletteSnapshotService();
+        publisher = new FakeBridgeEventPublisher();
+        var stateService = new EditorUiStateBridgeService(holder, paletteService, publisher);
+
+        var voxelEditing = new VoxelEditingService();
+        var eventPublisher = new NoopAppEventPublisher();
+        var meshSubManager = new MeshSubscriptionManager();
+        var meshPushService = new MeshChangePushService(
+            holder,
+            meshSubManager,
+            new MeshRegionService(new VoxelForge.Core.Meshing.GreedyMesher()),
+            publisher,
+            NullLogger<MeshChangePushService>.Instance);
+
+        var handler = new CommandExecuteHandler(
+            holder,
+            stateService,
+            voxelEditing,
+            eventPublisher,
+            meshSubManager,
+            meshPushService,
+            NullLogger<CommandExecuteHandler>.Instance,
+            publisher);
+
+        return (stateService, holder, handler);
     }
 
     private static (EditorUiStateBridgeService stateService, VoxelModelHolder holder) CreateStateService()
@@ -90,4 +340,14 @@ public sealed class EditorUiStateHandlerTests
         var stateService = new EditorUiStateBridgeService(holder, paletteService, publisher);
         return (stateService, holder);
     }
+}
+
+/// <summary>
+/// Minimal IEventPublisher no-op for tests that don't need event assertions.
+/// </summary>
+internal sealed class NoopAppEventPublisher : IEventPublisher
+{
+    public void Publish<TEvent>(TEvent applicationEvent) where TEvent : IApplicationEvent { }
+    public void Publish(IApplicationEvent applicationEvent) { }
+    public void PublishAll(IReadOnlyList<IApplicationEvent> applicationEvents) { }
 }

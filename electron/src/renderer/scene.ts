@@ -85,6 +85,22 @@ export interface PaletteUpdateEventData {
   entry_count: number;
 }
 
+/** Shape of a voxel hit from raycasting. */
+export interface VoxelRaycastHit {
+  /** The voxel position that was hit. */
+  position: { x: number; y: number; z: number };
+  /** The face normal of the hit (which face was intersected). */
+  normal: { x: number; y: number; z: number };
+  /** Palette index of the hit voxel, or 0 for air. */
+  palette_index: number;
+  /** Screen-space coordinates in pixels. */
+  screen: { x: number; y: number };
+  /** World-space ray origin. */
+  ray_origin: { x: number; y: number; z: number };
+  /** Distance along the ray. */
+  distance: number;
+}
+
 /** Performance metrics captured in the renderer. */
 export interface RendererMetrics {
   scene_construction_ms: number;
@@ -572,6 +588,116 @@ export class VoxelForgeScene {
    */
   onRenderComplete(callback: (metrics: RendererMetrics) => void): void {
     this.renderCallbacks.push(callback);
+  }
+
+  // ── Raycasting / Picking ──
+
+  /**
+   * Perform a raycast from the camera through a screen-space point.
+   * Returns the first voxel hit along with face normal, or null if no mesh was hit.
+   *
+   * This is a raw raycast/render hit computation only. The C# side validates
+   * and decides semantic edit behavior. No editor mutation logic here.
+   */
+  raycast(screenX: number, screenY: number): VoxelRaycastHit | null {
+    if (!this.renderer || !this.camera) {
+      return null;
+    }
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2(ndcX, ndcY);
+    raycaster.setFromCamera(mouse, this.camera);
+
+    const meshes: THREE.Mesh[] = [];
+    this.meshGroup.children.forEach((child) => {
+      if (child instanceof THREE.Mesh) {
+        meshes.push(child);
+      }
+    });
+
+    if (meshes.length === 0) {
+      return null;
+    }
+
+    const intersects = raycaster.intersectObjects(meshes, false);
+    if (intersects.length === 0) {
+      return null;
+    }
+
+    const hit = intersects[0];
+    const face = hit.face;
+    if (!face) {
+      return null;
+    }
+
+    // Compute voxel position from the hit point's face normal offset.
+    // Since voxels are unit cubes centered on integer coordinates,
+    // we need to find which voxel the ray entered/exited.
+    const point = hit.point;
+    const normal = face.normal.clone();
+    // Transform normal to world space if the mesh is rotated (shouldn't be for voxels)
+    normal.transformDirection(hit.object.matrixWorld);
+
+    // Snap to nearest integer position for the hit voxel.
+    // The hit voxel is the voxel whose face was intersected.
+    const voxelX = Math.round(point.x - normal.x * 0.5);
+    const voxelY = Math.round(point.y - normal.y * 0.5);
+    const voxelZ = Math.round(point.z - normal.z * 0.5);
+
+    // Round normal to nearest axis direction
+    const nx = Math.round(normal.x);
+    const ny = Math.round(normal.y);
+    const nz = Math.round(normal.z);
+
+    // Get palette index from vertex colors (if available — advisory only;
+    // authoritative palette is C#-owned).
+    let paletteIndex = 1;
+    if (hit.object instanceof THREE.Mesh) {
+      const geometry = hit.object.geometry;
+      if (geometry.hasAttribute("color")) {
+        const colors = geometry.getAttribute("color");
+        const faceIndex = face.a * 3;
+        if (faceIndex + 2 < colors.count * 3) {
+          // Vertex color can provide approximate palette hint
+        }
+      }
+    }
+
+    return {
+      position: { x: voxelX, y: voxelY, z: voxelZ },
+      normal: { x: nx, y: ny, z: nz },
+      palette_index: paletteIndex,
+      screen: { x: screenX, y: screenY },
+      ray_origin: {
+        x: raycaster.ray.origin.x,
+        y: raycaster.ray.origin.y,
+        z: raycaster.ray.origin.z,
+      },
+      distance: hit.distance,
+    };
+  }
+
+  /**
+   * Compute the placement position for a new voxel adjacent to a hit voxel.
+   * This is a pure computation: no editor state mutation here.
+   */
+  computePlacementPosition(hit: VoxelRaycastHit): { x: number; y: number; z: number } {
+    return {
+      x: hit.position.x + hit.normal.x,
+      y: hit.position.y + hit.normal.y,
+      z: hit.position.z + hit.normal.z,
+    };
+  }
+
+  /**
+   * Get the Three.js canvas element for attaching event listeners.
+   */
+  getCanvas(): HTMLCanvasElement | null {
+    return this.renderer?.domElement ?? null;
   }
 
   dispose(): void {

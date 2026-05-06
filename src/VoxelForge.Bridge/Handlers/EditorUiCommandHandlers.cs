@@ -1,9 +1,13 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Den.Bridge.Abstractions;
 using Den.Bridge.Protocol;
+using Microsoft.Extensions.Logging;
 using VoxelForge.App;
+using VoxelForge.App.Events;
 using VoxelForge.App.Services;
 using VoxelForge.Bridge.Protocol;
+using VoxelForge.Core;
 
 namespace VoxelForge.Bridge.Handlers;
 
@@ -60,11 +64,33 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
 {
     private readonly VoxelModelHolder _modelHolder;
     private readonly EditorUiStateBridgeService _stateService;
+    private readonly VoxelEditingService _voxelEditing;
+    private readonly IEventPublisher _events;
+    private readonly MeshSubscriptionManager _meshSubscriptionManager;
+    private readonly MeshChangePushService _meshPushService;
+    private readonly ILogger<CommandExecuteHandler> _logger;
+    private readonly IBridgeEventPublisher _bridgeEventPublisher;
 
-    public CommandExecuteHandler(VoxelModelHolder modelHolder, EditorUiStateBridgeService stateService)
+    private static readonly TimeSpan LatencyWarningThreshold = TimeSpan.FromMilliseconds(100);
+
+    public CommandExecuteHandler(
+        VoxelModelHolder modelHolder,
+        EditorUiStateBridgeService stateService,
+        VoxelEditingService voxelEditing,
+        IEventPublisher events,
+        MeshSubscriptionManager meshSubscriptionManager,
+        MeshChangePushService meshPushService,
+        ILogger<CommandExecuteHandler> logger,
+        IBridgeEventPublisher bridgeEventPublisher)
     {
         _modelHolder = modelHolder;
         _stateService = stateService;
+        _voxelEditing = voxelEditing;
+        _events = events;
+        _meshSubscriptionManager = meshSubscriptionManager;
+        _meshPushService = meshPushService;
+        _logger = logger;
+        _bridgeEventPublisher = bridgeEventPublisher;
     }
 
     public async ValueTask<CommandExecuteResponse?> HandleAsync(
@@ -76,61 +102,191 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
         ArgumentNullException.ThrowIfNull(request.CommandName);
 
         var commandName = request.CommandName.Trim();
+        var stopwatch = Stopwatch.StartNew();
+        long meshUpdateMs = 0;
+
         string message;
         string[] affectedDomains;
+        bool meshChanged;
 
-        if (string.Equals(commandName, "set_active_tool", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            var toolName = RequiredString(request.Arguments, "tool");
-            if (!Enum.TryParse<EditorTool>(toolName, ignoreCase: true, out var tool))
+            // ── Session commands (no mesh change) ──
+            if (string.Equals(commandName, "set_active_tool", StringComparison.OrdinalIgnoreCase))
+            {
+                var toolName = RequiredString(request.Arguments, "tool");
+                if (!Enum.TryParse<EditorTool>(toolName, ignoreCase: true, out var tool))
+                {
+                    throw new BridgeHandlerException(
+                        "voxelforge.command.invalid_tool",
+                        $"Unknown editor tool '{toolName}'.",
+                        BridgeErrorCategories.Validation,
+                        retryable: false);
+                }
+
+                _modelHolder.Session.ActiveTool = tool;
+                message = $"Selected {tool.ToString().ToLowerInvariant()} tool.";
+                affectedDomains = ["session"];
+                meshChanged = false;
+            }
+            else if (string.Equals(commandName, "set_active_palette", StringComparison.OrdinalIgnoreCase))
+            {
+                var paletteIndex = RequiredByte(request.Arguments, "palette_index");
+                if (paletteIndex != 0 && !_modelHolder.Model.Palette.Entries.ContainsKey(paletteIndex))
+                {
+                    throw new BridgeHandlerException(
+                        "voxelforge.command.invalid_palette_index",
+                        $"Palette index {paletteIndex} does not exist in the current model.",
+                        BridgeErrorCategories.Validation,
+                        retryable: false);
+                }
+
+                _modelHolder.Session.ActivePaletteIndex = paletteIndex;
+                message = $"Selected palette index {paletteIndex}.";
+                affectedDomains = ["session"];
+                meshChanged = false;
+            }
+            // ── Viewport editing commands (mesh change) ──
+            else if (string.Equals(commandName, "place_voxel", StringComparison.OrdinalIgnoreCase))
+            {
+                var pos = RequiredPoint3(request.Arguments);
+                var paletteIdx = RequiredByte(request.Arguments, "palette_index");
+                var result = _voxelEditing.SetVoxel(
+                    _modelHolder.Document, _modelHolder.UndoStack, _events,
+                    new SetVoxelRequest(pos, paletteIdx));
+                message = result.Message;
+                affectedDomains = ["document", "session", "history"];
+                meshChanged = result.Success;
+                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else if (string.Equals(commandName, "remove_voxel", StringComparison.OrdinalIgnoreCase))
+            {
+                var pos = RequiredPoint3(request.Arguments);
+                var result = _voxelEditing.RemoveVoxel(
+                    _modelHolder.Document, _modelHolder.UndoStack, _events,
+                    new RemoveVoxelRequest(pos));
+                message = result.Message;
+                affectedDomains = ["document", "session", "history"];
+                meshChanged = result.Success;
+                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else if (string.Equals(commandName, "paint_voxel", StringComparison.OrdinalIgnoreCase))
+            {
+                var pos = RequiredPoint3(request.Arguments);
+                var paletteIdx = RequiredByte(request.Arguments, "palette_index");
+                var result = _voxelEditing.PaintVoxel(
+                    _modelHolder.Document, _modelHolder.UndoStack, _events,
+                    new PaintVoxelRequest(pos, paletteIdx));
+                message = result.Message;
+                affectedDomains = ["document", "session", "history"];
+                meshChanged = result.Success;
+                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else if (string.Equals(commandName, "fill_region", StringComparison.OrdinalIgnoreCase))
+            {
+                var min = RequiredPoint3(request.Arguments, "min_x", "min_y", "min_z");
+                var max = RequiredPoint3(request.Arguments, "max_x", "max_y", "max_z");
+                var paletteIdx = RequiredByte(request.Arguments, "palette_index");
+                var result = _voxelEditing.FillRegion(
+                    _modelHolder.Document, _modelHolder.UndoStack, _events,
+                    new FillVoxelRegionRequest(min, max, paletteIdx));
+                message = result.Message;
+                affectedDomains = ["document", "session", "history"];
+                meshChanged = result.Success;
+                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else if (string.Equals(commandName, "clear_model", StringComparison.OrdinalIgnoreCase))
+            {
+                var result = _voxelEditing.Clear(
+                    _modelHolder.Document, _modelHolder.UndoStack, _events);
+                message = result.Message;
+                affectedDomains = ["document", "session", "history"];
+                meshChanged = result.Success;
+                if (meshChanged) await PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+            }
+            // ── Selection commands (no mesh change) ──
+            else if (string.Equals(commandName, "select_voxel", StringComparison.OrdinalIgnoreCase))
+            {
+                var pos = RequiredPoint3(request.Arguments);
+                _modelHolder.Session.SelectedVoxels.Clear();
+                _modelHolder.Session.SelectedVoxels.Add(pos);
+                message = $"Selected ({pos.X},{pos.Y},{pos.Z}).";
+                affectedDomains = ["session"];
+                meshChanged = false;
+            }
+            else if (string.Equals(commandName, "add_to_selection", StringComparison.OrdinalIgnoreCase))
+            {
+                var pos = RequiredPoint3(request.Arguments);
+                _modelHolder.Session.SelectedVoxels.Add(pos);
+                message = $"Added ({pos.X},{pos.Y},{pos.Z}) to selection.";
+                affectedDomains = ["session"];
+                meshChanged = false;
+            }
+            else if (string.Equals(commandName, "clear_selection", StringComparison.OrdinalIgnoreCase))
+            {
+                _modelHolder.Session.SelectedVoxels.Clear();
+                message = "Selection cleared.";
+                affectedDomains = ["session"];
+                meshChanged = false;
+            }
+            else
             {
                 throw new BridgeHandlerException(
-                    "voxelforge.command.invalid_tool",
-                    $"Unknown editor tool '{toolName}'.",
-                    BridgeErrorCategories.Validation,
+                    "voxelforge.command.unsupported",
+                    $"Unsupported Electron UI command '{commandName}'.",
+                    BridgeErrorCategories.UnsupportedCapability,
                     retryable: false);
             }
-
-            _modelHolder.Session.ActiveTool = tool;
-            message = $"Selected {tool.ToString().ToLowerInvariant()} tool.";
-            affectedDomains = ["session"];
         }
-        else if (string.Equals(commandName, "set_active_palette", StringComparison.OrdinalIgnoreCase))
+        finally
         {
-            var paletteIndex = RequiredByte(request.Arguments, "palette_index");
-            if (paletteIndex != 0 && !_modelHolder.Model.Palette.Entries.ContainsKey(paletteIndex))
-            {
-                throw new BridgeHandlerException(
-                    "voxelforge.command.invalid_palette_index",
-                    $"Palette index {paletteIndex} does not exist in the current model.",
-                    BridgeErrorCategories.Validation,
-                    retryable: false);
-            }
-
-            _modelHolder.Session.ActivePaletteIndex = paletteIndex;
-            message = $"Selected palette index {paletteIndex}.";
-            affectedDomains = ["session"];
-        }
-        else
-        {
-            throw new BridgeHandlerException(
-                "voxelforge.command.unsupported",
-                $"Unsupported Electron UI command '{commandName}'.",
-                BridgeErrorCategories.UnsupportedCapability,
-                retryable: false);
+            stopwatch.Stop();
         }
 
         _modelHolder.SetStatus(message);
         await _stateService.PublishFullStateAsync(message, cancellationToken).ConfigureAwait(false);
+
+        var totalMs = stopwatch.ElapsedMilliseconds;
+        if (totalMs > LatencyWarningThreshold.TotalMilliseconds)
+        {
+            _logger.LogWarning(
+                "Editing command '{CommandName}' took {TotalMs}ms (exceeds {ThresholdMs}ms threshold)",
+                commandName, totalMs, LatencyWarningThreshold.TotalMilliseconds);
+
+            // Publish latency diagnostic event
+            var latencyPayload = new EditingLatencyEventPayload
+            {
+                CommandName = commandName,
+                CSharpProcessingMs = stopwatch.ElapsedMilliseconds,
+                MeshUpdateMs = meshUpdateMs,
+                TotalMs = totalMs,
+                Timestamp = DateTimeOffset.UtcNow,
+            };
+            var latencyFrame = new BridgeEventFrame
+            {
+                EventId = $"evt-latency-{Guid.NewGuid():N}",
+                Sequence = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Event = "voxelforge.diagnostics.editing_latency",
+                Payload = BridgeJson.ToElement(latencyPayload),
+            };
+            await _bridgeEventPublisher.PublishAsync(latencyFrame, cancellationToken).ConfigureAwait(false);
+        }
 
         return new CommandExecuteResponse
         {
             Success = true,
             Message = message,
             AffectedDomains = affectedDomains,
-            MeshChanged = false,
+            MeshChanged = meshChanged,
             State = _stateService.BuildSnapshot(),
         };
+    }
+
+    private async ValueTask PushMeshUpdateAsync(CancellationToken cancellationToken)
+    {
+        _modelHolder.MarkDirty(true);
+        _meshSubscriptionManager.RecordFullDirty(_modelHolder.ModelId, _modelHolder.Model);
+        await _meshPushService.PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private void EnsureLoaded()
@@ -143,6 +299,33 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
                 BridgeErrorCategories.NotFound,
                 retryable: true);
         }
+    }
+
+    private static Point3 RequiredPoint3(IReadOnlyDictionary<string, object?> arguments, string xKey = "x", string yKey = "y", string zKey = "z")
+    {
+        var x = RequiredInt(arguments, xKey);
+        var y = RequiredInt(arguments, yKey);
+        var z = RequiredInt(arguments, zKey);
+        return new Point3(x, y, z);
+    }
+
+    private static int RequiredInt(IReadOnlyDictionary<string, object?> arguments, string key)
+    {
+        if (!arguments.TryGetValue(key, out var value) || value is null)
+            ThrowMissingArgument(key);
+
+        if (value is JsonElement element && element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var number))
+            return number;
+        if (value is int intValue)
+            return intValue;
+        if (value is long longValue && longValue >= int.MinValue && longValue <= int.MaxValue)
+            return (int)longValue;
+
+        throw new BridgeHandlerException(
+            "voxelforge.command.invalid_argument",
+            $"Command argument '{key}' must be an integer.",
+            BridgeErrorCategories.Validation,
+            retryable: false);
     }
 
     private static string RequiredString(IReadOnlyDictionary<string, object?> arguments, string key)
@@ -165,23 +348,7 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
 
     private static byte RequiredByte(IReadOnlyDictionary<string, object?> arguments, string key)
     {
-        if (!arguments.TryGetValue(key, out var value) || value is null)
-            ThrowMissingArgument(key);
-
-        int parsed;
-        if (value is JsonElement element && element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var number))
-            parsed = number;
-        else if (value is int intValue)
-            parsed = intValue;
-        else if (value is long longValue && longValue >= int.MinValue && longValue <= int.MaxValue)
-            parsed = (int)longValue;
-        else
-            throw new BridgeHandlerException(
-                "voxelforge.command.invalid_argument",
-                $"Command argument '{key}' must be an integer palette index.",
-                BridgeErrorCategories.Validation,
-                retryable: false);
-
+        var parsed = RequiredInt(arguments, key);
         if (parsed < byte.MinValue || parsed > byte.MaxValue)
         {
             throw new BridgeHandlerException(
@@ -190,7 +357,6 @@ public sealed class CommandExecuteHandler : IBridgeCommandHandler<CommandExecute
                 BridgeErrorCategories.Validation,
                 retryable: false);
         }
-
         return (byte)parsed;
     }
 

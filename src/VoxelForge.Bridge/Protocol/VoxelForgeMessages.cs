@@ -530,3 +530,79 @@ public sealed class ProjectCommandResponse
     public required bool MeshChanged { get; init; }
     public required EditorUiStateSnapshot State { get; init; }
 }
+
+// ── Viewport Editing ──
+
+/// <summary>
+/// TS-owned raw raycast hit information. C# validates and decides semantic edit behavior.
+/// TS computes these from Three.js raycaster; C# does not perform GPU-side raycasting.
+/// </summary>
+public sealed class ViewportHitInfo
+{
+    /// <summary>
+    /// Voxel position hit by the ray (the voxel under the cursor).
+    /// </summary>
+    public required int HitX { get; init; }
+    public required int HitY { get; init; }
+    public required int HitZ { get; init; }
+
+    /// <summary>
+    /// Face normal of the hit (the face that was intersected).
+    /// Determines where a new voxel would be placed (hit + normal).
+    /// </summary>
+    public required int NormalX { get; init; }
+    public required int NormalY { get; init; }
+    public required int NormalZ { get; init; }
+
+    /// <summary>
+    /// Palette index of the hit voxel, or 0 if air.
+    /// </summary>
+    public byte PaletteIndex { get; init; }
+
+    /// <summary>
+    /// Screen-space coordinates (pixels from top-left).
+    /// </summary>
+    public float ScreenX { get; init; }
+    public float ScreenY { get; init; }
+
+    /// <summary>
+    /// World-space ray origin for diagnostics.
+    /// </summary>
+    public float RayOriginX { get; init; }
+    public float RayOriginY { get; init; }
+    public float RayOriginZ { get; init; }
+}
+
+/// <summary>
+/// Diagnostic event payload for editing latency measurements.
+/// C#-owned event; published after each viewport edit round-trip completes.
+/// </summary>
+public sealed class EditingLatencyEventPayload
+{
+    public required string CommandName { get; init; }
+    public required long CSharpProcessingMs { get; init; }
+    public required long MeshUpdateMs { get; init; }
+    public required long TotalMs { get; init; }
+    public required DateTimeOffset Timestamp { get; init; }
+}
+
+/// <summary>
+/// TS-owned request to report raycast picking diagnostics.
+/// Used for debugging picking accuracy.
+/// </summary>
+public sealed class PickDiagnosticsRequest
+{
+    public required int ScreenX { get; init; }
+    public required int ScreenY { get; init; }
+    public required int HitX { get; init; }
+    public required int HitY { get; init; }
+    public required int HitZ { get; init; }
+    public required int NormalX { get; init; }
+    public required int NormalY { get; init; }
+    public required int NormalZ { get; init; }
+}
+
+public sealed class PickDiagnosticsResponse
+{
+    public required bool Recorded { get; init; }
+}
