@@ -5,6 +5,7 @@
  */
 
 import { VoxelForgeScene, type MeshSnapshotData, type MeshUpdateEventData, type PaletteUpdateEventData, type RendererMetrics, type VoxelRaycastHit } from "./scene";
+import { titleCase, formatError, escapeHtml } from "../shared/string-utils";
 
 declare global {
   interface Window {
@@ -571,17 +572,7 @@ function setStatus(message: string): void {
   ui.status.textContent = message;
 }
 
-function titleCase(value: string): string {
-  return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1);
-}
-
-function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function escapeHtml(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+// titleCase, formatError, escapeHtml are now imported from shared/string-utils
 
 function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);

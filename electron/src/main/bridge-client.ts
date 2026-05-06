@@ -1,4 +1,10 @@
 import WebSocket from "ws";
+import {
+  parseResponseFrame,
+  parseEventFrame,
+  type BridgeResponse,
+  type BridgeError,
+} from "../shared/frame-parser";
 
 /**
  * Minimal raw WebSocket client for the den-bridge protocol.
@@ -17,18 +23,8 @@ export interface BridgeRequest {
   payload?: unknown;
 }
 
-export interface BridgeResponse {
-  requestId: string;
-  result?: unknown;
-  error?: BridgeError;
-}
-
-export interface BridgeError {
-  code: string;
-  message: string;
-  category: string;
-  retryable?: boolean;
-}
+// Re-export for consumer convenience.
+export type { BridgeResponse, BridgeError };
 
 export class BridgeClient {
   private socket: WebSocket | null = null;
@@ -154,6 +150,7 @@ export class BridgeClient {
   }
 
   private handleMessage(raw: string): void {
+    // Use parseFrame to check valid JSON; fall through to shared frame parsers.
     let frame: unknown;
     try {
       frame = JSON.parse(raw);
@@ -162,19 +159,9 @@ export class BridgeClient {
       return;
     }
 
-    if (!isObject(frame)) {
-      return;
-    }
-
-    const frameType = (frame as Record<string, unknown>).frame_type;
-
-    if (frameType === "response") {
-      const response: BridgeResponse = {
-        requestId: String((frame as Record<string, unknown>).request_id ?? ""),
-        result: (frame as Record<string, unknown>).result as unknown,
-        error: (frame as Record<string, unknown>).error as BridgeError | undefined,
-      };
-
+    // Try response frame first
+    const response = parseResponseFrame(frame);
+    if (response) {
       const resolve = this.pending.get(response.requestId);
       if (resolve) {
         resolve(response);
@@ -182,14 +169,14 @@ export class BridgeClient {
       return;
     }
 
-    if (frameType === "event") {
-      const eventType = String((frame as Record<string, unknown>).event ?? "");
-      const payload = (frame as Record<string, unknown>).payload;
-      const handler = this.eventHandlers.get(eventType);
+    // Try event frame
+    const event = parseEventFrame(frame);
+    if (event) {
+      const handler = this.eventHandlers.get(event.eventType);
       if (handler) {
-        handler(payload);
+        handler(event.payload);
       } else {
-        console.log(`[bridge-client] Unhandled event: ${eventType}`);
+        console.log(`[bridge-client] Unhandled event: ${event.eventType}`);
       }
       return;
     }
@@ -206,8 +193,4 @@ export class BridgeClient {
     this.pending.clear();
     this.pendingReject.clear();
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

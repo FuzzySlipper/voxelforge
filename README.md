@@ -145,10 +145,13 @@ dotnet build src/VoxelForge.Bridge && ./scripts/run-bridge-smoke-test.sh
 # 3. TypeScript compilation
 cd electron && npm run build
 
-# 4. Electron packaging smoke test (directory build)
+# 4. TypeScript unit tests (headless, no GPU required)
+cd electron && npm test
+
+# 5. Electron packaging smoke test (directory build)
 cd electron && npm run package:dir
 
-# 5. (Optional) Full Electron smoke test with running sidecar
+# 6. (Optional) Full Electron smoke test with running sidecar
 ./scripts/run-electron-smoke-test.sh
 ./scripts/run-renderer-smoke-test.sh
 ```
@@ -158,6 +161,28 @@ cd electron && npm run package:dir
 The Electron renderer experiment has been evaluated. See [`docs/architecture/electron-renderer-decision-checkpoint.md`](docs/architecture/electron-renderer-decision-checkpoint.md) for the full decision record.
 
 **Current posture:** Keep the Electron renderer as a **parallel experimental renderer**. The core architecture (bridge protocol, sidecar, incremental mesh pipeline) is proven, but packaging, performance profiling, and feature parity are incomplete. The existing FNA/Myra frontend remains the supported control path.
+
+### TypeScript Tests
+
+The `electron/` project includes a headless TypeScript test suite powered by [Vitest](https://vitest.dev). Tests cover pure helper functions extracted from the renderer, bridge client, and scene code — no GPU, WebGL, or Electron display is required.
+
+```bash
+# Run all TS tests (headless)
+cd electron && npm test
+
+# Watch mode for development
+cd electron && npm run test:watch
+```
+
+Test structure:
+
+- `tests/byte-utils.test.ts` — Byte array decoding from base64, number[], and Uint8Array sources
+- `tests/compute-placement.test.ts` — Voxel placement position calculation from raycast hits
+- `tests/string-utils.test.ts` — String utilities (titleCase, formatError, escapeHtml)
+- `tests/frame-parser.test.ts` — Bridge protocol frame parsing (response/event dispatch)
+- `tests/mesh-construction.test.ts` — Mesh snapshot data integrity, vertex color processing, buffer layout
+
+Test fixture data lives in `tests/fixtures/` and includes known mesh snapshot data (cube voxels, empty models, base64-encoded fixtures).
 
 ### Known Limitations
 

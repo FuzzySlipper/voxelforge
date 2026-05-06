@@ -6,38 +6,11 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { decodeByteArray } from "../shared/byte-utils";
+import { VoxelRaycastHit, computePlacementPosition } from "../shared/compute-placement";
 
-/**
- * Decode a byte array payload from the C# bridge.
- * C# `byte[]` serializes as a base64 string over JSON (System.Text.Json default).
- * This handles both formats: base64 string or number[]/number-like arrays.
- * Returns a plain number[] for backward compatibility.
- */
-function decodeByteArray(value: string | number[] | Uint8Array | undefined | null, expectedLength?: number): number[] {
-  if (value === null || value === undefined) {
-    return [];
-  }
-  if (typeof value === "string") {
-    // Base64-encoded byte array from C# System.Text.Json
-    const binaryStr = atob(value);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    if (expectedLength !== undefined && bytes.length !== expectedLength) {
-      console.warn(`[scene] Byte array length mismatch: expected ${expectedLength}, got ${bytes.length}`);
-    }
-    return Array.from(bytes);
-  }
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (value instanceof Uint8Array) {
-    return Array.from(value);
-  }
-  console.warn("[scene] Unknown byte array format:", typeof value);
-  return [];
-}
+// Re-export for consumers that import from scene.ts
+export type { VoxelRaycastHit };
 
 /** Shape of the mesh snapshot response from the C# sidecar. */
 export interface MeshSnapshotData {
@@ -117,22 +90,6 @@ export interface PaletteUpdateEventData {
   update_type: "full_replace" | "partial";
   entries: { index: number; name: string; color: string; a: number; visible: boolean }[];
   entry_count: number;
-}
-
-/** Shape of a voxel hit from raycasting. */
-export interface VoxelRaycastHit {
-  /** The voxel position that was hit. */
-  position: { x: number; y: number; z: number };
-  /** The face normal of the hit (which face was intersected). */
-  normal: { x: number; y: number; z: number };
-  /** Palette index of the hit voxel, or 0 for air. */
-  palette_index: number;
-  /** Screen-space coordinates in pixels. */
-  screen: { x: number; y: number };
-  /** World-space ray origin. */
-  ray_origin: { x: number; y: number; z: number };
-  /** Distance along the ray. */
-  distance: number;
 }
 
 /** Performance metrics captured in the renderer. */
@@ -724,11 +681,7 @@ export class VoxelForgeScene {
    * This is a pure computation: no editor state mutation here.
    */
   computePlacementPosition(hit: VoxelRaycastHit): { x: number; y: number; z: number } {
-    return {
-      x: hit.position.x + hit.normal.x,
-      y: hit.position.y + hit.normal.y,
-      z: hit.position.z + hit.normal.z,
-    };
+    return computePlacementPosition(hit);
   }
 
   /**
