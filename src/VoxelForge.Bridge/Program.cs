@@ -31,7 +31,13 @@ public sealed class Program
         }));
 
         // Core/App services
+        services.AddSingleton<ApplicationEventDispatcher>();
+        services.AddSingleton<IEventPublisher>(provider => provider.GetRequiredService<ApplicationEventDispatcher>());
+        services.AddSingleton<IEventDispatcher>(provider => provider.GetRequiredService<ApplicationEventDispatcher>());
         services.AddSingleton<VoxelModelHolder>();
+        services.AddSingleton<ProjectLifecycleService>();
+        services.AddSingleton<BridgeEventPublisherRelay>();
+        services.AddSingleton<IBridgeEventPublisher>(provider => provider.GetRequiredService<BridgeEventPublisherRelay>());
 
         // Mesh and palette snapshot services
         services.AddSingleton<IVoxelMesher, GreedyMesher>();
@@ -43,6 +49,7 @@ public sealed class Program
         services.AddSingleton<MeshRegionService>();
         services.AddSingleton<MeshSubscriptionManager>();
         services.AddSingleton<MeshChangePushService>();
+        services.AddSingleton<EditorUiStateBridgeService>();
 
         // Bridge handlers
         services.AddSingleton(new VersionHandshakeHandler(appId, appVersion));
@@ -51,6 +58,13 @@ public sealed class Program
         services.AddSingleton<MeshSubscribeHandler>();
         services.AddSingleton<MeshUnsubscribeHandler>();
         services.AddSingleton<PaletteGetHandler>();
+        services.AddSingleton<EditorStateSubscribeHandler>();
+        services.AddSingleton<EditorStateRequestFullHandler>();
+        services.AddSingleton<CommandExecuteHandler>();
+        services.AddSingleton<HistoryUndoHandler>();
+        services.AddSingleton<HistoryRedoHandler>();
+        services.AddSingleton<ProjectSaveHandler>();
+        services.AddSingleton<ProjectLoadHandler>();
 
         // Register bridge host before building the provider so all services
         // (including model data) are in a single container.
@@ -63,9 +77,17 @@ public sealed class Program
             registry.RegisterCommand<MeshSubscribeRequest, MeshSubscribeResponse, MeshSubscribeHandler>("voxelforge.mesh.subscribe");
             registry.RegisterCommand<MeshUnsubscribeRequest, MeshUnsubscribeResponse, MeshUnsubscribeHandler>("voxelforge.mesh.unsubscribe");
             registry.RegisterCommand<PaletteGetRequest, PaletteGetResponse, PaletteGetHandler>("voxelforge.palette.get");
+            registry.RegisterCommand<EditorStateSubscribeRequest, EditorStateSubscribeResponse, EditorStateSubscribeHandler>("voxelforge.state.subscribe");
+            registry.RegisterCommand<EditorStateRequestFullRequest, EditorStateRequestFullResponse, EditorStateRequestFullHandler>("voxelforge.state.request_full");
+            registry.RegisterCommand<CommandExecuteRequest, CommandExecuteResponse, CommandExecuteHandler>("voxelforge.command.execute");
+            registry.RegisterCommand<HistoryUndoRequest, HistoryCommandResponse, HistoryUndoHandler>("voxelforge.history.undo");
+            registry.RegisterCommand<HistoryRedoRequest, HistoryCommandResponse, HistoryRedoHandler>("voxelforge.history.redo");
+            registry.RegisterCommand<ProjectSaveRequest, ProjectCommandResponse, ProjectSaveHandler>("voxelforge.project.save");
+            registry.RegisterCommand<ProjectLoadRequest, ProjectCommandResponse, ProjectLoadHandler>("voxelforge.project.load");
             // Register event types
             registry.RegisterEvent<MeshUpdateEventPayload>("voxelforge.mesh.update");
             registry.RegisterEvent<PaletteUpdateEventPayload>("voxelforge.palette.update");
+            registry.RegisterEvent<EditorStateDeltaEventPayload>("voxelforge.state.delta");
         }, host =>
         {
             host.AppId = appId;
@@ -114,6 +136,7 @@ public sealed class Program
 
         await using var server = new WebSocketBridgeServer(serverOptions, router, provider.GetRequiredService<ILogger<WebSocketBridgeServer>>());
         await server.StartAsync();
+        provider.GetRequiredService<BridgeEventPublisherRelay>().Attach(server);
 
         var endpoint = server.Endpoint;
         if (endpoint is null)

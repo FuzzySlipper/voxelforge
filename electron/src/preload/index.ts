@@ -11,6 +11,13 @@ const allowedChannels = [
   "bridge:mesh-subscribe",
   "bridge:mesh-unsubscribe",
   "bridge:palette-get",
+  "bridge:state-subscribe",
+  "bridge:state-request-full",
+  "bridge:command-execute",
+  "bridge:history-undo",
+  "bridge:history-redo",
+  "bridge:project-save",
+  "bridge:project-load",
   "bridge:ping",
   "bridge:version-handshake",
   "renderer:ready",
@@ -20,6 +27,7 @@ const allowedChannels = [
 const allowedEventChannels = [
   "voxelforge:mesh-update",
   "voxelforge:palette-update",
+  "voxelforge:state-delta",
 ] as const;
 
 function validateChannel(channel: string): void {

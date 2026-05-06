@@ -103,6 +103,8 @@ export class VoxelForgeScene {
   private renderer: THREE.WebGLRenderer | null = null;
   private controls: OrbitControls | null = null;
   private meshGroup: THREE.Group;
+  private gridHelper: THREE.GridHelper | null = null;
+  private lastSnapshotData: MeshSnapshotData | null = null;
   private animationFrameId: number | null = null;
   private renderCallbacks: ((metrics: RendererMetrics) => void)[] = [];
   private container: HTMLElement;
@@ -161,8 +163,8 @@ export class VoxelForgeScene {
     this.setupLights();
 
     // Grid helper
-    const grid = new THREE.GridHelper(100, 100, 0x555555, 0x333333);
-    this.scene.add(grid);
+    this.gridHelper = new THREE.GridHelper(100, 100, 0x555555, 0x333333);
+    this.scene.add(this.gridHelper);
 
     // Handle resize
     if (this.renderer) {
@@ -210,6 +212,7 @@ export class VoxelForgeScene {
    */
   buildMeshFromSnapshot(data: MeshSnapshotData): RendererMetrics {
     const startTime = performance.now();
+    this.lastSnapshotData = data;
 
     // Clear previous mesh
     while (this.meshGroup.children.length > 0) {
@@ -515,6 +518,7 @@ export class VoxelForgeScene {
    * Clear all mesh geometry from the scene.
    */
   clearMesh(): void {
+    this.lastSnapshotData = null;
     while (this.meshGroup.children.length > 0) {
       const child = this.meshGroup.children[0];
       this.meshGroup.remove(child);
@@ -522,6 +526,31 @@ export class VoxelForgeScene {
         child.geometry.dispose();
         if (child.material instanceof THREE.Material) {
           child.material.dispose();
+        }
+      }
+    }
+  }
+
+  frameCurrentModel(): void {
+    if (this.lastSnapshotData) {
+      this.frameCamera(this.lastSnapshotData);
+      if (this.renderer) {
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+  }
+
+  setGridVisible(visible: boolean): void {
+    if (this.gridHelper) {
+      this.gridHelper.visible = visible;
+    }
+  }
+
+  setWireframeVisible(visible: boolean): void {
+    for (const child of this.meshGroup.children) {
+      if (child instanceof THREE.Mesh) {
+        if (child.material instanceof THREE.MeshStandardMaterial) {
+          child.material.wireframe = visible;
         }
       }
     }

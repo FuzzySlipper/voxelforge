@@ -1,4 +1,7 @@
 using Microsoft.Extensions.Logging;
+using VoxelForge.App;
+using VoxelForge.App.Commands;
+using VoxelForge.App.Events;
 using VoxelForge.Core;
 using VoxelForge.Core.Serialization;
 
@@ -14,16 +17,32 @@ public sealed class VoxelModelHolder
 {
     private readonly ILogger<VoxelModelHolder> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IEventPublisher _events;
 
     public bool IsLoaded { get; private set; }
-    public VoxelModel Model { get; private set; } = null!;
-    public LabelIndex Labels { get; private set; } = null!;
+    public EditorDocumentState Document { get; private set; } = null!;
+    public EditorSessionState Session { get; } = new();
+    public UndoHistoryState UndoHistory { get; } = new(100);
+    public UndoStack UndoStack { get; }
+    public VoxelModel Model => Document.Model;
+    public LabelIndex Labels => Document.Labels;
     public string ModelId { get; private set; } = "";
+    public string? ProjectPath { get; private set; }
+    public bool IsDirty { get; private set; }
+    public string StatusMessage { get; private set; } = "Starting VoxelForge bridge.";
 
-    public VoxelModelHolder(ILogger<VoxelModelHolder> logger, ILoggerFactory loggerFactory)
+    public VoxelModelHolder(
+        ILogger<VoxelModelHolder> logger,
+        ILoggerFactory loggerFactory,
+        IEventPublisher? events = null)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
+        _events = events ?? new NoopEventPublisher();
+        UndoStack = new UndoStack(
+            UndoHistory,
+            loggerFactory.CreateLogger<UndoStack>(),
+            _events);
     }
 
     /// <summary>
@@ -44,10 +63,12 @@ public sealed class VoxelModelHolder
         var serializer = new ProjectSerializer(_loggerFactory);
         var (model, labels, clips, meta) = serializer.Deserialize(json);
 
-        Model = model;
-        Labels = labels;
+        Document = new EditorDocumentState(model, labels, clips);
         ModelId = meta.Name ?? Path.GetFileNameWithoutExtension(path);
+        ProjectPath = path;
+        IsDirty = false;
         IsLoaded = true;
+        StatusMessage = $"Loaded '{ModelId}' from {path}";
 
         _logger.LogInformation(
             "Loaded model '{ModelId}' with {VoxelCount} voxels, {PaletteCount} palette entries, {LabelCount} labels",
@@ -94,11 +115,50 @@ public sealed class VoxelModelHolder
         var labelLogger = _loggerFactory.CreateLogger<LabelIndex>();
         var labels = new LabelIndex(labelLogger);
 
-        Model = model;
-        Labels = labels;
+        Document = new EditorDocumentState(model, labels);
         ModelId = "default-cube";
+        ProjectPath = null;
+        IsDirty = false;
         IsLoaded = true;
+        StatusMessage = "Created default test cube.";
 
         _logger.LogInformation("Created default test cube model with {VoxelCount} voxels", model.GetVoxelCount());
+    }
+
+    public void SetProjectPath(string? path)
+    {
+        ProjectPath = path;
+    }
+
+    public void SetModelId(string modelId)
+    {
+        ArgumentNullException.ThrowIfNull(modelId);
+        ModelId = modelId;
+    }
+
+    public void MarkDirty(bool isDirty)
+    {
+        IsDirty = isDirty;
+    }
+
+    public void SetStatus(string message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        StatusMessage = message;
+    }
+
+    private sealed class NoopEventPublisher : IEventPublisher
+    {
+        public void Publish<TEvent>(TEvent applicationEvent) where TEvent : IApplicationEvent
+        {
+        }
+
+        public void Publish(IApplicationEvent applicationEvent)
+        {
+        }
+
+        public void PublishAll(IReadOnlyList<IApplicationEvent> applicationEvents)
+        {
+        }
     }
 }

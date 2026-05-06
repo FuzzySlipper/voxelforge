@@ -188,7 +188,55 @@ async function runSmokeTest(repoRoot: string): Promise<void> {
       `[electron-smoke] Palette get OK: id=${paletteResult?.palette_id}, entries=${paletteResult?.entry_count}`,
     );
 
-    // 6. Winding/culling verification for mesh
+    // 6. State snapshot test
+    console.log("[electron-smoke] Requesting editor state snapshot...");
+    const stateResponse = await bridgeClient.send(
+      {
+        requestId: "smoke-state",
+        command: "voxelforge.state.request_full",
+        payload: { domains: ["document", "session", "history", "palette", "diagnostics"] },
+      },
+      requestTimeoutMs,
+    );
+    if (stateResponse.error) {
+      console.error("[electron-smoke] State snapshot failed:", stateResponse.error);
+      shutdown(1);
+      return;
+    }
+    const stateResult = stateResponse.result as
+      | { snapshot?: { model_id?: string; active_tool?: string; active_palette_index?: number; palette_entry_count?: number } }
+      | undefined;
+    console.log(
+      `[electron-smoke] State snapshot OK: model=${stateResult?.snapshot?.model_id}, ` +
+      `tool=${stateResult?.snapshot?.active_tool}, palette=${stateResult?.snapshot?.active_palette_index}`,
+    );
+
+    // 7. Command execution test: tool selection must round-trip through C# state.
+    console.log("[electron-smoke] Executing set_active_tool command...");
+    const commandResponse = await bridgeClient.send(
+      {
+        requestId: "smoke-command-tool",
+        command: "voxelforge.command.execute",
+        payload: { command_name: "set_active_tool", arguments: { tool: "paint" } },
+      },
+      requestTimeoutMs,
+    );
+    if (commandResponse.error) {
+      console.error("[electron-smoke] Command execute failed:", commandResponse.error);
+      shutdown(1);
+      return;
+    }
+    const commandResult = commandResponse.result as
+      | { success?: boolean; state?: { active_tool?: string } }
+      | undefined;
+    if (!commandResult?.success || commandResult.state?.active_tool !== "paint") {
+      console.error("[electron-smoke] Command did not update authoritative C# state:", commandResponse.result);
+      shutdown(1);
+      return;
+    }
+    console.log("[electron-smoke] Command execute OK: active_tool=paint");
+
+    // 8. Winding/culling verification for mesh
     // The mesh must have winding that aligns with FrontSide culling (CCW triangles).
     // Verify that vertex_count > 0 and index_count is a multiple of 3 (valid triangles)
     if (meshResult && typeof meshResult.vertex_count === "number" && typeof meshResult.triangle_count === "number") {
@@ -332,6 +380,118 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
     return response.result;
   });
 
+  ipcMain.handle("bridge:state-subscribe", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-state-sub-${Date.now()}`,
+        command: "voxelforge.state.subscribe",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`State subscribe error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:state-request-full", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-state-full-${Date.now()}`,
+        command: "voxelforge.state.request_full",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`State request error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:command-execute", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-command-${Date.now()}`,
+        command: "voxelforge.command.execute",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Command error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:history-undo", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-undo-${Date.now()}`,
+        command: "voxelforge.history.undo",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Undo error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:history-redo", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-redo-${Date.now()}`,
+        command: "voxelforge.history.redo",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Redo error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:project-save", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-save-${Date.now()}`,
+        command: "voxelforge.project.save",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Project save error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:project-load", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-load-${Date.now()}`,
+        command: "voxelforge.project.load",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Project load error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
   ipcMain.handle("bridge:mesh-subscribe", async (_event, payload: unknown) => {
     const client = await ensureBridgeClient(handshake);
     const response = await client.send(
@@ -416,6 +576,14 @@ async function setupMeshSubscription(handshake: { endpoint: string; auth_token: 
       mainWindow.webContents.send("voxelforge:palette-update", payload);
     }
     console.log("[electron] Palette update event received");
+  });
+
+  // Forward editor state update events from the bridge to the renderer
+  client.onEvent("voxelforge.state.delta", (payload: unknown) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("voxelforge:state-delta", payload);
+    }
+    console.log("[electron] State delta event received");
   });
 }
 

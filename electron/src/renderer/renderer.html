@@ -4,28 +4,117 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' ws://localhost:*;">
-  <title>VoxelForge Mesh Viewer</title>
+  <title>VoxelForge Electron Workbench</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #2b2b2b; font-family: monospace; }
-    #renderer-container { width: 100%; height: calc(100% - 28px); }
-    #status-bar {
-      height: 28px;
-      background: #1a1a1a;
-      color: #888;
-      padding: 4px 10px;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      border-top: 1px solid #333;
-    }
-    #status { flex: 1; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #171a1f; color: #d9e2ef; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    button, input { font: inherit; }
+    button { border: 1px solid #394150; background: #242b36; color: #d9e2ef; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+    button:hover:not(:disabled), button.active { background: #33557a; border-color: #5a8fca; color: #fff; }
+    button:disabled { cursor: not-allowed; color: #6f7a89; background: #1d222b; border-color: #2a303b; }
+    input { width: 100%; border: 1px solid #394150; background: #11151b; color: #d9e2ef; padding: 8px; border-radius: 6px; }
+    .app-shell { display: grid; grid-template-rows: 48px 1fr 30px; height: 100%; }
+    .topbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #303846; background: #1f252e; }
+    .brand { font-weight: 700; color: #8fc7ff; margin-right: 12px; letter-spacing: 0.02em; }
+    .topbar .spacer { flex: 1; }
+    .main { display: grid; grid-template-columns: 280px 1fr 310px; min-height: 0; }
+    .panel { min-height: 0; overflow: auto; background: #1b2028; border-right: 1px solid #303846; padding: 12px; }
+    .panel.right { border-right: 0; border-left: 1px solid #303846; }
+    .section { margin-bottom: 16px; }
+    .section h2 { font-size: 12px; color: #8fa7c4; text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 8px; }
+    .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .palette-list { display: grid; gap: 6px; }
+    .palette-entry { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 8px; width: 100%; text-align: left; }
+    .palette-swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.35); }
+    .palette-index { color: #aab5c4; font-size: 11px; }
+    .viewport-wrap { position: relative; min-width: 0; min-height: 0; background: #20242c; }
+    #renderer-container { width: 100%; height: 100%; }
+    .viewport-hud { position: absolute; top: 10px; left: 10px; display: grid; gap: 5px; pointer-events: none; }
+    .hud-pill { background: rgba(13, 17, 23, 0.76); border: 1px solid rgba(121, 153, 190, 0.25); padding: 5px 8px; border-radius: 999px; color: #dbe9fa; font-size: 12px; }
+    .field-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+    .kv { display: grid; grid-template-columns: 120px 1fr; gap: 5px 10px; font-size: 12px; line-height: 1.55; }
+    .kv span:nth-child(odd) { color: #8495aa; }
+    .callout { border: 1px solid #3b4f68; background: #202a36; color: #b8c9dc; padding: 9px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
+    .status-bar { display: flex; align-items: center; gap: 12px; padding: 5px 10px; background: #11151b; border-top: 1px solid #303846; color: #93a4b8; font-size: 12px; }
+    #status { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .ok { color: #7fd68a; }
+    .warn { color: #ffca6e; }
   </style>
 </head>
 <body>
-  <div id="renderer-container"></div>
-  <div id="status-bar">
-    <span id="status">Connecting to VoxelForge sidecar...</span>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">VoxelForge</div>
+      <button id="undo-button" disabled>Undo</button>
+      <button id="redo-button" disabled>Redo</button>
+      <button id="refresh-button">Refresh</button>
+      <button id="fit-view-button">Fit View</button>
+      <button id="grid-toggle-button" class="active">Grid</button>
+      <button id="wireframe-toggle-button">Wireframe</button>
+      <div class="spacer"></div>
+      <span id="connection-indicator" class="warn">Connecting…</span>
+    </header>
+
+    <main class="main">
+      <aside class="panel left">
+        <section class="section">
+          <h2>Tools (C# Session State)</h2>
+          <div id="tool-list" class="button-grid"></div>
+        </section>
+
+        <section class="section">
+          <h2>Palette (C# Document State)</h2>
+          <div id="palette-list" class="palette-list"></div>
+        </section>
+
+        <section class="section">
+          <h2>Editing Commands</h2>
+          <div class="callout">
+            Viewport voxel placement/removal is intentionally disabled in this slice. Tool and palette selection, history, and project actions are authoritative C# bridge commands; direct editing interactions are reserved for #1178.
+          </div>
+        </section>
+      </aside>
+
+      <section class="viewport-wrap">
+        <div id="renderer-container"></div>
+        <div class="viewport-hud">
+          <div class="hud-pill" id="hud-model">Model: —</div>
+          <div class="hud-pill" id="hud-mesh">Mesh: —</div>
+          <div class="hud-pill" id="hud-tool">Tool: —</div>
+        </div>
+      </section>
+
+      <aside class="panel right">
+        <section class="section">
+          <h2>Project I/O (via C#)</h2>
+          <div class="field-row">
+            <input id="project-path" value="content/electron-ui-slice.vforge" aria-label="Project path or name">
+            <button id="open-button">Open</button>
+            <button id="save-button">Save</button>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Authoritative State</h2>
+          <div class="kv" id="state-diagnostics"></div>
+        </section>
+
+        <section class="section">
+          <h2>Viewport Diagnostics</h2>
+          <div class="kv" id="viewport-diagnostics"></div>
+        </section>
+
+        <section class="section">
+          <h2>Bridge Status</h2>
+          <div class="callout" id="bridge-status">Waiting for sidecar handshake…</div>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="status-bar">
+      <span id="status">Connecting to VoxelForge sidecar…</span>
+      <span id="dirty-indicator">clean</span>
+    </footer>
   </div>
   <script src="./bundle.js"></script>
 </body>

@@ -396,3 +396,137 @@ public sealed class PaletteUpdateEventPayload
 
     public required int EntryCount { get; init; }
 }
+
+// ── Editor UI State / Commands ──
+
+/// <summary>
+/// TS-owned request to subscribe to authoritative editor state updates.
+/// </summary>
+public sealed class EditorStateSubscribeRequest
+{
+    public string[] Domains { get; set; } = ["document", "session", "history", "palette", "diagnostics"];
+    public string DeliveryMode { get; set; } = "snapshot";
+    public bool FullSnapshotOnSubscribe { get; set; } = true;
+}
+
+/// <summary>
+/// C#-owned response acknowledging editor state subscription.
+/// </summary>
+public sealed class EditorStateSubscribeResponse
+{
+    public required string SubscriptionId { get; set; }
+    public required string[] Domains { get; set; }
+    public required string DeliveryMode { get; set; }
+    public EditorUiStateSnapshot? Snapshot { get; set; }
+}
+
+/// <summary>
+/// TS-owned request for a full authoritative editor state snapshot.
+/// </summary>
+public sealed class EditorStateRequestFullRequest
+{
+    public string[] Domains { get; set; } = ["document", "session", "history", "palette", "diagnostics"];
+}
+
+/// <summary>
+/// C#-owned response with the current authoritative editor state.
+/// </summary>
+public sealed class EditorStateRequestFullResponse
+{
+    public required EditorUiStateSnapshot Snapshot { get; set; }
+}
+
+/// <summary>
+/// C#-owned event payload pushed when UI-relevant editor state changes.
+/// </summary>
+public sealed class EditorStateDeltaEventPayload
+{
+    public required string Domain { get; init; }
+    public required long Sequence { get; init; }
+    public required DateTimeOffset Timestamp { get; init; }
+    public required bool Full { get; init; }
+    public required EditorUiStateSnapshot Snapshot { get; init; }
+}
+
+/// <summary>
+/// Renderer-neutral state snapshot for the Electron tool surface.
+/// This deliberately excludes mesh buffers; mesh data travels through mesh messages.
+/// </summary>
+public sealed class EditorUiStateSnapshot
+{
+    public required string ModelId { get; init; }
+    public string? ProjectPath { get; init; }
+    public required bool IsDirty { get; init; }
+    public required int VoxelCount { get; init; }
+    public BoundsDto? Bounds { get; init; }
+    public required int GridHint { get; init; }
+    public required string ActiveTool { get; init; }
+    public required byte ActivePaletteIndex { get; init; }
+    public required string[] AvailableTools { get; init; }
+    public required PaletteEntryResponse[] PaletteEntries { get; init; }
+    public required int PaletteEntryCount { get; init; }
+    public required bool CanUndo { get; init; }
+    public required bool CanRedo { get; init; }
+    public required int UndoDepth { get; init; }
+    public required int RedoDepth { get; init; }
+    public string? LastCommandDescription { get; init; }
+    public required int SelectedVoxelCount { get; init; }
+    public required int ActiveFrameIndex { get; init; }
+    public required string StatusMessage { get; init; }
+    public required DateTimeOffset Timestamp { get; init; }
+}
+
+/// <summary>
+/// TS-owned generic editor command request. C# validates and applies semantics.
+/// </summary>
+public sealed class CommandExecuteRequest
+{
+    public required string CommandName { get; set; }
+    public Dictionary<string, object?> Arguments { get; set; } = [];
+}
+
+/// <summary>
+/// C#-owned command result with an authoritative post-command state snapshot.
+/// </summary>
+public sealed class CommandExecuteResponse
+{
+    public required bool Success { get; init; }
+    public required string Message { get; init; }
+    public required string[] AffectedDomains { get; init; }
+    public required bool MeshChanged { get; init; }
+    public required EditorUiStateSnapshot State { get; init; }
+}
+
+public sealed class HistoryUndoRequest
+{
+}
+
+public sealed class HistoryRedoRequest
+{
+}
+
+public sealed class HistoryCommandResponse
+{
+    public required bool Success { get; init; }
+    public required string Message { get; init; }
+    public required bool MeshChanged { get; init; }
+    public required EditorUiStateSnapshot State { get; init; }
+}
+
+public sealed class ProjectSaveRequest
+{
+    public required string Path { get; set; }
+}
+
+public sealed class ProjectLoadRequest
+{
+    public required string Path { get; set; }
+}
+
+public sealed class ProjectCommandResponse
+{
+    public required bool Success { get; init; }
+    public required string Message { get; init; }
+    public required bool MeshChanged { get; init; }
+    public required EditorUiStateSnapshot State { get; init; }
+}

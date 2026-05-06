@@ -1,6 +1,7 @@
 /**
- * Electron renderer process entry point for VoxelForge static mesh viewer.
- * Owns only rendering and presentation — no model mutations.
+ * Electron renderer process entry point for the VoxelForge workbench.
+ * Owns presentation, camera, and UI rendering only. All semantic state changes
+ * route through Electron main -> den-bridge -> C# sidecar commands/state.
  */
 
 import { VoxelForgeScene, type MeshSnapshotData, type MeshUpdateEventData, type PaletteUpdateEventData, type RendererMetrics } from "./scene";
@@ -16,255 +17,401 @@ declare global {
   }
 }
 
+interface EditorUiStateSnapshot {
+  model_id: string;
+  project_path?: string;
+  is_dirty: boolean;
+  voxel_count: number;
+  bounds?: { min_x: number; min_y: number; min_z: number; max_x: number; max_y: number; max_z: number };
+  grid_hint: number;
+  active_tool: string;
+  active_palette_index: number;
+  available_tools: string[];
+  palette_entries: PaletteEntry[];
+  palette_entry_count: number;
+  can_undo: boolean;
+  can_redo: boolean;
+  undo_depth: number;
+  redo_depth: number;
+  last_command_description?: string;
+  selected_voxel_count: number;
+  active_frame_index: number;
+  status_message: string;
+  timestamp: string;
+}
+
+interface PaletteEntry {
+  index: number;
+  name: string;
+  color: string;
+  a: number;
+  visible: boolean;
+}
+
+interface StateSubscribeResponse {
+  subscription_id: string;
+  snapshot?: EditorUiStateSnapshot;
+}
+
+interface StateRequestFullResponse {
+  snapshot: EditorUiStateSnapshot;
+}
+
+interface CommandResponse {
+  success: boolean;
+  message: string;
+  mesh_changed: boolean;
+  state: EditorUiStateSnapshot;
+}
+
+interface StateDeltaEvent {
+  domain: string;
+  sequence: number;
+  full: boolean;
+  snapshot: EditorUiStateSnapshot;
+}
+
+const ui = {
+  container: requiredElement<HTMLElement>("renderer-container"),
+  status: requiredElement<HTMLElement>("status"),
+  connection: requiredElement<HTMLElement>("connection-indicator"),
+  bridgeStatus: requiredElement<HTMLElement>("bridge-status"),
+  dirty: requiredElement<HTMLElement>("dirty-indicator"),
+  toolList: requiredElement<HTMLElement>("tool-list"),
+  paletteList: requiredElement<HTMLElement>("palette-list"),
+  stateDiagnostics: requiredElement<HTMLElement>("state-diagnostics"),
+  viewportDiagnostics: requiredElement<HTMLElement>("viewport-diagnostics"),
+  projectPath: requiredElement<HTMLInputElement>("project-path"),
+  undoButton: requiredElement<HTMLButtonElement>("undo-button"),
+  redoButton: requiredElement<HTMLButtonElement>("redo-button"),
+  refreshButton: requiredElement<HTMLButtonElement>("refresh-button"),
+  fitViewButton: requiredElement<HTMLButtonElement>("fit-view-button"),
+  gridToggleButton: requiredElement<HTMLButtonElement>("grid-toggle-button"),
+  wireframeToggleButton: requiredElement<HTMLButtonElement>("wireframe-toggle-button"),
+  openButton: requiredElement<HTMLButtonElement>("open-button"),
+  saveButton: requiredElement<HTMLButtonElement>("save-button"),
+  hudModel: requiredElement<HTMLElement>("hud-model"),
+  hudMesh: requiredElement<HTMLElement>("hud-mesh"),
+  hudTool: requiredElement<HTMLElement>("hud-tool"),
+};
+
+let scene: VoxelForgeScene;
+let currentState: EditorUiStateSnapshot | null = null;
+let currentMesh: MeshSnapshotData | null = null;
+let latestMetrics: RendererMetrics | null = null;
+let gridVisible = true;
+let wireframeVisible = false;
+
 async function main(): Promise<void> {
-  const container = document.getElementById("renderer-container");
-  if (!container) {
-    console.error("[renderer] No #renderer-container element found");
-    return;
-  }
-
-  // Show loading state
-  container.innerHTML = '<div style="color: #aaa; padding: 20px; font-family: monospace;">Loading VoxelForge mesh data...</div>';
-
-  const scene = new VoxelForgeScene(container);
+  ui.container.innerHTML = '<div style="color: #aaa; padding: 20px;">Loading VoxelForge renderer…</div>';
+  scene = new VoxelForgeScene(ui.container);
 
   scene.onRenderComplete((metrics: RendererMetrics) => {
-    console.log("[renderer] Render complete:", metrics);
-    // Send metrics back to main process for logging/smoke tests
-    if (window.voxelforgeBridge) {
-      window.voxelforgeBridge.sendMetrics({
-        scene_construction_ms: metrics.scene_construction_ms,
-        first_render_ms: metrics.first_render_ms,
-        vertex_count: metrics.vertex_count,
-        triangle_count: metrics.triangle_count,
-        total_renderer_ms: metrics.total_renderer_ms,
-      });
+    latestMetrics = metrics;
+    renderViewportDiagnostics();
+    window.voxelforgeBridge?.sendMetrics({
+      scene_construction_ms: metrics.scene_construction_ms,
+      first_render_ms: metrics.first_render_ms,
+      vertex_count: metrics.vertex_count,
+      triangle_count: metrics.triangle_count,
+      total_renderer_ms: metrics.total_renderer_ms,
+    });
+  });
+
+  wireControls();
+
+  try {
+    await handshake();
+    await subscribeState();
+    await refreshMesh();
+    setupBridgeEvents();
+    setBridgeStatus("Bridge connected. C# owns editor state; TS owns presentation.", true);
+  } catch (err) {
+    console.error("[renderer] startup failed:", err);
+    setBridgeStatus(`Startup failed: ${formatError(err)}`, false);
+    ui.container.innerHTML = `<div style="color: #ff7979; padding: 20px;">${escapeHtml(formatError(err))}</div>`;
+  }
+
+  window.voxelforgeBridge?.notifyReady();
+}
+
+async function handshake(): Promise<void> {
+  const handshakeResult = await window.voxelforgeBridge.request("bridge:handshake", {
+    client_schema_version: "voxelforge@1",
+    supported_capabilities: ["mesh_json", "state_snapshot", "state_delta", "commands", "history", "project_io"],
+  }) as { sidecar_schema_version?: string; compatible?: boolean; supported_capabilities?: string[] };
+
+  if (!handshakeResult.compatible) {
+    throw new Error(`Incompatible VoxelForge schema version: ${handshakeResult.sidecar_schema_version ?? "unknown"}`);
+  }
+
+  ui.bridgeStatus.textContent = `Schema ${handshakeResult.sidecar_schema_version}; capabilities: ${(handshakeResult.supported_capabilities ?? []).join(", ")}`;
+}
+
+async function subscribeState(): Promise<void> {
+  const response = await window.voxelforgeBridge.request("bridge:state-subscribe", {
+    domains: ["document", "session", "history", "palette", "diagnostics"],
+    delivery_mode: "snapshot",
+    full_snapshot_on_subscribe: true,
+  }) as StateSubscribeResponse;
+
+  if (response.snapshot) {
+    applyState(response.snapshot);
+  }
+}
+
+function setupBridgeEvents(): void {
+  window.voxelforgeBridge.onEvent("voxelforge:state-delta", (payload: unknown) => {
+    const update = payload as StateDeltaEvent;
+    if (update.full && update.snapshot) {
+      applyState(update.snapshot);
     }
   });
 
+  setupMeshSubscription();
+}
+
+function setupMeshSubscription(): void {
+  let currentMeshId = currentMesh?.mesh_id ?? "";
+
+  window.voxelforgeBridge.onEvent("voxelforge:mesh-update", (payload: unknown) => {
+    const update = payload as MeshUpdateEventData;
+    console.log("[renderer] Mesh update received:", update);
+
+    if (update.base_mesh_id !== currentMeshId && update.update_type !== "full_replace") {
+      void refreshMesh();
+      return;
+    }
+
+    try {
+      const metrics = scene.applyIncrementalUpdate(update);
+      currentMeshId = update.base_mesh_id;
+      latestMetrics = metrics;
+      renderViewportDiagnostics();
+      setStatus(`Mesh update: ${update.update_type}, regions ${update.changed_regions.length}`);
+    } catch (err) {
+      console.error("[renderer] Failed to apply mesh update:", err);
+      void refreshMesh();
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("voxelforge:palette-update", (payload: unknown) => {
+    const update = payload as PaletteUpdateEventData;
+    console.log("[renderer] Palette update received:", update);
+  });
+
+  window.voxelforgeBridge.request("bridge:mesh-subscribe", {
+    model_id: "",
+    chunk_size: 16,
+    send_full_snapshot_on_subscribe: false,
+  }).catch((err: unknown) => {
+    console.warn("[renderer] Mesh subscription failed (manual refresh still works):", err);
+  });
+}
+
+function wireControls(): void {
+  ui.undoButton.addEventListener("click", () => void runAction("Undo", "bridge:history-undo", {}));
+  ui.redoButton.addEventListener("click", () => void runAction("Redo", "bridge:history-redo", {}));
+  ui.refreshButton.addEventListener("click", () => void refreshAll());
+  ui.fitViewButton.addEventListener("click", () => scene.frameCurrentModel());
+  ui.gridToggleButton.addEventListener("click", () => {
+    gridVisible = !gridVisible;
+    scene.setGridVisible(gridVisible);
+    ui.gridToggleButton.classList.toggle("active", gridVisible);
+  });
+  ui.wireframeToggleButton.addEventListener("click", () => {
+    wireframeVisible = !wireframeVisible;
+    scene.setWireframeVisible(wireframeVisible);
+    ui.wireframeToggleButton.classList.toggle("active", wireframeVisible);
+  });
+  ui.saveButton.addEventListener("click", () => void runAction("Save", "bridge:project-save", { path: ui.projectPath.value }));
+  ui.openButton.addEventListener("click", () => void runAction("Open", "bridge:project-load", { path: ui.projectPath.value }));
+}
+
+async function runAction(label: string, channel: string, payload: unknown): Promise<void> {
+  setBusy(true);
+  setStatus(`${label}…`);
   try {
-    // 1. Perform VoxelForge schema handshake
-    if (window.voxelforgeBridge) {
-      const handshake = await window.voxelforgeBridge.request("bridge:handshake", {
-        client_schema_version: "voxelforge@1",
-        supported_capabilities: ["mesh_json"],
-      }) as { sidecar_schema_version?: string; compatible?: boolean; supported_capabilities?: string[] };
-
-      console.log("[renderer] Schema handshake:", handshake);
-      if (!handshake.compatible) {
-        container.innerHTML = `<div style="color: #f55; padding: 20px; font-family: monospace;">
-          Incompatible VoxelForge schema version: ${handshake.sidecar_schema_version}
-        </div>`;
-        return;
-      }
+    const response = await window.voxelforgeBridge.request(channel, payload) as CommandResponse;
+    applyState(response.state);
+    if (response.mesh_changed) {
+      await refreshMesh();
     }
-
-    // 2. Request mesh snapshot from the C# sidecar
-    let meshData: MeshSnapshotData;
-    if (window.voxelforgeBridge) {
-      meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
-        model_id: "",
-        lod_level: 0,
-        payload_format: "json",
-        include_palette_mapping: true,
-      }) as MeshSnapshotData;
-    } else {
-      // No bridge available — show a placeholder cube for dev testing
-      meshData = createFallbackCube();
-    }
-
-    console.log("[renderer] Mesh data received:", {
-      model_id: meshData.model_id,
-      vertices: meshData.vertex_count,
-      triangles: meshData.triangle_count,
-      bounds: meshData.bounds,
-    });
-
-    // 3. Build Three.js mesh from snapshot data
-    const metrics = scene.buildMeshFromSnapshot(meshData);
-    console.log("[renderer] Scene constructed:", metrics);
-
-    // 4. Update status
-    const statusEl = document.getElementById("status");
-    if (statusEl) {
-      statusEl.textContent =
-        `Model: ${meshData.model_id} | Vertices: ${meshData.vertex_count} | Triangles: ${meshData.triangle_count}`;
-    }
-
-    // 5. Subscribe to mesh update events for incremental updates
-    if (window.voxelforgeBridge) {
-      setupMeshSubscription(scene, meshData as MeshSnapshotData);
-    }
+    setStatus(response.message);
   } catch (err) {
-    console.error("[renderer] Error:", err);
-    container.innerHTML = `<div style="color: #f55; padding: 20px; font-family: monospace;">
-      Error: ${err}
-    </div>`;
-  }
-
-  // Notify main process that renderer is ready
-  if (window.voxelforgeBridge) {
-    window.voxelforgeBridge.notifyReady();
+    setStatus(`${label} failed: ${formatError(err)}`);
+  } finally {
+    setBusy(false);
   }
 }
 
-/**
- * Create a fallback cube for development when no bridge is available.
- * This allows testing the Three.js scene construction without the C# sidecar.
- */
-function createFallbackCube(): MeshSnapshotData {
-  // Simple 2x2x2 cube: 8 vertices, 12 triangles
-  const positions = [
-    // Front face
-    0, 0, 2, 2, 0, 2, 2, 2, 2, 0, 2, 2,
-    // Back face
-    0, 0, 0, 0, 2, 0, 2, 2, 0, 2, 0, 0,
-    // Top face
-    0, 2, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0,
-    // Bottom face
-    0, 0, 0, 2, 0, 0, 2, 0, 2, 0, 0, 2,
-    // Right face
-    2, 0, 0, 2, 2, 0, 2, 2, 2, 2, 0, 2,
-    // Left face
-    0, 0, 0, 0, 0, 2, 0, 2, 2, 0, 2, 0,
-  ];
-
-  const normals = [
-    // Front (z+)
-    0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
-    // Back (z-)
-    0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1,
-    // Top (y+)
-    0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,
-    // Bottom (y-)
-    0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
-    // Right (x+)
-    1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
-    // Left (x-)
-    -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0,
-  ];
-
-  // RGBA colors: warm orange-brown
-  const colors = new Array(24 * 4).fill(0);
-  for (let i = 0; i < 24; i++) {
-    colors[i * 4] = 180;     // R
-    colors[i * 4 + 1] = 120; // G
-    colors[i * 4 + 2] = 80;  // B
-    colors[i * 4 + 3] = 255; // A
-  }
-
-  const indices = [
-    0, 1, 2, 0, 2, 3,       // front
-    4, 5, 6, 4, 6, 7,       // back
-    8, 9, 10, 8, 10, 11,    // top
-    12, 13, 14, 12, 14, 15, // bottom
-    16, 17, 18, 16, 18, 19, // right
-    20, 21, 22, 20, 22, 23, // left
-  ];
-
-  return {
-    model_id: "fallback-cube",
-    mesh_id: "mesh-fallback-00000000000000",
-    format: "json",
-    vertex_count: 24,
-    index_count: 36,
-    triangle_count: 12,
-    positions,
-    normals,
-    colors,
-    indices,
-    bounds: {
-      min_x: 0, min_y: 0, min_z: 0,
-      max_x: 2, max_y: 2, max_z: 2,
-    },
-    palette_mapping: {
-      "1": { name: "Stone", color: "#B47850", a: 255, visible: true },
-    },
-  };
+async function executeCommand(commandName: string, argumentsPayload: Record<string, unknown>): Promise<void> {
+  await runAction("Command", "bridge:command-execute", {
+    command_name: commandName,
+    arguments: argumentsPayload,
+  });
 }
 
-/**
- * Subscribe to incremental mesh update events from the C# sidecar.
- * When mesh updates arrive, apply them to the scene using incremental buffer replacement.
- */
-function setupMeshSubscription(scene: VoxelForgeScene, initialSnapshot: MeshSnapshotData): void {
-  let currentMeshId = initialSnapshot.mesh_id;
-
-  // Subscribe to mesh update events
-  if (window.voxelforgeBridge) {
-    window.voxelforgeBridge.onEvent("voxelforge:mesh-update", (payload: unknown) => {
-      const update = payload as MeshUpdateEventData;
-      // Capture scene reference for closure
-      const sceneRef = scene;
-      console.log("[renderer] Mesh update received:", {
-        model_id: update.model_id,
-        sequence: update.sequence,
-        update_type: update.update_type,
-        regions: update.changed_regions.length,
-      });
-
-      // Check if the update applies to our current mesh
-      if (update.base_mesh_id !== currentMeshId && update.update_type !== "full_replace") {
-        console.warn(
-          `[renderer] Mesh update base mismatch: expected ${currentMeshId}, got ${update.base_mesh_id}. Requesting full snapshot.`,
-        );
-        // Out of sync — request a full snapshot to resync
-        void requestFullMeshSnapshot(scene);
-        return;
-      }
-
-      try {
-        const metrics = sceneRef.applyIncrementalUpdate(update);
-        currentMeshId = update.base_mesh_id;
-        console.log("[renderer] Incremental mesh update applied:", metrics);
-
-        // Update status
-        const statusEl = document.getElementById("status");
-        if (statusEl) {
-          statusEl.textContent =
-            `Model: ${update.model_id} | Vertices: ${update.full_vertex_count} | Update: ${update.update_type} | Regions: ${update.changed_regions.length}`;
-        }
-      } catch (err) {
-        console.error("[renderer] Failed to apply incremental mesh update:", err);
-      }
-    });
-
-    // Subscribe to palette update events
-    window.voxelforgeBridge.onEvent("voxelforge:palette-update", (payload: unknown) => {
-      const update = payload as PaletteUpdateEventData;
-      console.log("[renderer] Palette update received:", {
-        model_id: update.model_id,
-        sequence: update.sequence,
-        update_type: update.update_type,
-        entries: update.entry_count,
-      });
-    });
-
-    // Send mesh subscription request
-    window.voxelforgeBridge.request("bridge:mesh-subscribe", {
-      model_id: "",
-      chunk_size: 16,
-      send_full_snapshot_on_subscribe: false,
-    }).catch((err: unknown) => {
-      console.warn("[renderer] Mesh subscription failed (non-fatal for static renderer):", err);
-    });
-  }
-}
-
-async function requestFullMeshSnapshot(scene: VoxelForgeScene): Promise<void> {
-  if (!window.voxelforgeBridge) return;
+async function refreshAll(): Promise<void> {
+  setBusy(true);
   try {
-    const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
-      model_id: "",
-      lod_level: 0,
-      payload_format: "json",
-      include_palette_mapping: true,
-    }) as MeshSnapshotData;
-    const metrics = scene.buildMeshFromSnapshot(meshData);
-    console.log("[renderer] Full mesh resync applied:", metrics);
+    const stateResponse = await window.voxelforgeBridge.request("bridge:state-request-full", {
+      domains: ["document", "session", "history", "palette", "diagnostics"],
+    }) as StateRequestFullResponse;
+    applyState(stateResponse.snapshot);
+    await refreshMesh();
+    setStatus("Refreshed authoritative state and mesh from C#.");
   } catch (err) {
-    console.error("[renderer] Failed to resync mesh:", err);
+    setStatus(`Refresh failed: ${formatError(err)}`);
+  } finally {
+    setBusy(false);
   }
+}
+
+async function refreshMesh(): Promise<void> {
+  const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
+    model_id: "",
+    lod_level: 0,
+    payload_format: "json",
+    include_palette_mapping: true,
+  }) as MeshSnapshotData;
+
+  currentMesh = meshData;
+  const metrics = scene.buildMeshFromSnapshot(meshData);
+  latestMetrics = metrics;
+  if (wireframeVisible) scene.setWireframeVisible(true);
+  renderViewportDiagnostics();
+}
+
+function applyState(state: EditorUiStateSnapshot): void {
+  currentState = state;
+  ui.projectPath.value = state.project_path || ui.projectPath.value;
+  ui.undoButton.disabled = !state.can_undo;
+  ui.redoButton.disabled = !state.can_redo;
+  ui.dirty.textContent = state.is_dirty ? "dirty" : "clean";
+  ui.dirty.className = state.is_dirty ? "warn" : "ok";
+  ui.hudModel.textContent = `Model: ${state.model_id} (${state.voxel_count} voxels)`;
+  ui.hudTool.textContent = `Tool: ${state.active_tool} · palette ${state.active_palette_index}`;
+  renderTools(state);
+  renderPalette(state);
+  renderStateDiagnostics(state);
+  setStatus(state.status_message);
+}
+
+function renderTools(state: EditorUiStateSnapshot): void {
+  ui.toolList.replaceChildren();
+  for (const tool of state.available_tools) {
+    const button = document.createElement("button");
+    button.textContent = titleCase(tool);
+    button.classList.toggle("active", tool === state.active_tool);
+    button.addEventListener("click", () => void executeCommand("set_active_tool", { tool }));
+    ui.toolList.appendChild(button);
+  }
+}
+
+function renderPalette(state: EditorUiStateSnapshot): void {
+  ui.paletteList.replaceChildren();
+  for (const entry of state.palette_entries.filter((p) => p.visible)) {
+    const button = document.createElement("button");
+    button.className = "palette-entry";
+    button.classList.toggle("active", entry.index === state.active_palette_index);
+    button.addEventListener("click", () => void executeCommand("set_active_palette", { palette_index: entry.index }));
+
+    const swatch = document.createElement("span");
+    swatch.className = "palette-swatch";
+    swatch.style.background = entry.color;
+
+    const name = document.createElement("span");
+    name.textContent = entry.name;
+
+    const index = document.createElement("span");
+    index.className = "palette-index";
+    index.textContent = `#${entry.index}`;
+
+    button.append(swatch, name, index);
+    ui.paletteList.appendChild(button);
+  }
+}
+
+function renderStateDiagnostics(state: EditorUiStateSnapshot): void {
+  const bounds = state.bounds
+    ? `${state.bounds.min_x},${state.bounds.min_y},${state.bounds.min_z} → ${state.bounds.max_x},${state.bounds.max_y},${state.bounds.max_z}`
+    : "empty";
+  setKeyValues(ui.stateDiagnostics, [
+    ["model", state.model_id],
+    ["project", state.project_path || "unsaved"],
+    ["dirty", state.is_dirty ? "yes" : "no"],
+    ["voxels", String(state.voxel_count)],
+    ["bounds", bounds],
+    ["grid hint", String(state.grid_hint)],
+    ["tool", state.active_tool],
+    ["palette", String(state.active_palette_index)],
+    ["history", `undo ${state.undo_depth}, redo ${state.redo_depth}`],
+    ["selection", `${state.selected_voxel_count} voxel(s)`],
+  ]);
+}
+
+function renderViewportDiagnostics(): void {
+  if (!currentMesh) return;
+  ui.hudMesh.textContent = `Mesh: ${currentMesh.vertex_count} verts · ${currentMesh.triangle_count} tris`;
+  setKeyValues(ui.viewportDiagnostics, [
+    ["mesh id", currentMesh.mesh_id],
+    ["vertices", String(currentMesh.vertex_count)],
+    ["triangles", String(currentMesh.triangle_count)],
+    ["indices", String(currentMesh.index_count)],
+    ["mesh build", `${currentMesh.metrics?.mesh_generation_ms ?? 0} ms`],
+    ["serialize", `${currentMesh.metrics?.serialization_ms ?? 0} ms`],
+    ["scene", `${latestMetrics?.scene_construction_ms.toFixed(2) ?? "—"} ms`],
+    ["first render", `${latestMetrics?.first_render_ms.toFixed(2) ?? "—"} ms`],
+    ["webgl", latestMetrics?.webgl_fallback ? "fallback" : "active"],
+  ]);
+}
+
+function setKeyValues(container: HTMLElement, rows: [string, string][]): void {
+  container.replaceChildren();
+  for (const [key, value] of rows) {
+    const keyEl = document.createElement("span");
+    keyEl.textContent = key;
+    const valueEl = document.createElement("span");
+    valueEl.textContent = value;
+    container.append(keyEl, valueEl);
+  }
+}
+
+function setBusy(isBusy: boolean): void {
+  ui.openButton.disabled = isBusy;
+  ui.saveButton.disabled = isBusy;
+  ui.refreshButton.disabled = isBusy;
+}
+
+function setBridgeStatus(message: string, connected: boolean): void {
+  ui.bridgeStatus.textContent = message;
+  ui.connection.textContent = connected ? "Connected" : "Bridge issue";
+  ui.connection.className = connected ? "ok" : "warn";
+}
+
+function setStatus(message: string): void {
+  ui.status.textContent = message;
+}
+
+function titleCase(value: string): string {
+  return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1);
+}
+
+function formatError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function requiredElement<T extends HTMLElement>(id: string): T {
+  const element = document.getElementById(id);
+  if (!element) {
+    throw new Error(`Missing required element #${id}`);
+  }
+  return element as T;
 }
 
 main().catch((err) => console.error("[renderer] Unhandled error:", err));
