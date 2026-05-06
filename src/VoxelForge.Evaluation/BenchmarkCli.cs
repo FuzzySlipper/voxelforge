@@ -326,7 +326,7 @@ public sealed class BenchmarkCli
             output.WriteLine();
             output.WriteLine("Scenes (warmup + 3 standard):");
             output.WriteLine("  SmallHollowCube        ~488 voxels, 10^3 hollow box");
-            output.WriteLine("  MediumHollowWithPillars ~5k voxels, 22^3 hollow + pillars");
+            output.WriteLine("  MediumHollowWithPillars ~3k voxels, 22^3 hollow + pillars");
             output.WriteLine("  LargeGridRoom          ~24k voxels, 48^3 hollow + walls + pillars");
             output.WriteLine("  ExtraLargeCheckerboard  ~131k voxels, 64^3 checkerboard (opt-in)");
             return 0;

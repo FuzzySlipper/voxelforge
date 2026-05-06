@@ -35,8 +35,8 @@ public static class RendererBenchmarkScenes
     }
 
     /// <summary>
-    /// Medium scene: a 22x22x22 hollow cube with internal pillars (~5,104 voxels).
-    /// Approximately 5k voxels — moderate mesh cost.
+    /// Medium scene: a 22x22x22 hollow cube with internal pillars (~2,996 voxels).
+    /// Approximately 3k voxels — moderate mesh cost.
     /// </summary>
     public static VoxelModel MediumHollowWithPillars()
     {
