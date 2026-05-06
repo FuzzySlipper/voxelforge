@@ -75,10 +75,14 @@ public static class ViewerEndpoints
             PaletteSnapshot palette;
             int revision;
             string modelName;
+            long meshGenerationMs;
 
             lock (session.SyncRoot)
             {
+                var meshStopwatch = Stopwatch.StartNew();
                 mesh = meshService.BuildSnapshot(session.Document.Model);
+                meshStopwatch.Stop();
+                meshGenerationMs = meshStopwatch.ElapsedMilliseconds;
                 palette = paletteService.BuildSnapshot(session.Document.Model.Palette);
                 revision = session.ViewerRevision;
                 modelName = session.CurrentModelName;
@@ -117,7 +121,7 @@ public static class ViewerEndpoints
                 PaletteMapping = paletteMapping.Count > 0 ? paletteMapping : null,
                 Metrics = new ViewerMeshSnapshotMetrics
                 {
-                    MeshGenerationMs = mesh.TriangleCount > 0 ? 0 : 0,
+                    MeshGenerationMs = meshGenerationMs,
                     SerializationMs = 0,
                     TotalMs = sw.ElapsedMilliseconds,
                 },
