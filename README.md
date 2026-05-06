@@ -38,7 +38,7 @@ dotnet test voxelforge.slnx
 
 ## Bridge Smoke Tests
 
-The Electron renderer experiment uses a C# sidecar (`VoxelForge.Bridge`) that hosts a `den-bridge` WebSocket server. Two smoke-test scripts verify the bridge end-to-end:
+The Electron renderer experiment uses a C# sidecar (`VoxelForge.Bridge`) that hosts a `den-bridge` WebSocket server. Three smoke-test scripts verify the bridge end-to-end:
 
 ```bash
 # C#-only smoke test (ping + version handshake via WebSocket, no Electron needed)
@@ -46,11 +46,99 @@ The Electron renderer experiment uses a C# sidecar (`VoxelForge.Bridge`) that ho
 
 # Full Electron + C# sidecar smoke test (spawns sidecar, connects, pings, exits)
 ./scripts/run-electron-smoke-test.sh
+
+# Headless renderer smoke test (spawns sidecar + Electron, captures renderer metrics, exits)
+./scripts/run-renderer-smoke-test.sh
 ```
 
-The Electron smoke test requires `cd electron && npm install` on first run (the script handles this automatically).
+The Electron smoke tests require `cd electron && npm install` on first run (the scripts handle this automatically).
 
 See [`docs/architecture/bridge-protocol.md`](docs/architecture/bridge-protocol.md) for the full VoxelForge bridge protocol specification.
+
+## Electron Renderer (Experiment)
+
+The [`electron/`](electron/) directory contains an experimental Electron + Three.js renderer that communicates with a C# sidecar over the `den-bridge` WebSocket protocol.
+
+### Prerequisites
+
+- All [prerequisites](#prerequisites) above (for the C# sidecar)
+- Node.js 20+ and npm
+- Git submodules initialized (`git submodule update --init --recursive` also pulls `lib/den-bridge`)
+
+### Development Workflow
+
+The recommended dev loop uses `scripts/run-electron-dev.sh`, which handles the full build chain:
+
+```bash
+# Build C# sidecar + TypeScript + launch Electron (sidecar auto-spawned)
+./scripts/run-electron-dev.sh
+
+# Launch with a preview .vforge file auto-loaded
+./scripts/run-electron-dev.sh --preview content/mcp-preview.vforge
+
+# Start the C# sidecar standalone (for inspecting bridge protocol)
+./scripts/run-electron-dev.sh --sidecar-only
+```
+
+Or run the individual steps manually:
+
+```bash
+# Install JS dependencies (first time only)
+cd electron && npm install
+
+# Build TypeScript sources
+cd electron && npm run build
+
+# Build + launch Electron (build happens automatically)
+cd electron && npm start
+
+# Launch Electron with a preview file
+cd electron && npm start -- --preview ../content/mcp-preview.vforge
+
+# Start the C# sidecar independently (for debugging)
+dotnet run --project src/VoxelForge.Bridge
+```
+
+The Electron main process discovers the repo root automatically (via `voxelforge.slnx`) and spawns the C# sidecar as a child process. When the Electron window closes, the sidecar is terminated cleanly.
+
+### Packaging
+
+Directory-only packaging is available for smoke testing the build layout:
+
+```bash
+cd electron && npm run package:dir
+```
+
+This produces an unpackaged directory under `electron/out/` with the compiled Electron app. Note that the C# sidecar (`VoxelForge.Bridge`) is **not** bundled into the package — it relies on `dotnet` being available or the sidecar being on `PATH`. Full standalone packaging with sidecar bundling is future work.
+
+### Validation Before Review
+
+Run these commands to validate changes before requesting review:
+
+```bash
+# 1. C# build and all tests
+dotnet build voxelforge.slnx
+dotnet test voxelforge.slnx
+
+# 2. C# bridge smoke test
+dotnet build src/VoxelForge.Bridge && ./scripts/run-bridge-smoke-test.sh
+
+# 3. TypeScript compilation
+cd electron && npm run build
+
+# 4. Electron packaging smoke test (directory build)
+cd electron && npm run package:dir
+
+# 5. (Optional) Full Electron smoke test with running sidecar
+./scripts/run-electron-smoke-test.sh
+./scripts/run-renderer-smoke-test.sh
+```
+
+### Known Limitations
+
+- **Sidecar not bundled in packages:** Packaged Electron builds do not include the .NET sidecar binary. Running from the repository root (via `npm start` or `./scripts/run-electron-dev.sh`) is the supported workflow.
+- **Linux only:** Packaging targets are currently Linux-only (`AppImage` + `dir`). Windows/macOS packaging is not configured.
+- **Bootstrap context:** The `electron/` directory is a separate npm/TypeScript project. The `./scripts/build-electron.sh` script handles the combined C# + Electron build for CI-like validation.
 
 ## Project Structure
 

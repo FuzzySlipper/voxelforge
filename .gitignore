@@ -65,6 +65,7 @@ node_modules/
 
 # Electron build output
 electron/dist/
+electron/out/
 # Environment variables
 .env
 # Editor directories and files

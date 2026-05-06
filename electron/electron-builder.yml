@@ -1,0 +1,35 @@
+# VoxelForge Electron renderer — electron-builder packaging configuration
+#
+# This is the packaging config for the Electron renderer experiment.
+# Current scope: directory-only builds for smoke testing and dev validation.
+# Full AppImage packaging is configured but not yet expected to produce
+# complete standalone releases; the sidecar (VoxelForge.Bridge) is not
+# bundled into these packages yet (see Known Gaps below).
+#
+# Known gaps (future work):
+#   - Sidecar bundling: VoxelForge.Bridge is a .NET project not included
+#     in the Electron package. Packaged builds rely on the sidecar being
+#     available on the system PATH or at a known location. For now, use
+#     directory builds (`npm run package:dir`) for layout testing only.
+#   - Windows/macOS targets: only Linux is configured. Add platform
+#     targets when those platforms are tested.
+#   - File associations: .vforge file extension registration is deferred.
+
+appId: com.voxelforge.electron-renderer
+productName: VoxelForge Electron Renderer
+copyright: Copyright © 2025 VoxelForge
+directories:
+  output: out
+files:
+  - dist/**/*
+  - package.json
+linux:
+  target:
+    - dir
+    - AppImage
+  category: Graphics
+  maintainer: voxelforge@example.com
+  synopsis: VoxelForge Electron Renderer
+  description: LLM-assisted voxel authoring tool — Electron renderer (experimental)
+extraMetadata:
+  main: dist/main/index.js

@@ -2,12 +2,19 @@
   "name": "voxelforge-electron",
   "version": "0.2.0",
   "description": "VoxelForge Electron renderer — Three.js static mesh renderer",
+  "author": "VoxelForge Contributors",
+  "license": "MIT",
   "main": "dist/main/index.js",
   "scripts": {
     "build": "tsc && esbuild src/renderer/index.ts --bundle --outfile=dist/renderer/bundle.js --platform=browser --format=iife --external:none",
     "smoke-test": "npm run build && electron . --smoke-test",
     "renderer-smoke-test": "npm run build && electron . --renderer-smoke-test",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "start:dev": "npm run build && electron .",
+    "start:sidecar": "dotnet run --project ../src/VoxelForge.Bridge",
+    "preview": "npm run build && electron . --preview",
+    "package:dir": "npm run build && electron-builder build --linux dir --config electron-builder.yml",
+    "package": "npm run build && electron-builder build --linux --config electron-builder.yml"
   },
   "dependencies": {
     "@types/three": "^0.184.0",
@@ -17,6 +24,7 @@
   "devDependencies": {
     "@types/ws": "^8.18.0",
     "electron": "^41.0.0",
+    "electron-builder": "^26.8.1",
     "esbuild": "^0.28.0",
     "typescript": "^5.8.0"
   },

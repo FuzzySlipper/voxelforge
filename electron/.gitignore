@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# TypeScript build output
+dist/
+
+# electron-builder output (directory builds, AppImage, etc.)
+out/
+
+# Local environment
+.env
+
+# Logs
+*.log
+npm-debug.log*

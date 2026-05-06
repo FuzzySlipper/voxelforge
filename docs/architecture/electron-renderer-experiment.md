@@ -193,9 +193,7 @@ voxelforge/
 │   │       │   ├── panels/
 │   │       │   └── components/
 │   │       └── bridge-ipc.ts              — renderer-side bridge message routing over IPC
-│   └── build/
-│       ├── electron-builder.yml           — packaging config (defer to task #1180)
-│       └── vite.config.ts                 — renderer bundler config
+│   (electron-builder.yml is at electron/electron-builder.yml, added in task #1180)
 │
 ├── docs/
 │   ├── architecture/
@@ -205,8 +203,10 @@ voxelforge/
 │
 ├── scripts/
 │   ├── build-electron.sh                  — build C# sidecar + npm install + bundle renderer
-│   ├── run-electron-dev.sh                — dev loop: build sidecar + start Electron with hot reload
-│   └── run-electron-prod.sh               — production launch
+│   ├── run-electron-dev.sh                — dev loop: build sidecar + start Electron (task #1180)
+│   ├── run-electron-smoke-test.sh          — full bridge + Electron smoke test
+│   ├── run-renderer-smoke-test.sh          — headless renderer metrics smoke test
+│   └── run-bridge-smoke-test.sh            — C#-only bridge smoke test
 │
 ├── lib/
 │   ├── den-bridge/                        (NEW in task #1170) — git submodule
