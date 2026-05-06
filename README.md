@@ -134,6 +134,12 @@ cd electron && npm run package:dir
 ./scripts/run-renderer-smoke-test.sh
 ```
 
+### Experiment Decision Checkpoint
+
+The Electron renderer experiment has been evaluated. See [`docs/architecture/electron-renderer-decision-checkpoint.md`](docs/architecture/electron-renderer-decision-checkpoint.md) for the full decision record.
+
+**Current posture:** Keep the Electron renderer as a **parallel experimental renderer**. The core architecture (bridge protocol, sidecar, incremental mesh pipeline) is proven, but packaging, performance profiling, and feature parity are incomplete. The existing FNA/Myra frontend remains the supported control path.
+
 ### Known Limitations
 
 - **Sidecar not bundled in packages:** Packaged Electron builds do not include the .NET sidecar binary. Running from the repository root (via `npm start` or `./scripts/run-electron-dev.sh`) is the supported workflow.

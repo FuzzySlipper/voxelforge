@@ -340,10 +340,13 @@ Before deciding whether to adopt, extend, or abandon the Electron renderer:
 - **Extend:** Keep both renderers supported. Electron is the default on some platforms; FNA/Myra remains the default on others.
 - **Abandon:** Remove `electron/`, `VoxelForge.Bridge`, and `lib/den-bridge`. Document lessons learned. FNA/Myra remains the sole renderer.
 
+> **Decision checkpoint outcome:** See [`electron-renderer-decision-checkpoint.md`](electron-renderer-decision-checkpoint.md) for the final evaluation and recommendation. The current recommendation is **keep as parallel experimental renderer** — core architecture is proven, but packaging, performance profiling, and feature parity are incomplete. Concrete follow-up tasks are listed in the decision document.
+
 ---
 
 ## Cross-References
 
+- [`electron-renderer-decision-checkpoint.md`](electron-renderer-decision-checkpoint.md) — Decision checkpoint evaluation, comparison data, and follow-up tasks.
 - [`bridge-protocol.md`](bridge-protocol.md) — complete message schema, versioning rules, ownership annotations, and mesh payload strategy.
 - [`events-states-services.md`](events-states-services.md) — adapter/service rules that apply to the bridge handlers.
 - [`state-boundaries.md`](state-boundaries.md) — state ownership map that C# retains and TS observes.
