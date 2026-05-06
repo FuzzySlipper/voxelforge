@@ -101,15 +101,34 @@ dotnet run --project src/VoxelForge.Bridge
 
 The Electron main process discovers the repo root automatically (via `voxelforge.slnx`) and spawns the C# sidecar as a child process. When the Electron window closes, the sidecar is terminated cleanly.
 
-### Packaging
+### Packaging Workflow
 
-Directory-only packaging is available for smoke testing the build layout:
+The C# sidecar (`VoxelForge.Bridge`) is published as a self-contained .NET binary and bundled into Electron packages via electron-builder's `extraResources`.
+
+#### Single-command package builds
 
 ```bash
+# Directory-only build (unpackaged directory for testing)
 cd electron && npm run package:dir
+
+# Full AppImage build (requires AppImage tooling)
+cd electron && npm run package
 ```
 
-This produces an unpackaged directory under `electron/out/` with the compiled Electron app. Note that the C# sidecar (`VoxelForge.Bridge`) is **not** bundled into the package — it relies on `dotnet` being available or the sidecar being on `PATH`. Full standalone packaging with sidecar bundling is future work.
+Both commands run the `publish-sidecar` step automatically: `dotnet publish` produces a self-contained binary under `electron/sidecar/`, which `electron-builder` copies into the package's `resources/sidecar/` directory.
+
+The Electron main process discovers the sidecar automatically:
+
+- **From the repository root** (`voxelforge.slnx` found by walking up from `__dirname`): spawns `dotnet run --project src/VoxelForge.Bridge` (unchanged dev mode).
+- **From a packaged directory** (no `voxelforge.slnx` found): spawns `process.resourcesPath/sidecar/VoxelForge.Bridge` directly.
+
+#### Standalone publish (without packaging)
+
+```bash
+./scripts/publish-sidecar.sh
+```
+
+Publishes the sidecar to `electron/sidecar/` as a self-contained binary for `linux-x64`.
 
 ### Validation Before Review
 
@@ -142,8 +161,9 @@ The Electron renderer experiment has been evaluated. See [`docs/architecture/ele
 
 ### Known Limitations
 
-- **Sidecar not bundled in packages:** Packaged Electron builds do not include the .NET sidecar binary. Running from the repository root (via `npm start` or `./scripts/run-electron-dev.sh`) is the supported workflow.
-- **Linux only:** Packaging targets are currently Linux-only (`AppImage` + `dir`). Windows/macOS packaging is not configured.
+- **Linux only:** Packaging targets are currently Linux-only (`AppImage` + `dir`). Windows/macOS packaging is not configured (see `electron/electron-builder.yml` for target configuration).
+- **Self-contained sidecar size:** The `dotnet publish --self-contained` sidecar is approximately 60–120 MB due to the bundled .NET runtime. This could be reduced with `PublishTrimmed` / `PublishReadyToRun` in future work.
+- **AppImage validation:** `npm run package` produces an AppImage containing the bundled sidecar, but AppImage execution requires FUSE or `--appimage-extract` in headless/CI environments. Directory builds (`package:dir`) are the recommended validation path.
 - **Bootstrap context:** The `electron/` directory is a separate npm/TypeScript project. The `./scripts/build-electron.sh` script handles the combined C# + Electron build for CI-like validation.
 
 ## Project Structure

@@ -1,18 +1,32 @@
 # VoxelForge Electron renderer — electron-builder packaging configuration
 #
-# This is the packaging config for the Electron renderer experiment.
-# Current scope: directory-only builds for smoke testing and dev validation.
-# Full AppImage packaging is configured but not yet expected to produce
-# complete standalone releases; the sidecar (VoxelForge.Bridge) is not
-# bundled into these packages yet (see Known Gaps below).
+# Packaging workflow:
+#   1. Run `npm run publish-sidecar` (or `cd .. && ./scripts/publish-sidecar.sh`)
+#      to publish VoxelForge.Bridge as a self-contained .NET binary.
+#   2. Run `npm run package:dir` or `npm run package` to build the Electron package
+#      with the sidecar bundled as an extra resource.
 #
-# Known gaps (future work):
-#   - Sidecar bundling: VoxelForge.Bridge is a .NET project not included
-#     in the Electron package. Packaged builds rely on the sidecar being
-#     available on the system PATH or at a known location. For now, use
-#     directory builds (`npm run package:dir`) for layout testing only.
-#   - Windows/macOS targets: only Linux is configured. Add platform
-#     targets when those platforms are tested.
+# The combined workflow `npm run package:dir` handles both steps automatically.
+# See README.md#electron-packaging-workflow for details.
+#
+# Sidecar bundling:
+#   The C# sidecar (VoxelForge.Bridge) is published via `dotnet publish --self-contained`
+#   and bundled as an extraResource at resources/sidecar/. Electron main process
+#   discovers it at runtime via process.resourcesPath when the repository root
+#   (voxelforge.slnx) is not found (i.e., running from a package directory).
+#
+# Dev mode (repo root):
+#   When voxelforge.slnx is found by walking up from __dirname, the sidecar is
+#   launched via `dotnet run --project src/VoxelForge.Bridge` as before.
+#   This path is unchanged — dev and smoke workflows continue to work.
+#
+# Known limitations:
+#   - Linux only: only the linux-x64 runtime is published. macOS and Windows
+#     targets are not yet configured in electron-builder.yml.
+#   - Self-contained size: the dotnet publish --self-contained sidecar is
+#     approximately 60-120 MB due to the bundled .NET runtime. This is expected
+#     for standalone .NET applications and could be reduced with trimming
+#     (PublishTrimmed) in future work.
 #   - File associations: .vforge file extension registration is deferred.
 
 appId: com.voxelforge.electron-renderer
@@ -23,6 +37,18 @@ directories:
 files:
   - dist/**/*
   - package.json
+
+# Bundle the published sidecar binary into the Electron package.
+# During dir/AppImage builds, electron-builder copies sidecar/ (from the
+# electron/ directory) into the resources/ directory of the packaged app.
+# The Electron main process uses process.resourcesPath/sidecar/VoxelForge.Bridge
+# when running from a package directory.
+extraResources:
+  - from: sidecar/
+    to: sidecar/
+    filter:
+      - "**/*"
+
 linux:
   target:
     - dir

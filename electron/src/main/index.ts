@@ -31,11 +31,8 @@ async function main(): Promise<void> {
   console.log("[electron] Starting VoxelForge mesh viewer...");
 
   const repoRoot = findRepoRoot(__dirname);
-  if (!repoRoot) {
-    console.error("[electron] Could not locate repository root.");
-    app.exit(1);
-    return;
-  }
+  const sidecarSource = repoRoot ? "dev" : "packaged";
+  console.log(`[electron] Sidecar source: ${sidecarSource}${repoRoot ? ` (repo: ${repoRoot})` : ""}`);
 
   // For smoke tests, use the simplified ping/version handshake flow
   if (isSmokeTest) {
@@ -45,6 +42,78 @@ async function main(): Promise<void> {
 
   // For the renderer, spawn sidecar, create window, and render mesh
   await runRenderer(repoRoot);
+}
+
+/**
+ * Spawn the C# sidecar process.
+ *
+ * In dev mode (repoRoot != null), uses `dotnet run --project` from the repo root.
+ * In packaged mode (repoRoot == null), finds the bundled sidecar at
+ * process.resourcesPath/sidecar/VoxelForge.Bridge.
+ *
+ * Returns the spawned child process, or null if neither mode is available.
+ */
+function spawnSidecar(repoRoot: string | null): ReturnType<typeof spawn> | null {
+  if (repoRoot) {
+    // Dev mode: dotnet run --project
+    return spawn("dotnet", ["run", "--project", `${repoRoot}/src/VoxelForge.Bridge`], {
+      cwd: repoRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
+
+  // Packaged mode: find bundled sidecar in Electron resources directory
+  const sidecarPath = findBundledSidecarPath();
+  if (!sidecarPath) {
+    return null;
+  }
+
+  console.log(`[electron] Spawning bundled sidecar: ${sidecarPath}`);
+  return spawn(sidecarPath, [], {
+    cwd: path.dirname(sidecarPath),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/**
+ * Find the bundled sidecar binary path in the Electron package resources.
+ *
+ * When running from an electron-builder package (dir or AppImage),
+ * process.resourcesPath points to the resources/ directory.
+ * The extraResources config copies sidecar/ -> resources/sidecar/.
+ *
+ * Returns the full path to the VoxelForge.Bridge binary, or null if not found.
+ */
+function findBundledSidecarPath(): string | null {
+  const resourcesPath = process.resourcesPath;
+  if (!resourcesPath) {
+    return null;
+  }
+
+  const sidecarPath = path.join(resourcesPath, "sidecar", "VoxelForge.Bridge");
+  if (require("fs").existsSync(sidecarPath)) {
+    return sidecarPath;
+  }
+
+  return null;
+}
+
+/**
+ * Set up stderr forwarding for a sidecar process.
+ * Logs sidecar stderr lines with a [sidecar-stderr] prefix.
+ */
+function forwardSidecarStderr(proc: ReturnType<typeof spawn>): void {
+  let stderrBuffer = "";
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    stderrBuffer += chunk.toString("utf-8");
+    const lines = stderrBuffer.split("\n");
+    stderrBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.trim()) {
+        console.log(`[sidecar-stderr] ${line.trim()}`);
+      }
+    }
+  });
 }
 
 async function loadPreviewOnStartup(
@@ -70,25 +139,20 @@ async function loadPreviewOnStartup(
   }
 }
 
-async function runSmokeTest(repoRoot: string): Promise<void> {
+async function runSmokeTest(repoRoot: string | null): Promise<void> {
   console.log("[electron-smoke] Starting VoxelForge bridge smoke test...");
 
-  sidecarProcess = spawn("dotnet", ["run", "--project", `${repoRoot}/src/VoxelForge.Bridge`], {
-    cwd: repoRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  sidecarProcess = spawnSidecar(repoRoot);
+  if (!sidecarProcess) {
+    console.error(
+      "[electron-smoke] Could not spawn sidecar. " +
+      "Run from the repository root or ensure the sidecar is bundled in the Electron package.",
+    );
+    shutdown(1);
+    return;
+  }
 
-  let stderrBuffer = "";
-  sidecarProcess.stderr?.on("data", (chunk: Buffer) => {
-    stderrBuffer += chunk.toString("utf-8");
-    const lines = stderrBuffer.split("\n");
-    stderrBuffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.trim()) {
-        console.log(`[sidecar-stderr] ${line.trim()}`);
-      }
-    }
-  });
+  forwardSidecarStderr(sidecarProcess);
 
   const handshake = await waitForHandshake(sidecarProcess, sidecarReadyTimeoutMs);
   if (!handshake) {
@@ -295,26 +359,21 @@ async function runSmokeTest(repoRoot: string): Promise<void> {
   }
 }
 
-async function runRenderer(repoRoot: string): Promise<void> {
+async function runRenderer(repoRoot: string | null): Promise<void> {
   console.log("[electron] Starting VoxelForge renderer...");
 
   // Spawn sidecar
-  sidecarProcess = spawn("dotnet", ["run", "--project", `${repoRoot}/src/VoxelForge.Bridge`], {
-    cwd: repoRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  sidecarProcess = spawnSidecar(repoRoot);
+  if (!sidecarProcess) {
+    console.error(
+      "[electron] Could not spawn sidecar. " +
+      "Run from the repository root or ensure the sidecar is bundled in the Electron package.",
+    );
+    app.exit(1);
+    return;
+  }
 
-  let stderrBuffer = "";
-  sidecarProcess.stderr?.on("data", (chunk: Buffer) => {
-    stderrBuffer += chunk.toString("utf-8");
-    const lines = stderrBuffer.split("\n");
-    stderrBuffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.trim()) {
-        console.log(`[sidecar-stderr] ${line.trim()}`);
-      }
-    }
-  });
+  forwardSidecarStderr(sidecarProcess);
 
   const handshake = await waitForHandshake(sidecarProcess, sidecarReadyTimeoutMs);
   if (!handshake) {
