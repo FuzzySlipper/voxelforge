@@ -113,6 +113,7 @@
       let lastMeshId = null;
       let lastRevision = -1;
       let cameraInitiallyFramed = false;
+      let lastModelId = null;
       let animationId = null;
       let pollTimer = null;
       let connected = false;
@@ -291,6 +292,14 @@
 
       // ── Build mesh from snapshot data ──
       function buildMesh(data) {
+        // Reset framing flag when the model changes so the new model gets an
+        // initial auto-frame. Ordinary edits/undo/redo on the same model keep
+        // the flag set, preserving the user's current orbit/pan/zoom.
+        if (data.model_id && data.model_id !== lastModelId) {
+          cameraInitiallyFramed = false;
+          lastModelId = data.model_id;
+        }
+
         // Clear existing mesh
         while (meshGroup.children.length > 0) {
           const child = meshGroup.children[0];

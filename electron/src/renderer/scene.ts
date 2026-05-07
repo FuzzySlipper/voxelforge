@@ -104,6 +104,24 @@ export interface RendererMetrics {
   webgl_fallback?: boolean;
 }
 
+/**
+ * Pure decision function: should the camera be framed?
+ *
+ * @param initialCameraFramed - Whether the camera has been framed at least once for the current model.
+ * @param isExplicitFrameRequest - Whether this is a user-initiated frame request (e.g. frameCurrentModel()).
+ * @returns true if the camera should be framed, false to preserve current orbit/pan/zoom.
+ *
+ * Exported as a pure function so tests can exercise the decision logic directly
+ * without requiring Three.js/WebGL instantiation.
+ */
+export function shouldFrameCamera(
+  initialCameraFramed: boolean,
+  isExplicitFrameRequest: boolean,
+): boolean {
+  if (isExplicitFrameRequest) return true;
+  return !initialCameraFramed;
+}
+
 export class VoxelForgeScene {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -113,6 +131,7 @@ export class VoxelForgeScene {
   private gridHelper: THREE.GridHelper | null = null;
   private lastSnapshotData: MeshSnapshotData | null = null;
   private animationFrameId: number | null = null;
+  private lastModelId: string | null = null;
   private initialCameraFramed = false;
   private renderCallbacks: ((metrics: RendererMetrics) => void)[] = [];
   private container: HTMLElement;
@@ -222,6 +241,14 @@ export class VoxelForgeScene {
     const startTime = performance.now();
     this.lastSnapshotData = data;
 
+    // Reset framing flag when the model changes so the new model gets an
+    // initial auto-frame. Ordinary edits/undo/redo on the same model keep
+    // the flag set, preserving the user's current orbit/pan/zoom.
+    if (data.model_id && data.model_id !== this.lastModelId) {
+      this.initialCameraFramed = false;
+      this.lastModelId = data.model_id;
+    }
+
     // Clear previous mesh
     while (this.meshGroup.children.length > 0) {
       const child = this.meshGroup.children[0];
@@ -310,10 +337,11 @@ export class VoxelForgeScene {
     mesh.receiveShadow = true;
     this.meshGroup.add(mesh);
 
-    // Frame camera only on first mesh load; preserve user's orbit/pan/zoom on
-    // subsequent mesh rebuilds (voxel edits, undo/redo, etc.).
+    // Frame camera only on first mesh load for the current model; preserve
+    // user's orbit/pan/zoom on subsequent mesh rebuilds (voxel edits,
+    // undo/redo, etc.). Resets when model_id changes (see above).
     // The user can explicitly reframe via frameCurrentModel().
-    if (!this.initialCameraFramed) {
+    if (shouldFrameCamera(this.initialCameraFramed, false)) {
       this.frameCamera(data);
       this.initialCameraFramed = true;
     }
