@@ -426,10 +426,10 @@
         if (usingSse && sseConnected) {
           // SSE is active — no polling needed. We still periodically refresh
           // diagnostics to handle stale SSE connections gracefully.
-          var state = await fetchState();
-          if (state) {
+          const sseState = await fetchState();
+          if (sseState) {
             connected = true;
-            updateDiagnostics(state, null);
+            updateDiagnostics(sseState, null);
           }
           return;
         }
