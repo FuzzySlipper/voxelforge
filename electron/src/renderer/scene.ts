@@ -113,6 +113,7 @@ export class VoxelForgeScene {
   private gridHelper: THREE.GridHelper | null = null;
   private lastSnapshotData: MeshSnapshotData | null = null;
   private animationFrameId: number | null = null;
+  private initialCameraFramed = false;
   private renderCallbacks: ((metrics: RendererMetrics) => void)[] = [];
   private container: HTMLElement;
   private webglAvailable: boolean;
@@ -309,8 +310,13 @@ export class VoxelForgeScene {
     mesh.receiveShadow = true;
     this.meshGroup.add(mesh);
 
-    // Frame camera on the model bounds
-    this.frameCamera(data);
+    // Frame camera only on first mesh load; preserve user's orbit/pan/zoom on
+    // subsequent mesh rebuilds (voxel edits, undo/redo, etc.).
+    // The user can explicitly reframe via frameCurrentModel().
+    if (!this.initialCameraFramed) {
+      this.frameCamera(data);
+      this.initialCameraFramed = true;
+    }
 
     let firstRenderMs = 0;
     if (this.renderer) {

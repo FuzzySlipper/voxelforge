@@ -304,4 +304,89 @@ public sealed class ViewerEndpointTests
         Assert.Equal(16, colors.GetArrayLength());
         Assert.Equal(255, colors[0].GetInt32());
     }
+
+    // ── Camera/view boundary tests ──
+
+    [Fact]
+    public void ViewerStateResponse_DoesNotContainCameraState()
+    {
+        // Camera state must be strictly TS-owned presentation state.
+        // C# viewer state must not leak camera position, target, or rotation.
+        var response = new ViewerStateResponse
+        {
+            Revision = 1,
+            ModelName = "test",
+            VoxelCount = 0,
+            GridHint = 32,
+            PaletteEntries = [],
+            Bounds = null,
+        };
+
+        var json = JsonSerializer.Serialize(response, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        });
+
+        // Must contain model metadata
+        Assert.Contains("\"revision\"", json);
+        Assert.Contains("\"model_name\"", json);
+        Assert.Contains("\"voxel_count\"", json);
+
+        // Must NOT contain camera or view state
+        Assert.DoesNotContain("camera", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("orbit", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("view_matrix", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("camera_position", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("camera_target", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ViewerStateResponse_SerializationDoesNotIncludeUndoState()
+    {
+        // Camera/view undo leak would manifest as camera state visible in the
+        // state response or undo stack metadata. Verify no camera/view fields.
+        var json = JsonSerializer.Serialize(
+            new ViewerStateResponse
+            {
+                Revision = 42,
+                ModelName = "untitled",
+                VoxelCount = 100,
+                GridHint = 16,
+                PaletteEntries = [
+                    new ViewerPaletteEntry { Index = 1, Name = "Stone", Color = "#808080", A = 255, Visible = true },
+                ],
+                Bounds = new ViewerBounds { MinX = 0, MinY = 0, MinZ = 0, MaxX = 10, MaxY = 10, MaxZ = 10 },
+            },
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+        // Verify expected fields exist
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.Equal(42, root.GetProperty("revision").GetInt32());
+        Assert.Equal("untitled", root.GetProperty("model_name").GetString());
+        Assert.Equal(100, root.GetProperty("voxel_count").GetInt32());
+        Assert.Equal(16, root.GetProperty("grid_hint").GetInt32());
+
+        // Verify palette entry is included
+        var palette = root.GetProperty("palette_entries");
+        Assert.Equal(1, palette.GetArrayLength());
+        Assert.Equal(1, palette[0].GetProperty("index").GetInt32());
+
+        // Verify bounds are included
+        var bounds = root.GetProperty("bounds");
+        Assert.Equal(0, bounds.GetProperty("min_x").GetInt32());
+        Assert.Equal(10, bounds.GetProperty("max_x").GetInt32());
+
+        // Verify NO camera or view fields leaked
+        var propertyNames = new HashSet<string>();
+        foreach (var prop in root.EnumerateObject())
+        {
+            propertyNames.Add(prop.Name);
+        }
+        Assert.DoesNotContain("camera", propertyNames);
+        Assert.DoesNotContain("view", propertyNames);
+        Assert.DoesNotContain("orbit", propertyNames);
+        Assert.DoesNotContain("rotation", propertyNames);
+    }
 }

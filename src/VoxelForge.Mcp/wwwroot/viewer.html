@@ -112,6 +112,7 @@
       let gridHelper = null;
       let lastMeshId = null;
       let lastRevision = -1;
+      let cameraInitiallyFramed = false;
       let animationId = null;
       let pollTimer = null;
       let connected = false;
@@ -350,7 +351,13 @@
         mesh.receiveShadow = true;
         meshGroup.add(mesh);
 
-        frameCamera(data.bounds);
+        // Frame camera only on first mesh load; preserve user's orbit/pan/zoom
+        // on subsequent mesh rebuilds. The user can explicitly reframe via
+        // window.__voxelforgeViewer.frameCamera().
+        if (!cameraInitiallyFramed) {
+          frameCamera(data.bounds);
+          cameraInitiallyFramed = true;
+        }
       }
 
       // ── Fetch mesh and rebuild scene ──
