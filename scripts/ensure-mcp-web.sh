@@ -40,16 +40,25 @@ cmdline_for_pid() {
 
 root_pid_for_listener() {
   local pid="$1"
+  local current="$pid"
   local parent=""
-  parent="$(awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null || true)"
-  if [[ -n "$parent" ]] && is_running "$parent"; then
-    local parent_cmd
+  local parent_cmd=""
+
+  while true; do
+    parent="$(awk '/^PPid:/ {print $2}' "/proc/$current/status" 2>/dev/null || true)"
+    if [[ -z "$parent" || "$parent" == "0" || "$parent" == "1" ]] || ! is_running "$parent"; then
+      break
+    fi
+
     parent_cmd="$(cmdline_for_pid "$parent")"
     if [[ "$parent_cmd" == *"dotnet run --project"*"VoxelForge.Mcp"* ]]; then
       printf '%s\n' "$parent"
       return 0
     fi
-  fi
+
+    current="$parent"
+  done
+
   printf '%s\n' "$pid"
 }
 
