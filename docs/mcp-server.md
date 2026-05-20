@@ -318,3 +318,118 @@ After the initial load, ask the agent to call `publish_preview` again with the s
 - **Headless run ignores watch mode:** `--watch` requires the GUI renderer. `dotnet run --project src/VoxelForge.Engine.MonoGame -- --headless --watch ...` prints a warning and does not start the preview watcher.
 
 Future preview push/launcher options are discussed in [`architecture/mcp-live-preview-follow-up-options.md`](architecture/mcp-live-preview-follow-up-options.md). MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.
+
+---
+
+## MCP Traffic / Token Ranging
+
+The `scripts/mcp-traffic-benchmark.py` script measures MCP tool-call payload sizes, wall time, and voxel counts for estimating token costs and bandwidth. It captures per-call metrics and computes summary statistics (tokens per voxel, bytes per voxel, estimated cost) for comparing tool surfaces, model choices, and model sizes.
+
+### Overview
+
+Metrics captured per tool call:
+
+- **Request bytes/characters** — raw JSON-RPC POST body size.
+- **Response bytes/characters** — raw JSON-RPC response body size.
+- **Wall time (ms)** — HTTP round-trip including server processing.
+- **Voxel count before/after** — model state queried via `get_model_info` around each call.
+- **Applied voxels** — estimated from the delta between before/after states.
+- **OK/fail status** — whether the tool call succeeded.
+
+Summary metrics:
+
+- Total request/response bytes and tokens (chars/4 heuristic).
+- Per-tool breakdown (call count, average payload sizes).
+- Voxel, bytes-per-voxel, and tokens-per-voxel estimates.
+- Estimated cost tables for common model providers.
+
+### Quick Start
+
+```bash
+# Ensure the MCP server is running
+scripts/ensure-mcp-web.sh
+
+# Run all built-in scenarios (small + medium + large smoke)
+python3 scripts/mcp-traffic-benchmark.py --output-dir /tmp/voxelforge all
+
+# Or use the convenience wrapper (starts server if needed)
+scripts/run-mcp-traffic-benchmark.sh
+
+# View results
+cat /tmp/voxelforge/mcp-traffic-comparison.md
+ls -la /tmp/voxelforge/mcp-traffic-*.json
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `smoke` | Run built-in scenario (small, medium, or large) |
+| `replay <jsonl>` | Replay an existing tool-call JSONL file |
+| `all` | Run all three smoke scenarios plus optional replay |
+
+### Smoke Scenarios
+
+The script includes three built-in scenarios that exercise representative tool surfaces:
+
+| Size | ~Calls | Description |
+|------|--------|-------------|
+| **small** | 6 | Create model, set palette, small box (4³), query. |
+| **medium** | 13 | 16³ hollow room with pillar, regions, cross-section, mixed tools. |
+| **large** | 15 | 32²×16 hollow room with 4 corner pillars, center column, palette, regions, queries. |
+
+### Replaying Tool-Call JSONL
+
+The replay mode accepts the same JSON Lines format used by `tests/VoxelForge.Import.Tests/Fixtures/benchmark-tool-calls.jsonl`:
+
+```json
+{"name":"new_model","arguments":{"name":"test","grid_hint":24}}
+{"name":"set_palette_entry","arguments":{"index":1,"name":"brick","r":120,"g":40,"b":30}}
+```
+
+To capture a live agent session for replay:
+
+1. Have the agent use an MCP proxy that logs all request/response pairs.
+2. Extract tool name and arguments into the JSONL format above.
+3. Run `python3 scripts/mcp-traffic-benchmark.py replay captured-session.jsonl`.
+
+### Output Artifacts
+
+All artifacts are written under the configured output directory (default `/tmp/voxelforge/`):
+
+| File | Description |
+|------|-------------|
+| `mcp-traffic-{label}.json` | Full report with per-call and summary metrics. |
+| `mcp-traffic-{label}.md` | Human-readable markdown report. |
+| `mcp-traffic-{label}-summary.json` | Summary-only JSON for machine consumption. |
+| `mcp-traffic-comparison.md` | Combined comparison table across all run scenarios. |
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--mcp-url` | `http://localhost:5201/mcp` | MCP JSON-RPC endpoint. |
+| `--output-dir` | `/tmp/voxelforge` | Artifact output directory. |
+| `--no-health-check` | (checks by default) | Skip pre-run health check. |
+| `smoke --size` | `medium` | Scenario size: `small`, `medium`, `large`. |
+| `all --smoke-size` | `medium` | Default smoke size for `all` mode. |
+| `all --input <path>` | (none) | Additional tool-call JSONL to include. |
+
+### Token Estimate Heuristic
+
+The script uses `chars/4` as a rough token estimate (1 token ≈ 4 characters). Actual token counts vary by model tokenizer:
+
+- Claude models: ≈3.5 chars/token on average for structured JSON.
+- GPT models: ≈4 chars/token on average for structured JSON.
+- **chars/4 is a documented approximate heuristic.** For precise token counts, pass the payload through the specific model's tokenizer.
+
+### Cost Estimates (Informative)
+
+The markdown comparison report includes estimated cost tables at common pricing tiers. These are informative; actual costs depend on provider, model version, caching, and batch discounts. Use them for relative comparison, not billing.
+
+### Cross-Reference
+
+- [`docs/architecture/llm-headless-benchmark-harness.md`](architecture/llm-headless-benchmark-harness.md) — Full benchmark harness design (runsets, variants, artifact layout).
+- [`docs/benchmarks/renderer-benchmark-summary.md`](../docs/benchmarks/renderer-benchmark-summary.md) — Renderer performance benchmarking workflow.
+- [`scripts/mcp-traffic-benchmark.py`](../scripts/mcp-traffic-benchmark.py) — The benchmark script.
+- [`scripts/run-mcp-traffic-benchmark.sh`](../scripts/run-mcp-traffic-benchmark.sh) — Convenience wrapper.
