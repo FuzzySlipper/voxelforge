@@ -101,6 +101,48 @@ data: {"type":"revision","revision":2}
 
 Viewer API endpoints (`/api/viewer-state`, `/api/mesh-snapshot`, `/api/palette`) snapshot all model/palette data under the MCP session's `SyncRoot` lock. This ensures consistent reads even while MCP tool handlers are mutating the model concurrently.
 
+### Performance Overlay
+
+The browser viewer includes a lightweight diagnostics/performance overlay in the top-left corner. It is intentionally minimal — no console spam, no separate dev tools window.
+
+| Pill | Content | Notes |
+|------|---------|-------|
+| **Model** | `Model: <name> (<count> voxels)` | Current model name and occupied voxel count. |
+| **Mesh** | `Mesh: <verts> verts · <tris> tris` | Vertex and triangle count of the current mesh snapshot. |
+| **Build** | `Build: <gen>ms gen · <total>ms total` | Mesh generation time and total snapshot serialization time from the server. Shown only after a mesh load. Color-coded: green <100ms, yellow <500ms. |
+| **FPS** | `FPS: <n>` | Smoothed frames-per-second using an exponential moving average (α = 0.15) over the last ~1 second of `requestAnimationFrame` samples. Color-coded: green ≥50, yellow ≥25, red <25. |
+| **Connection** | `Connected · rev <n>` or `Disconnected` | SSE/polling connection status with live revision number. |
+
+The bottom status bar additionally shows connection state, revision, voxel count, and triangle count.
+
+#### Using the Overlay for Performance Checks
+
+1. Open the viewer at `http://localhost:5201/viewer`.
+2. Use MCP tools to build a model — the overlay updates live via SSE or polling.
+3. Watch the **FPS** pill to assess render performance as the model grows:
+   - **50+ FPS** — smooth real-time interaction.
+   - **25–49 FPS** — noticeable lag, usable for orbit/pan but may feel sluggish.
+   - **<25 FPS** — render-bound. The model may have very high vertex/triangle counts.
+4. Watch the **Build** pill to assess mesh generation cost:
+   - **<100ms** — fast rebuilds suitable for interactive editing.
+   - **100–500ms** — moderate. Rapid tool calls may queue.
+   - **>500ms** — slow rebuilds. Consider model simplification or chunking.
+5. Use the vertex/triangle counts in the **Mesh** pill to correlate render performance with model complexity.
+
+The overlay uses a single DOM write every 200ms (for FPS) and on mesh updates — negligible overhead compared to the WebGL render pass.
+
+#### Dev Console Access
+
+The viewer exposes helper functions via `window.__voxelforgeViewer`:
+
+```js
+window.__voxelforgeViewer.fps()          // → current smoothed FPS (integer)
+window.__voxelforgeViewer.fpsRaw()       // → raw frame count in last second
+window.__voxelforgeViewer.meshBuildInfo() // → {mesh_generation_ms, serialization_ms, total_ms} or null
+```
+
+These are useful for quick automated or scripted performance checks without parsing the DOM pills.
+
 ## Claude Code configuration
 
 Add an HTTP MCP server entry pointing at the `/mcp` endpoint. Example:

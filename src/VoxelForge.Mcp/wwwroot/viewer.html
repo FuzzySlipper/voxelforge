@@ -14,6 +14,13 @@
     .diag-pill { background: rgba(13, 17, 23, 0.82); border: 1px solid rgba(121, 153, 190, 0.3); padding: 4px 9px; border-radius: 999px; color: #dbe9fa; font-size: 11px; white-space: nowrap; }
     .diag-pill.ok { border-color: rgba(127, 214, 138, 0.4); }
     .diag-pill.warn { border-color: rgba(255, 202, 110, 0.5); }
+    .diag-pill.perf { border-color: rgba(121, 153, 190, 0.3); }
+    .diag-pill.perf-ok { border-color: rgba(127, 214, 138, 0.4); }
+    .diag-pill.perf-warn { border-color: rgba(255, 202, 110, 0.5); }
+    .diag-pill.perf-bad { border-color: rgba(255, 121, 121, 0.6); }
+    .diag-pill.perf-ok .fps-value { color: #7fd68a; }
+    .diag-pill.perf-warn .fps-value { color: #ffca6e; }
+    .diag-pill.perf-bad .fps-value { color: #ff7979; }
     /* Bottom status bar */
     .status-bar { position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px; padding: 5px 12px; background: rgba(17, 21, 27, 0.88); border-top: 1px solid rgba(48, 56, 70, 0.6); color: #93a4b8; font-size: 11px; z-index: 10; pointer-events: none; }
     .status-bar .spacer { flex: 1; }
@@ -51,6 +58,8 @@
     <div class="diag-overlay" id="diag-overlay">
       <div class="diag-pill" id="diag-model">Model: —</div>
       <div class="diag-pill" id="diag-mesh">Mesh: —</div>
+      <div class="diag-pill" id="diag-mesh-detail" style="display:none;">Build: —</div>
+      <div class="diag-pill perf" id="diag-fps">FPS: —</div>
       <div class="diag-pill" id="diag-connection" class="ok">Connecting…</div>
     </div>
 
@@ -96,6 +105,8 @@
       const fallbackEl = document.getElementById("fallback-msg");
       const diagModel = document.getElementById("diag-model");
       const diagMesh = document.getElementById("diag-mesh");
+      const diagMeshDetail = document.getElementById("diag-mesh-detail");
+      const diagFps = document.getElementById("diag-fps");
       const diagConn = document.getElementById("diag-connection");
       const connDot = document.getElementById("conn-dot");
       const statusText = document.getElementById("status-text");
@@ -119,6 +130,12 @@
       let connected = false;
       let webglAvailable = true;
       let lastError = null;
+      let lastMeshBuildInfo = null;
+
+      // ── FPS tracking ──
+      let frameTimestamps = [];
+      let smoothedFps = 0;
+      let lastFpsUpdate = 0;
 
       // ── SSE EventSource connection ──
       function connectSse() {
@@ -260,7 +277,55 @@
         if (!renderer) return;
         animationId = requestAnimationFrame(animate);
         if (controls) controls.update();
+
+        // Track frame timestamps for FPS calculation (ring buffer, ~64 samples)
+        const now = performance.now();
+        frameTimestamps.push(now);
+        if (frameTimestamps.length > 64) {
+          frameTimestamps.shift();
+        }
+
         renderer.render(scene, camera);
+
+        // Update FPS display at most every 200ms to avoid excess DOM writes
+        if (diagFps && now - lastFpsUpdate >= 200) {
+          updateFps(now);
+          lastFpsUpdate = now;
+        }
+      }
+
+      // ── FPS calculation using exponential smoothing ──
+      function updateFps(now) {
+        // Remove timestamps older than 1 second
+        while (frameTimestamps.length > 0 && frameTimestamps[0] < now - 1000) {
+          frameTimestamps.shift();
+        }
+        const instantFps = frameTimestamps.length;
+
+        // Exponential moving average (α = 0.15)
+        smoothedFps = smoothedFps === 0
+          ? instantFps
+          : smoothedFps * 0.85 + instantFps * 0.15;
+
+        const fps = Math.round(smoothedFps);
+        diagFps.textContent = "FPS: " + fps;
+
+        // Color-code based on performance tiers
+        diagFps.className = "diag-pill " + (
+          fps >= 50 ? "perf-ok" :
+          fps >= 25 ? "perf-warn" :
+          fps >= 1  ? "perf-bad" :
+          "perf"
+        );
+        // Override the inner span for colored value
+        var inner = diagFps.querySelector(".fps-value");
+        if (!inner) {
+          inner = document.createElement("span");
+          inner.className = "fps-value";
+          diagFps.appendChild(document.createTextNode(" "));
+          diagFps.appendChild(inner);
+        }
+        inner.textContent = fps;
       }
 
       // ── Frame camera to model bounds ──
@@ -410,6 +475,16 @@
         if (mesh) {
           diagMesh.textContent = "Mesh: " + mesh.vertex_count + " verts · " + mesh.triangle_count + " tris";
           statusTris.textContent = mesh.triangle_count + " tris";
+
+          // Show mesh generation metrics when available
+          if (mesh.metrics) {
+            lastMeshBuildInfo = mesh.metrics;
+            const genMs = mesh.metrics.mesh_generation_ms || 0;
+            const totalMs = mesh.metrics.total_ms || 0;
+            diagMeshDetail.style.display = "";
+            diagMeshDetail.textContent = "Build: " + genMs + "ms gen · " + totalMs + "ms total";
+            diagMeshDetail.className = "diag-pill " + (genMs < 100 ? "ok" : genMs < 500 ? "warn" : "");
+          }
         }
       }
 
@@ -538,6 +613,11 @@
         connectSse: connectSse,
         disconnectSse: disconnectSse,
         dispose: dispose,
+        // Performance instrumentation
+        fps: function () { return Math.round(smoothedFps); },
+        fpsRaw: function () { return frameTimestamps.length; },
+        meshBuildInfo: function () { return lastMeshBuildInfo; },
+        getDiagFps: function () { return diagFps; },
       };
     })();
   </script>
