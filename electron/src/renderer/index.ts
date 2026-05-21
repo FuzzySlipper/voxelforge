@@ -353,21 +353,23 @@ function setupMenuEventListeners(): void {
 
   // ── View menu ──
   window.voxelforgeBridge.onEvent("menu:view-front", () => {
-    scene.snapCameraToView("front");
+    try { scene.snapCameraToView("front"); } catch (e) { console.warn("[menu] view-front:", e); }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-side", () => {
-    scene.snapCameraToView("side");
+    try { scene.snapCameraToView("side"); } catch (e) { console.warn("[menu] view-side:", e); }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-top", () => {
-    scene.snapCameraToView("top");
+    try { scene.snapCameraToView("top"); } catch (e) { console.warn("[menu] view-top:", e); }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-wireframe", () => {
-    wireframeVisible = !wireframeVisible;
-    scene.setWireframeVisible(wireframeVisible);
-    ui.wireframeToggleButton.classList.toggle("active", wireframeVisible);
+    try {
+      wireframeVisible = !wireframeVisible;
+      scene.setWireframeVisible(wireframeVisible);
+      ui.wireframeToggleButton.classList.toggle("active", wireframeVisible);
+    } catch (e) { console.warn("[menu] view-wireframe:", e); }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-grid-size", () => {

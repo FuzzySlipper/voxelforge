@@ -70,7 +70,7 @@ function buildFileMenu(win: BrowserWindow): MenuItemConstructorOptions {
       { type: "separator" },
       {
         label: "E&xit",
-        accelerator: process.platform === "darwin" ? "Cmd+Q" : "Alt+F4",
+        accelerator: process.platform === "darwin" ? undefined : "Alt+F4",
         click: () => {
           send(win, MenuChannels.FILE_EXIT);
           win.close();
@@ -86,12 +86,10 @@ function buildEditMenu(win: BrowserWindow): MenuItemConstructorOptions {
     submenu: [
       {
         label: "&Undo",
-        accelerator: "CmdOrCtrl+Z",
         click: () => send(win, MenuChannels.EDIT_UNDO),
       },
       {
         label: "&Redo",
-        accelerator: "CmdOrCtrl+Y",
         click: () => send(win, MenuChannels.EDIT_REDO),
       },
       { type: "separator" },
