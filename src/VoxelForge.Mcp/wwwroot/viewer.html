@@ -308,7 +308,14 @@
           : smoothedFps * 0.85 + instantFps * 0.15;
 
         const fps = Math.round(smoothedFps);
-        diagFps.textContent = "FPS: " + fps;
+
+        // Set up structure only once; update only the span content
+        var inner = diagFps.querySelector(".fps-value");
+        if (!inner) {
+          diagFps.innerHTML = 'FPS: <span class="fps-value"></span>';
+          inner = diagFps.querySelector(".fps-value");
+        }
+        inner.textContent = fps;
 
         // Color-code based on performance tiers
         diagFps.className = "diag-pill " + (
@@ -317,15 +324,6 @@
           fps >= 1  ? "perf-bad" :
           "perf"
         );
-        // Override the inner span for colored value
-        var inner = diagFps.querySelector(".fps-value");
-        if (!inner) {
-          inner = document.createElement("span");
-          inner.className = "fps-value";
-          diagFps.appendChild(document.createTextNode(" "));
-          diagFps.appendChild(inner);
-        }
-        inner.textContent = fps;
       }
 
       // ── Frame camera to model bounds ──
