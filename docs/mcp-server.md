@@ -475,3 +475,16 @@ The markdown comparison report includes estimated cost tables at common pricing 
 - [`docs/benchmarks/renderer-benchmark-summary.md`](../docs/benchmarks/renderer-benchmark-summary.md) — Renderer performance benchmarking workflow.
 - [`scripts/mcp-traffic-benchmark.py`](../scripts/mcp-traffic-benchmark.py) — The benchmark script.
 - [`scripts/run-mcp-traffic-benchmark.sh`](../scripts/run-mcp-traffic-benchmark.sh) — Convenience wrapper.
+
+### stamp_model Transform Conventions
+
+> **Note:** The `stamp_model` tool was reviewed and approved but not yet pushed to the repository. The transform conventions below document the planned behavior.
+
+The `stamp_model` tool loads a named `.vforge` file from the configured project directory and stamps its occupied voxels into the current session at a target coordinate. Transforms are applied in this specific order relative to the source model's local origin (bounds minimum):
+
+1. **Mirror** — applied first, in local coordinates relative to source bounds minimum
+2. **RotateX** — 90° increments around X axis
+3. **RotateY** — 90° increments around Y axis  
+4. **RotateZ** — 90° increments around Z axis, applied last
+
+Rotations occur around the source model's bottom-left-front corner of the normalized bounds, **not** the model center. When composing complex multi-stamp scenes with combined mirror+rotation, this ordering means mirror is evaluated in the pre-rotation coordinate frame.
