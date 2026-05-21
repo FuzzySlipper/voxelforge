@@ -149,6 +149,7 @@ async function main(): Promise<void> {
     await subscribeState();
     await refreshMesh();
     setupBridgeEvents();
+    setupMenuEventListeners();
     setBridgeStatus("Bridge connected. C# owns editor state; TS owns presentation.", true);
     clearLoadingPlaceholder();
   } catch (err) {
@@ -244,6 +245,163 @@ function setupMeshSubscription(): void {
     send_full_snapshot_on_subscribe: false,
   }).catch((err: unknown) => {
     console.warn("[renderer] Mesh subscription failed (manual refresh still works):", err);
+  });
+}
+
+/**
+ * Wire up listeners for native Electron menu events sent from the main process.
+ * Each menu item click maps to an existing runAction, executeCommand, or scene method.
+ */
+function setupMenuEventListeners(): void {
+  // ── File menu ──
+  window.voxelforgeBridge.onEvent("menu:file-new", () => {
+    // Confirm in the renderer before clearing
+    if (window.confirm("Clear the current model? Unsaved changes will be lost.")) {
+      void runAction("New Project", "bridge:project-new", {});
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:file-open", () => {
+    const path = window.prompt("Enter project file path (.vforge):", ui.projectPath.value);
+    if (path) {
+      ui.projectPath.value = path;
+      void runAction("Open", "bridge:project-load", { path });
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:file-save", () => {
+    void runAction("Save", "bridge:project-save", { path: ui.projectPath.value });
+  });
+
+  window.voxelforgeBridge.onEvent("menu:file-save-as", () => {
+    const path = window.prompt("Save project as (.vforge):", ui.projectPath.value);
+    if (path) {
+      const fullPath = path.endsWith(".vforge") ? path : path + ".vforge";
+      ui.projectPath.value = fullPath;
+      void runAction("Save As", "bridge:project-save", { path: fullPath });
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:file-exit", () => {
+    // Main process already closes the window; we just log
+    console.log("[renderer] Exit requested via native menu.");
+  });
+
+  // ── Edit menu ──
+  window.voxelforgeBridge.onEvent("menu:edit-undo", () => {
+    void runAction("Undo", "bridge:history-undo", {});
+  });
+
+  window.voxelforgeBridge.onEvent("menu:edit-redo", () => {
+    void runAction("Redo", "bridge:history-redo", {});
+  });
+
+  window.voxelforgeBridge.onEvent("menu:edit-fill-region", () => {
+    const x1 = parseInt(window.prompt("Fill Region — X1:") ?? "", 10);
+    const y1 = parseInt(window.prompt("Fill Region — Y1:") ?? "", 10);
+    const z1 = parseInt(window.prompt("Fill Region — Z1:") ?? "", 10);
+    const x2 = parseInt(window.prompt("Fill Region — X2:") ?? "", 10);
+    const y2 = parseInt(window.prompt("Fill Region — Y2:") ?? "", 10);
+    const z2 = parseInt(window.prompt("Fill Region — Z2:") ?? "", 10);
+    const idx = parseInt(window.prompt("Fill Region — Palette Index:") ?? "1", 10);
+    if (!isNaN(x1) && !isNaN(y1) && !isNaN(z1) && !isNaN(x2) && !isNaN(y2) && !isNaN(z2) && !isNaN(idx)) {
+      void executeCommand("fill_box", {
+        x1, y1, z1, x2, y2, z2, palette_index: idx,
+      });
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:edit-palette-list", () => {
+    void executeCommand("list_palette", {});
+  });
+
+  window.voxelforgeBridge.onEvent("menu:edit-palette-add", () => {
+    const indexStr = window.prompt("Add Material — Index:") ?? "";
+    const name = window.prompt("Add Material — Name:") ?? "";
+    const r = parseInt(window.prompt("Add Material — R (0-255):") ?? "255", 10);
+    const g = parseInt(window.prompt("Add Material — G (0-255):") ?? "255", 10);
+    const b = parseInt(window.prompt("Add Material — B (0-255):") ?? "255", 10);
+    const a = parseInt(window.prompt("Add Material — A (0-255, default 255):") ?? "255", 10);
+    void executeCommand("set_palette_entry", {
+      index: parseInt(indexStr, 10) || 0,
+      name: name || "Material",
+      r, g, b, a,
+    });
+  });
+
+  window.voxelforgeBridge.onEvent("menu:edit-regions-list", () => {
+    void executeCommand("list_regions", {});
+  });
+
+  window.voxelforgeBridge.onEvent("menu:edit-regions-label", () => {
+    const regionName = window.prompt("Label Voxel — Region Name:");
+    const x = parseInt(window.prompt("Label Voxel — X:") ?? "", 10);
+    const y = parseInt(window.prompt("Label Voxel — Y:") ?? "", 10);
+    const z = parseInt(window.prompt("Label Voxel — Z:") ?? "", 10);
+    if (regionName && !isNaN(x) && !isNaN(y) && !isNaN(z)) {
+      void executeCommand("assign_voxels_to_region", {
+        region_name: regionName, x, y, z,
+      });
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:edit-clear-all", () => {
+    if (window.confirm("Remove all voxels from the model?")) {
+      void executeCommand("clear_model", {});
+    }
+  });
+
+  // ── View menu ──
+  window.voxelforgeBridge.onEvent("menu:view-front", () => {
+    scene.snapCameraToView("front");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:view-side", () => {
+    scene.snapCameraToView("side");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:view-top", () => {
+    scene.snapCameraToView("top");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:view-wireframe", () => {
+    wireframeVisible = !wireframeVisible;
+    scene.setWireframeVisible(wireframeVisible);
+    ui.wireframeToggleButton.classList.toggle("active", wireframeVisible);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:view-grid-size", () => {
+    const sizeStr = window.prompt("Grid Size (1-256):", "32");
+    const size = parseInt(sizeStr ?? "", 10);
+    if (!isNaN(size) && size >= 1 && size <= 256) {
+      void executeCommand("set_grid_hint", { size });
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:view-measure-grid", () => {
+    void executeCommand("toggle_measure_grid", {});
+  });
+
+  window.voxelforgeBridge.onEvent("menu:view-measure-scale", () => {
+    const scaleStr = window.prompt("Voxels per meter (e.g. 8):", "8");
+    const scale = parseFloat(scaleStr ?? "");
+    if (!isNaN(scale) && scale > 0) {
+      void executeCommand("set_measure_scale", { voxels_per_meter: scale });
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:view-bg-color", () => {
+    const r = parseInt(window.prompt("Background Color — R (0-255):", "43") ?? "43", 10);
+    const g = parseInt(window.prompt("Background Color — G (0-255):", "43") ?? "43", 10);
+    const b = parseInt(window.prompt("Background Color — B (0-255):", "43") ?? "43", 10);
+    if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+      scene.setBackgroundColor(Math.max(0, Math.min(255, r)), Math.max(0, Math.min(255, g)), Math.max(0, Math.min(255, b)));
+    }
+  });
+
+  // ── Help menu ──
+  window.voxelforgeBridge.onEvent("menu:help-about", () => {
+    setStatus("About VoxelForge — Voxel Authoring Tool with LLM integration. Coordinate System: Y-up (right-handed). R=X, G=Y, B=Z.");
   });
 }
 

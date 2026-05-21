@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import * as path from "path";
 import { spawn } from "child_process";
 import { BridgeClient } from "./bridge-client";
+import { setupMenu } from "./menu";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const isRendererSmokeTest = process.argv.includes("--renderer-smoke-test");
@@ -401,6 +402,9 @@ async function runRenderer(repoRoot: string | null): Promise<void> {
 
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "renderer.html"));
 
+  // Set up native application menu
+  setupMenu(mainWindow);
+
   mainWindow.on("closed", () => {
     mainWindow = null;
     bridgeClient?.disconnect();
@@ -591,6 +595,22 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
     );
     if (response.error) {
       throw new Error(`Project load error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:project-new", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const response = await client.send(
+      {
+        requestId: `renderer-new-${Date.now()}`,
+        command: "voxelforge.project.new",
+        payload: payload as Record<string, unknown>,
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Project new error: ${response.error.message}`);
     }
     return response.result;
   });

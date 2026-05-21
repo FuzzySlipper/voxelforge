@@ -719,8 +719,56 @@ export class VoxelForgeScene {
   }
 
   /**
-   * Get the Three.js canvas element for attaching event listeners.
+   * Snap the camera to a standard orthogonal view direction.
+   * Preserves the orbit controls target so the model stays centered.
    */
+  snapCameraToView(view: "front" | "side" | "top"): void {
+    const distance = this.lastSnapshotData?.bounds
+      ? Math.max(
+          this.lastSnapshotData.bounds.max_x - this.lastSnapshotData.bounds.min_x,
+          this.lastSnapshotData.bounds.max_y - this.lastSnapshotData.bounds.min_y,
+          this.lastSnapshotData.bounds.max_z - this.lastSnapshotData.bounds.min_z,
+        ) * 2.5
+      : 20;
+
+    const center = this.controls?.target ?? new THREE.Vector3(0, 0, 0);
+
+    switch (view) {
+      case "front":
+        this.camera.position.set(center.x, center.y, center.z + distance);
+        break;
+      case "side":
+        this.camera.position.set(center.x + distance, center.y, center.z);
+        break;
+      case "top":
+        this.camera.position.set(center.x, center.y + distance, center.z);
+        break;
+    }
+    this.camera.lookAt(center);
+    if (this.controls) {
+      this.controls.target.copy(center);
+      this.controls.update();
+    }
+  }
+
+  /**
+   * Set the scene background color from RGB components (0-255 each).
+   */
+  setBackgroundColor(r: number, g: number, b: number): void {
+    this.scene.background = new THREE.Color(`rgb(${r}, ${g}, ${b})`);
+  }
+
+  /**
+   * Get the current scene background color as a hex string.
+   */
+  getBackgroundColor(): string {
+    const color = this.scene.background;
+    if (color instanceof THREE.Color) {
+      return color.getHexString();
+    }
+    return "2b2b2b";
+  }
+
   getCanvas(): HTMLCanvasElement | null {
     return this.renderer?.domElement ?? null;
   }
