@@ -32,12 +32,15 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<GetVoxelsInAreaHandler>();
         services.AddSingleton<ApplyVoxelPrimitivesHandler>();
 
+        services.AddSingleton<SetVoxelsRunsHandler>();
+
         services.AddSingleton<DescribeModelMcpTool>();
         services.AddSingleton<GetModelInfoMcpTool>();
         services.AddSingleton<SetVoxelsMcpTool>();
         services.AddSingleton<RemoveVoxelsMcpTool>();
         services.AddSingleton<GetVoxelsInAreaMcpTool>();
         services.AddSingleton<ApplyVoxelPrimitivesMcpTool>();
+        services.AddSingleton<SetVoxelsRunsMcpTool>();
         services.AddSingleton<ViewModelMcpTool>();
         services.AddSingleton<ViewFromAngleMcpTool>();
         services.AddSingleton<CompareReferenceMcpTool>();
@@ -48,6 +51,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, RemoveVoxelsServerTool>();
         services.AddSingleton<McpServerTool, GetVoxelsInAreaServerTool>();
         services.AddSingleton<McpServerTool, ApplyVoxelPrimitivesServerTool>();
+        services.AddSingleton<McpServerTool, SetVoxelsRunsServerTool>();
         services.AddSingleton<McpServerTool, ViewModelServerTool>();
         services.AddSingleton<McpServerTool, ViewFromAngleServerTool>();
         services.AddSingleton<McpServerTool, CompareReferenceServerTool>();

@@ -97,3 +97,22 @@ public sealed class ApplyVoxelPrimitivesServerTool : VoxelForgeMcpServerTool
     {
     }
 }
+
+public sealed class SetVoxelsRunsMcpTool : LlmToolMcpTool
+{
+    public SetVoxelsRunsMcpTool(
+        SetVoxelsRunsHandler handler,
+        VoxelForgeMcpSession session,
+        LlmToolApplicationService applicationService)
+        : base(handler, session, applicationService, isReadOnly: false)
+    {
+    }
+}
+
+public sealed class SetVoxelsRunsServerTool : VoxelForgeMcpServerTool
+{
+    public SetVoxelsRunsServerTool(SetVoxelsRunsMcpTool tool)
+        : base(tool)
+    {
+    }
+}
