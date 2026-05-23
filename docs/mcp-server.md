@@ -201,6 +201,15 @@ Model lifecycle and palette tools:
 - `set_palette_entry` — add or update a palette entry through undoable App services.
 - `set_grid_hint` — set the model advisory grid resolution through undoable App services.
 
+Reference model tools:
+
+- `load_reference_model` — load a 3D model file (FBX, OBJ, GLTF, etc.) by absolute or relative path.
+- `list_reference_models` — list loaded reference models with index, file name, format, vertex count, render mode, and visibility.
+- `transform_reference_model` — translate, rotate, and/or scale a reference model by index.
+- `remove_reference_model` — remove a single reference model by index.
+- `clear_reference_models` — remove all loaded reference models.
+- `voxelize_reference_model` — convert a loaded reference model into voxels at a chosen resolution (2–256) and mode (`solid` or `surface`). The result replaces the current session voxels and is undoable.
+
 Spatial reasoning tools:
 
 - `get_region_neighbors` — find labeled regions adjacent to a region using configurable 6- or 26-connected voxel adjacency.
@@ -360,6 +369,48 @@ After the initial load, ask the agent to call `publish_preview` again with the s
 - **Headless run ignores watch mode:** `--watch` requires the GUI renderer. `dotnet run --project src/VoxelForge.Engine.MonoGame -- --headless --watch ...` prints a warning and does not start the preview watcher.
 
 Future preview push/launcher options are discussed in [`architecture/mcp-live-preview-follow-up-options.md`](architecture/mcp-live-preview-follow-up-options.md). MCP tools should prefer typed services and request DTOs. Console-command adapters are a compatibility bridge for commands that have not yet been promoted to first-class MCP operations.
+
+## FBX-to-Voxel Workflow
+
+A minimal agent workflow to convert a 3D reference model into a voxel model, inspect it, and save or publish the result:
+
+1. **Load the reference model**
+   ```json
+   { "path": "/path/to/model.fbx" }
+   ```
+   Call `load_reference_model` with an absolute path to an FBX, OBJ, GLTF, or other Assimp-supported format.
+
+2. **List and inspect**
+   ```json
+   {}
+   ```
+   Call `list_reference_models` to confirm the index, file name, format, and vertex count.
+
+3. **Transform (optional)**
+   ```json
+   { "index": 0, "x": 0, "y": 0, "z": 0, "scale": 1.0 }
+   ```
+   Call `transform_reference_model` to position, rotate, or scale the reference before voxelization.
+
+4. **Voxelize**
+   ```json
+   { "index": 0, "resolution": 32, "mode": "solid" }
+   ```
+   Call `voxelize_reference_model` with resolution `2–256` and mode `solid` or `surface`. The command replaces the current session voxels with the voxelized result via an undoable compound command.
+
+5. **Inspect result**
+   ```json
+   {}
+   ```
+   Call `get_model_info` to verify voxel count, bounds, and palette entries.
+
+6. **Save or publish**
+   ```json
+   { "name": "model-voxelized" }
+   ```
+   Call `save_model` or `publish_preview` to persist the voxelized result.
+
+Supported reference formats include FBX, OBJ, GLTF, GLB, DAE, and other formats supported by AssimpNetter. Texture baking and vertex colors are preserved during voxelization when color variation is detected.
 
 ---
 

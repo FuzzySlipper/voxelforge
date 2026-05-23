@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
 using VoxelForge.App.Console.Commands;
+using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
+using VoxelForge.Content;
 using VoxelForge.Core.LLM.Handlers;
 using VoxelForge.Core.Services;
 
@@ -24,6 +26,12 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<ModelPathResolver>();
         services.AddSingleton<SpatialQueryService>();
         services.AddSingleton<LlmToolApplicationService>();
+        services.AddSingleton<ReferenceModelLoader>(sp => new ReferenceModelLoader(
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<ReferenceModelLoader>()));
+        services.AddSingleton<ReferenceAssetService>();
+        services.AddSingleton<VoxelizeCommand>(sp => new VoxelizeCommand(
+            sp.GetRequiredService<VoxelForgeMcpSession>().ReferenceModels,
+            sp.GetRequiredService<ILoggerFactory>()));
 
         services.AddSingleton<DescribeModelHandler>();
         services.AddSingleton<GetModelInfoHandler>();
@@ -88,6 +96,13 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<SetPaletteEntryMcpTool>();
         services.AddSingleton<SetGridHintMcpTool>();
 
+        services.AddSingleton<LoadReferenceModelMcpTool>();
+        services.AddSingleton<ListReferenceModelsMcpTool>();
+        services.AddSingleton<TransformReferenceModelMcpTool>();
+        services.AddSingleton<RemoveReferenceModelMcpTool>();
+        services.AddSingleton<ClearReferenceModelsMcpTool>();
+        services.AddSingleton<VoxelizeReferenceModelMcpTool>();
+
         services.AddSingleton<GetRegionNeighborsMcpTool>();
         services.AddSingleton<GetInterfaceVoxelsMcpTool>();
         services.AddSingleton<MeasureDistanceMcpTool>();
@@ -118,6 +133,13 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, ListPaletteServerTool>();
         services.AddSingleton<McpServerTool, SetPaletteEntryServerTool>();
         services.AddSingleton<McpServerTool, SetGridHintServerTool>();
+
+        services.AddSingleton<McpServerTool, LoadReferenceModelServerTool>();
+        services.AddSingleton<McpServerTool, ListReferenceModelsServerTool>();
+        services.AddSingleton<McpServerTool, TransformReferenceModelServerTool>();
+        services.AddSingleton<McpServerTool, RemoveReferenceModelServerTool>();
+        services.AddSingleton<McpServerTool, ClearReferenceModelsServerTool>();
+        services.AddSingleton<McpServerTool, VoxelizeReferenceModelServerTool>();
 
         services.AddSingleton<McpServerTool, GetRegionNeighborsServerTool>();
         services.AddSingleton<McpServerTool, GetInterfaceVoxelsServerTool>();

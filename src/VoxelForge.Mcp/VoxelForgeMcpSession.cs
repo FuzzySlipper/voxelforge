@@ -4,6 +4,7 @@ using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Console;
 using VoxelForge.App.Events;
+using VoxelForge.App.Reference;
 using VoxelForge.Core;
 
 namespace VoxelForge.Mcp;
@@ -40,6 +41,7 @@ public sealed class VoxelForgeMcpSession
             Events = Events,
             Mode = ExecutionMode.Headless,
         };
+        ReferenceModels = new ReferenceModelState();
 
         // Subscribe to events that indicate viewer-relevant model changes.
         Events.Register<VoxelModelChangedEvent>(new ViewerRevisionEventHandler(() => IncrementViewerRevision()));
@@ -55,6 +57,8 @@ public sealed class VoxelForgeMcpSession
     public IEventDispatcher Events { get; }
 
     public CommandContext CommandContext { get; }
+
+    public ReferenceModelState ReferenceModels { get; }
 
     public string CurrentModelName { get; set; } = "untitled";
 
