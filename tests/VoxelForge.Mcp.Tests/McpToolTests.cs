@@ -728,6 +728,19 @@ public sealed class McpToolTests
         Assert.DoesNotContain(warnings, w => w.Code == "small_extent");
     }
 
+    [Fact]
+    public void ReferenceModelDiagnostics_NoColorVariationExplainsImporterVsViewerTextureLimit()
+    {
+        var model = CreatePlainModelWithoutTextureLinks();
+        var worldAabb = ReferenceDiagnosticsHelper.ComputeTransformedAabb(model);
+        var warnings = ReferenceDiagnosticsHelper.ComputeWarnings(model, worldAabb);
+
+        var warning = Assert.Single(warnings, w => w.Code == "no_color_variation");
+        Assert.Contains("diagnostics show zero diffuse textures", warning.Message);
+        Assert.Contains("importer did not link/bake", warning.Message);
+        Assert.Contains("viewer is not ignoring a known texture path", warning.Message);
+    }
+
     private static ReferenceModelData CreateTestModel()
     {
         return new ReferenceModelData
@@ -749,6 +762,30 @@ public sealed class McpToolTests
                     ],
                     Indices = [0, 1, 2, 3, 4, 5],
                     MaterialName = "test_mat",
+                },
+            ],
+        };
+    }
+
+    private static ReferenceModelData CreatePlainModelWithoutTextureLinks()
+    {
+        return new ReferenceModelData
+        {
+            FilePath = "/test/plain-apple-like.glb",
+            Format = "glb",
+            Meshes =
+            [
+                new ReferenceMeshData
+                {
+                    Vertices =
+                    [
+                        new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255),
+                        new ReferenceVertex(1, 0, 0, 0, 1, 0, 255, 255, 255, 255),
+                        new ReferenceVertex(0, 2, 0, 0, 1, 0, 255, 255, 255, 255),
+                    ],
+                    Indices = [0, 1, 2],
+                    MaterialName = "plain",
+                    DiffuseTexturePath = null,
                 },
             ],
         };

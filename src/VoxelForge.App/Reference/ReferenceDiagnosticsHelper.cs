@@ -221,6 +221,31 @@ public static class ReferenceDiagnosticsHelper
             });
         }
 
+        // Texture present but not rendered — clarity on fidelity limits.
+        // The viewer renders vertex colors only (no texture sampling); missing
+        // color richness is due to viewer/texture pipeline limitations, not the
+        // importer dropping data. Full texture support is tracked separately.
+        bool anyTextureNotRendered = false;
+        foreach (var mesh in model.Meshes)
+        {
+            if (mesh.DiffuseTexturePath is not null && File.Exists(mesh.DiffuseTexturePath))
+            {
+                anyTextureNotRendered = true;
+                break;
+            }
+        }
+        if (anyTextureNotRendered)
+        {
+            warnings.Add(new DiagnosticWarning
+            {
+                Code = "texture_not_rendered_in_viewer",
+                Message = "One or more meshes have a diffuse texture on disk, but the built-in viewer " +
+                          "renders vertex colors only (no texture sampling). Full texture rendering is " +
+                          "not yet supported in the viewer (tracked as follow-up task #1648).",
+                Severity = "info",
+            });
+        }
+
         // No color variation — check all vertices in all meshes
         bool hasColorVariation = false;
         (byte r, byte g, byte b, byte a)? firstColor = null;
@@ -246,7 +271,10 @@ public static class ReferenceDiagnosticsHelper
             warnings.Add(new DiagnosticWarning
             {
                 Code = "no_color_variation",
-                Message = "All vertices share the same color. Voxelization will produce monochrome output unless textures or material baking is used.",
+                Message = "All vertices share the same color. Voxelization/viewer output will be monochrome unless textures " +
+                          "or material baking are available. If the source asset has image files but diagnostics show zero " +
+                          "diffuse textures, the importer did not link/bake them into vertex colors; the viewer is not " +
+                          "ignoring a known texture path.",
                 Severity = "info",
             });
         }

@@ -486,7 +486,9 @@
             geo.computeVertexNormals();
           }
 
-          // Colors — convert uint8 RGBA to float RGB
+          // Colors — convert uint8 RGBA to float RGB; track alpha for
+          // transparency detection (all 255 => opaque; any <255 => transparent).
+          let hasAlphaBelow255 = false;
           if (rm.colors && rm.colors.length > 0) {
             const vc = rm.total_vertices;
             const colors = new Float32Array(vc * 3);
@@ -494,6 +496,7 @@
               colors[i * 3]     = rm.colors[i * 4] / 255;
               colors[i * 3 + 1] = rm.colors[i * 4 + 1] / 255;
               colors[i * 3 + 2] = rm.colors[i * 4 + 2] / 255;
+              if (rm.colors[i * 4 + 3] < 255) hasAlphaBelow255 = true;
             }
             geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
           }
@@ -509,13 +512,28 @@
           }
           geo.computeBoundingSphere();
 
+          // Derive material transparency from vertex alpha values:
+          //   all-alpha-255 => opaque (transparent:false, depthWrite:true)
+          //   any alpha <255 => transparent (depthWrite:false to avoid z-sort
+          //     artifacts, opacity derived from max vertex alpha)
+          // DoubleSide retained for old assets with potentially inverted or
+          // non-standard winding — back-face culling would hide faces on some
+          // imported FBX/GLB models where winding is not guaranteed clean.
+          const vc = rm.colors && rm.colors.length > 0 ? rm.total_vertices : 0;
+          const isRefTransparent = hasAlphaBelow255;
+          const refOpacity = isRefTransparent ? (() => {
+            let maxA = 0;
+            for (let i = 0; i < vc; i++) { const a = rm.colors[i * 4 + 3]; if (a > maxA) maxA = a; }
+            return maxA / 255;
+          })() : 1.0;
           const mat = new THREE.MeshStandardMaterial({
             vertexColors: rm.colors && rm.colors.length > 0,
             side: THREE.DoubleSide,
             roughness: 0.6,
             metalness: 0.05,
-            transparent: true,
-            opacity: 0.85,
+            transparent: isRefTransparent,
+            opacity: refOpacity,
+            depthWrite: !isRefTransparent,
           });
 
           const mesh = new THREE.Mesh(geo, mat);

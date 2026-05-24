@@ -674,6 +674,126 @@ public sealed class ViewerEndpointTests
         Assert.DoesNotContain("orbit", propertyNames);
         Assert.DoesNotContain("rotation", propertyNames);
     }
+    // ── Reference model color/alpha handling tests ──
+
+    [Fact]
+    public void ReferenceModelColors_OpaqueVertexAlpha255()
+    {
+        // Given a reference model with all-alpha-255 vertex colors,
+        // the exported viewer data must carry alpha=255 so the viewer
+        // can distinguish opaque from transparent geometry.
+        var session = CreateSession();
+        AddTestReferenceModel(session.ReferenceModels);
+
+        var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(
+            session.ReferenceModels.Models);
+
+        Assert.NotEmpty(viewerData);
+        var rm = viewerData[0];
+        Assert.NotNull(rm.Colors);
+        Assert.True(rm.Colors.Length > 0, "Reference model should have color data");
+
+        // Every 4th byte is alpha; all should be 255 for this opaque test cube.
+        for (int i = 3; i < rm.Colors.Length; i += 4)
+        {
+            Assert.Equal(255, rm.Colors[i]);
+        }
+    }
+
+    [Fact]
+    public void ReferenceModelColors_FallbackGrayHasAlpha255()
+    {
+        // When a reference vertex has all-zero RGBA, the fallback
+        // medium gray (128,128,128,255) must include alpha=255.
+        var mesh = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                // All-zero color — should trigger fallback gray (128,128,128,255)
+                new ReferenceVertex(0, 0, 0, 0, 0, -1, 0, 0, 0, 0),
+                new ReferenceVertex(1, 0, 0, 0, 0, -1, 0, 0, 0, 0),
+                new ReferenceVertex(1, 1, 0, 0, 0, -1, 0, 0, 0, 0),
+                new ReferenceVertex(0, 1, 0, 0, 0, -1, 0, 0, 0, 0),
+            ],
+            Indices = [0, 1, 2, 0, 2, 3],
+        };
+
+        var model = new ReferenceModelData
+        {
+            FilePath = "/tmp/zero-color-cube.obj",
+            Format = "OBJ",
+            Meshes = [mesh],
+            IsVisible = true,
+        };
+
+        var state = new ReferenceModelState();
+        state.Add(model);
+        var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(
+            state.Models);
+
+        Assert.NotEmpty(viewerData);
+        var rm = viewerData[0];
+        Assert.NotNull(rm.Colors);
+        Assert.True(rm.Colors.Length >= 16, "Fallback should produce colors for 4 vertices");
+
+        // Each vertex should be fallback gray (128,128,128,255): R=128 G=128 B=128 A=255
+        for (int i = 0; i < rm.Colors.Length; i += 4)
+        {
+            Assert.Equal(128, rm.Colors[i]);     // R
+            Assert.Equal(128, rm.Colors[i + 1]); // G
+            Assert.Equal(128, rm.Colors[i + 2]); // B
+            Assert.Equal(255, rm.Colors[i + 3]); // A
+        }
+    }
+
+    [Fact]
+    public void ViewerHtml_ReferenceMaterial_NoHardcodedTransparency()
+    {
+        // Static regression: the viewer HTML must not force all reference
+        // meshes to transparent:true/opacity:0.85. Opaque source should
+        // produce opaque material settings. This test fails if the old
+        // hardcoded values return.
+        var viewerHtmlPath = FindViewerHtmlPath();
+        var html = File.ReadAllText(viewerHtmlPath);
+
+        // The string "transparent: true, opacity: 0.85" must NOT appear
+        // as a contiguous fragment in the reference mesh material section.
+        Assert.DoesNotContain("transparent: true,\n          opacity: 0.85,", html);
+
+        // The material creation must reference alpha-aware variables.
+        Assert.Contains("isRefTransparent", html);
+        Assert.Contains("refOpacity", html);
+        Assert.Contains("depthWrite", html);
+    }
+
+    /// <summary>
+    /// Resolve viewer.html path from the test assembly's output directory,
+    /// mirroring ViewerHtml.LoadContent() search order.
+    /// </summary>
+    private static string FindViewerHtmlPath()
+    {
+        var baseDir = AppContext.BaseDirectory;
+
+        var candidates = new[]
+        {
+            Path.Combine(baseDir, "wwwroot", "viewer.html"),
+            Path.Combine(
+                Path.GetDirectoryName(baseDir) ?? baseDir,
+                "..", "..", "..", "wwwroot", "viewer.html"),
+            Path.GetFullPath(Path.Combine(
+                baseDir, "..", "..", "..", "..", "..",
+                "src", "VoxelForge.Mcp", "wwwroot", "viewer.html")),
+        };
+
+        foreach (var path in candidates)
+        {
+            if (File.Exists(Path.GetFullPath(path)))
+                return Path.GetFullPath(path);
+        }
+
+        throw new FileNotFoundException(
+            "viewer.html not found. Test must be run from the solution directory.");
+    }
 }
 
 /// <summary>
