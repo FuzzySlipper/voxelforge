@@ -466,6 +466,8 @@
           return;
         }
 
+        const textureLoader = new THREE.TextureLoader();
+
         for (let ri = 0; ri < data.reference_models.length; ri++) {
           const rm = data.reference_models[ri];
 
@@ -474,6 +476,7 @@
 
           if (!rm.positions || rm.positions.length === 0) continue;
 
+          // Build mesh geometry for the whole model (flat list of all meshes)
           const geo = new THREE.BufferGeometry();
           const positions = new Float32Array(rm.positions);
           geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -526,15 +529,40 @@
             for (let i = 0; i < vc; i++) { const a = rm.colors[i * 4 + 3]; if (a > maxA) maxA = a; }
             return maxA / 255;
           })() : 1.0;
+
+          // Check if any mesh has a diffuse texture for this model
+          let useTexture = false;
+          let texturePath = null;
+          if (rm.mesh_textures && rm.mesh_textures.length > 0) {
+            // If the model has per-mesh textures, load the first one's diffuse
+            // (for now render the whole model with the first mesh's texture)
+            const firstTex = rm.mesh_textures[0];
+            if (firstTex.diffuse_texture_path) {
+              texturePath = "/api/reference-texture?index=" + rm.index + "&mesh_index=" + firstTex.mesh_index + "&slot=diffuse";
+              useTexture = true;
+            }
+          }
+
           const mat = new THREE.MeshStandardMaterial({
-            vertexColors: rm.colors && rm.colors.length > 0,
+            vertexColors: useTexture ? false : (rm.colors && rm.colors.length > 0),
             side: THREE.DoubleSide,
             roughness: 0.6,
             metalness: 0.05,
             transparent: isRefTransparent,
             opacity: refOpacity,
             depthWrite: !isRefTransparent,
+            map: null,
           });
+
+          // Load texture if available
+          if (useTexture && texturePath) {
+            textureLoader.load(texturePath, function(texture) {
+              mat.map = texture;
+              mat.needsUpdate = true;
+            }, undefined, function(err) {
+              console.warn("[viewer] Failed to load texture:", texturePath, err);
+            });
+          }
 
           const mesh = new THREE.Mesh(geo, mat);
           mesh.castShadow = true;

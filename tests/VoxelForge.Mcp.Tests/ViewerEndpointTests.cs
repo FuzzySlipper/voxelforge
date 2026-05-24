@@ -542,6 +542,16 @@ public sealed class ViewerEndpointTests
                     Colors = [128, 128, 128, 255, 128, 128, 128, 255, 128, 128, 128, 255, 128, 128, 128, 255],
                     Indices = [0, 1, 2, 0, 2, 3],
                     Bounds = new ViewerBounds { MinX = 0, MinY = 0, MinZ = 0, MaxX = 1, MaxY = 1, MaxZ = 1 },
+                    MeshTextures =
+                    [
+                        new ViewerMeshTextureInfo
+                        {
+                            MeshIndex = 0,
+                            MaterialName = "default",
+                            DiffuseTexturePath = "/path/to/texture.png",
+                            DiffuseSourceLabel = "manual_override",
+                        },
+                    ],
                 },
             ],
         };
@@ -588,6 +598,14 @@ public sealed class ViewerEndpointTests
         Assert.Equal("ref.obj", refModels[0].GetProperty("file_name").GetString());
         Assert.True(refModels[0].GetProperty("is_visible").GetBoolean());
         Assert.Equal(24, refModels[0].GetProperty("total_vertices").GetInt32());
+
+        // Verify mesh_textures is present and snake_case
+        Assert.Contains("\"mesh_textures\"", json);
+        var meshTextures = refModels[0].GetProperty("mesh_textures");
+        Assert.True(meshTextures.GetArrayLength() > 0);
+        Assert.Contains("\"diffuse_texture_path\"", json);
+        Assert.Contains("\"diffuse_source_label\"", json);
+        Assert.Contains("\"material_name\"", json);
     }
 
     // ── Camera/view boundary tests ──

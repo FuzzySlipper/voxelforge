@@ -440,6 +440,8 @@ public sealed class ReferenceModelLoader
             DiffuseTexturePath = diffuseTexturePath,
             EmissiveTexturePath = unityEmissionTexturePath,
             EmissiveBrightness = unityEmissionBrightness,
+            DiffuseTextureSource = unitySidecarApplied ? "unity_sidecar" : (diffuseTexturePath is not null ? "assimp" : null),
+            EmissiveTextureSource = unityEmissionTexturePath is not null ? "unity_sidecar" : null,
         };
     }
 

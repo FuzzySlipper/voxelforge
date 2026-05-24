@@ -667,6 +667,74 @@ Call `load_reference_model`, then `list_reference_models`, `transform_reference_
 
 **Scale tuning note:** old FBX assets are often authored in centimeters or arbitrary units. If `voxelize_reference_model` produces too few voxels, increase `scale` in `transform_reference_model` before voxelizing. Values between `5` and `20` are common starting points. For example, a Watcher FBX model at `scale: 10` with `resolution: 64` produces a few hundred voxels, while `scale: 1` may yield only a handful.
 
+## Manual Reference Model Texture Overrides
+
+When automatic importer/material resolution fails (e.g., missing texture links, unresolved Unity .mat GUIDs), agents can manually assign texture files to loaded reference models using two new MCP tools.
+
+### Fallback Workflow
+
+```
+load_reference_model -> inspect_reference_materials -> set_reference_model_texture -> capture_reference_views
+```
+
+1. **Load the reference model** normally with `load_reference_model`.
+
+2. **Inspect materials** to find meshes with missing or incorrect textures:
+   ```json
+   { "index": 0 }
+   ```
+   Call `inspect_reference_materials` which returns per-mesh JSON:
+   - `mesh_index`, `material_name`
+   - `diffuse_texture_path` (effective path, including overrides)
+   - `diffuse_source_label`: one of `manual_override`, `assimp`, `unity_sidecar`, `none`
+   - `has_manual_override`, `has_assimp_texture`
+   - `normal_texture_path`, `normal_source_label`
+   - `emissive_texture_path`, `emissive_source_label`
+   - `has_vertex_alpha`, `vertex_count`
+
+3. **Assign a diffuse texture** to a specific mesh:
+   ```json
+   { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "/path/to/texture.png" }
+   ```
+   Call `set_reference_model_texture` with:
+   - `index` — reference model index
+   - `mesh_index` — target mesh index, OR `material_name` to target all meshes with that name
+   - `slot` — one of `diffuse`, `normal`, `emissive`
+   - `path` — absolute or relative path to the texture file
+   - Supported formats: `.png`, `.jpg`, `.jpeg`, `.bmp`, `.tga`, `.webp`
+   - Invalid paths or unsupported formats fail without mutation
+
+4. **Verify the override** with `inspect_reference_materials` — the source label will show `manual_override`.
+
+5. **Capture reference views** with `capture_reference_views` or view in the browser viewer.
+
+### Viewer Texture Rendering
+
+The built-in browser viewer (`/viewer`) now loads and applies diffuse textures via `THREE.TextureLoader`. When a reference model mesh has a valid `diffuse_texture_path`, the viewer:
+
+- Disables vertex colors for that mesh (texture takes priority)
+- Asynchronously loads the texture via the safe `/api/reference-texture?index=...&mesh_index=...&slot=diffuse` endpoint
+- Applies it to `MeshStandardMaterial.map`
+- Preserves the #1647 opacity/depth behavior (vertex-alpha-derived transparency)
+- Falls back to vertex colors if the texture fails to load
+
+The `/api/reference-texture` endpoint validates paths against loaded reference models to prevent arbitrary filesystem access.
+
+### Override Metadata
+
+- Manual overrides are **session-only** and do not persist across MCP server restarts.
+- They are clearly labelled `manual_override` in `inspect_reference_materials` output and diagnostics.
+- Viewer revision and SSE updates fire immediately via `ReferenceModelChangedEvent(TextureChanged)`.
+- The `get_reference_model_diagnostics` tool reports `texture_available` when any mesh has an effective diffuse texture.
+
+### Supported Slots
+
+| Slot | Description | Source labels |
+|------|-------------|---------------|
+| `diffuse` | Base color / albedo texture | `manual_override`, `assimp`, `unity_sidecar`, `none` |
+| `normal` | Normal map | `manual_override`, `none` |
+| `emissive` | Emissive / glow texture | `manual_override`, `unity_sidecar`, `none` |
+
 ### Scale-tuning workflow with diagnostics
 
 The diagnostics and fit tools give agents a principled way to determine the right scale before voxelizing:

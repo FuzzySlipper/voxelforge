@@ -63,6 +63,7 @@ public sealed class McpToolTests
                 "get_region_voxels",
                 "get_voxel",
                 "get_voxels_in_area",
+                "inspect_reference_materials",
                 "list_console_commands",
                 "list_models",
                 "list_palette",
@@ -83,6 +84,7 @@ public sealed class McpToolTests
                 "save_model",
                 "set_grid_hint",
                 "set_palette_entry",
+                "set_reference_model_texture",
                 "set_voxels",
                 "set_voxels_runs",
                 "suggest_reference_transform",
@@ -753,11 +755,11 @@ public sealed class McpToolTests
             var worldAabb = ReferenceDiagnosticsHelper.ComputeTransformedAabb(model);
             var warnings = ReferenceDiagnosticsHelper.ComputeWarnings(model, worldAabb);
 
-            var warning = Assert.Single(warnings, w => w.Code == "texture_not_rendered_in_viewer");
+            var warning = Assert.Single(warnings, w => w.Code == "texture_available");
             Assert.Equal("info", warning.Severity);
-            Assert.Contains("renders vertex colors only", warning.Message);
-            Assert.Contains("no texture sampling", warning.Message);
-            Assert.Contains("follow-up task #1648", warning.Message);
+            Assert.Contains("diffuse texture", warning.Message);
+            Assert.Contains("THREE.TextureLoader", warning.Message);
+            Assert.Contains("session-only", warning.Message);
         }
         finally
         {

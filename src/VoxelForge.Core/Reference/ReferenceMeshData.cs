@@ -22,6 +22,72 @@ public sealed class ReferenceMeshData
     public string? DiffuseTexturePath { get; init; }
     public string? EmissiveTexturePath { get; init; }
     public float EmissiveBrightness { get; init; }
+
+    // ── Source tracking (set during loading) ──
+
+    /// <summary>
+    /// Origin label for diffuse texture: "assimp" (imported via AssimpNet),
+    /// "unity_sidecar" (resolved from Unity .mat files), or null/empty.
+    /// </summary>
+    public string? DiffuseTextureSource { get; init; }
+
+    /// <summary>
+    /// Origin label for emissive texture: "unity_sidecar" or null/empty.
+    /// </summary>
+    public string? EmissiveTextureSource { get; init; }
+
+    // ── Session-only manual texture overrides (mutable, survive only for this MCP session) ──
+
+    /// <summary>Manual override for diffuse/base-color texture. Null if not set.</summary>
+    public string? ManualDiffuseOverridePath { get; set; }
+
+    /// <summary>Manual override for normal map texture. Null if not set.</summary>
+    public string? ManualNormalOverridePath { get; set; }
+
+    /// <summary>Manual override for emissive texture. Null if not set.</summary>
+    public string? ManualEmissiveOverridePath { get; set; }
+
+    // ── Computed helpers ──
+
+    /// <summary>
+    /// Effective diffuse texture path: manual override wins, then original import path.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? EffectiveDiffuseTexturePath => ManualDiffuseOverridePath ?? DiffuseTexturePath;
+
+    /// <summary>
+    /// Effective normal texture path: always the manual override (no import source for normals).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? EffectiveNormalTexturePath => ManualNormalOverridePath;
+
+    /// <summary>
+    /// Effective emissive texture path: manual override wins, then original import path.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? EffectiveEmissiveTexturePath => ManualEmissiveOverridePath ?? EmissiveTexturePath;
+
+    /// <summary>
+    /// Source label for diffuse texture diagnostics.
+    /// "manual_override" when a manual override is active,
+    /// "unity_sidecar" when resolved from Unity .mat,
+    /// "assimp" when imported by AssimpNet,
+    /// "none" when no diffuse texture is available.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DiffuseSourceLabel
+    {
+        get
+        {
+            if (ManualDiffuseOverridePath is not null)
+                return "manual_override";
+            if (DiffuseTexturePath is not null)
+                return string.Equals(DiffuseTextureSource, "unity_sidecar", StringComparison.OrdinalIgnoreCase)
+                    ? "unity_sidecar"
+                    : "assimp";
+            return "none";
+        }
+    }
 }
 
 /// <summary>

@@ -131,6 +131,10 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<SampleReferenceModelViewsMcpTool>();
         services.AddSingleton<ReferenceModelAxisHistogramMcpTool>();
 
+        // Manual texture override tools
+        services.AddSingleton<InspectReferenceMaterialsMcpTool>();
+        services.AddSingleton<SetReferenceModelTextureMcpTool>();
+
         services.AddSingleton<GetRegionNeighborsMcpTool>();
         services.AddSingleton<GetInterfaceVoxelsMcpTool>();
         services.AddSingleton<MeasureDistanceMcpTool>();
@@ -175,6 +179,10 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, RaycastReferenceModelServerTool>();
         services.AddSingleton<McpServerTool, SampleReferenceModelViewsServerTool>();
         services.AddSingleton<McpServerTool, ReferenceModelAxisHistogramServerTool>();
+
+        // Manual texture override server tools
+        services.AddSingleton<McpServerTool, InspectReferenceMaterialsServerTool>();
+        services.AddSingleton<McpServerTool, SetReferenceModelTextureServerTool>();
 
         services.AddSingleton<McpServerTool, GetRegionNeighborsServerTool>();
         services.AddSingleton<McpServerTool, GetInterfaceVoxelsServerTool>();

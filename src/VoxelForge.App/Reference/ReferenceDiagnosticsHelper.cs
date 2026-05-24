@@ -221,27 +221,27 @@ public static class ReferenceDiagnosticsHelper
             });
         }
 
-        // Texture present but not rendered — clarity on fidelity limits.
-        // The viewer renders vertex colors only (no texture sampling); missing
-        // color richness is due to viewer/texture pipeline limitations, not the
-        // importer dropping data. Full texture support is tracked separately.
-        bool anyTextureNotRendered = false;
+        // Texture present — viewer now supports texture loading via THREE.TextureLoader
+        // (task #1648). Textures are served via /api/reference-texture and applied
+        // to MeshStandardMaterial map. The texture load is async; the vertex color
+        // fallback is used when texture fails to load or is unavailable.
+        bool anyTexturePresent = false;
         foreach (var mesh in model.Meshes)
         {
-            if (mesh.DiffuseTexturePath is not null && File.Exists(mesh.DiffuseTexturePath))
+            if (mesh.EffectiveDiffuseTexturePath is not null && File.Exists(mesh.EffectiveDiffuseTexturePath))
             {
-                anyTextureNotRendered = true;
+                anyTexturePresent = true;
                 break;
             }
         }
-        if (anyTextureNotRendered)
+        if (anyTexturePresent)
         {
             warnings.Add(new DiagnosticWarning
             {
-                Code = "texture_not_rendered_in_viewer",
-                Message = "One or more meshes have a diffuse texture on disk, but the built-in viewer " +
-                          "renders vertex colors only (no texture sampling). Full texture rendering is " +
-                          "not yet supported in the viewer (tracked as follow-up task #1648).",
+                Code = "texture_available",
+                Message = "One or more meshes have a diffuse texture. The viewer will attempt to load and " +
+                          "display it via the THREE.TextureLoader (async). Overrides labelled manual_override " +
+                          "are session-only and will not persist across restarts.",
                 Severity = "info",
             });
         }

@@ -217,6 +217,61 @@ public static class ViewerEndpoints
             }
         });
 
+        // ── Viewer API: serve reference model texture files ──
+        // Only serves textures that are referenced by loaded reference models.
+        // Validates model index, mesh index, and slot against the session state
+        // to prevent arbitrary filesystem access.
+        routes.MapGet("/api/reference-texture", async (HttpContext context, VoxelForgeMcpSession session) =>
+        {
+            if (!int.TryParse(context.Request.Query["index"], out int modelIndex))
+                return Results.BadRequest("Missing or invalid 'index' query parameter.");
+
+            if (!int.TryParse(context.Request.Query["mesh_index"], out int meshIndex))
+                return Results.BadRequest("Missing or invalid 'mesh_index' query parameter.");
+
+            var slot = context.Request.Query["slot"].FirstOrDefault() ?? "diffuse";
+
+            lock (session.SyncRoot)
+            {
+                var model = session.ReferenceModels.Get(modelIndex);
+                if (model is null)
+                    return Results.NotFound($"No reference model at index {modelIndex}.");
+
+                if (meshIndex < 0 || meshIndex >= model.Meshes.Count)
+                    return Results.NotFound($"Mesh index {meshIndex} out of range.");
+
+                var mesh = model.Meshes[meshIndex];
+
+                string? texturePath = slot.ToLowerInvariant() switch
+                {
+                    "diffuse" => mesh.EffectiveDiffuseTexturePath,
+                    "normal" => mesh.EffectiveNormalTexturePath,
+                    "emissive" => mesh.EffectiveEmissiveTexturePath,
+                    _ => null,
+                };
+
+                if (texturePath is null)
+                    return Results.NotFound($"No texture for slot '{slot}' on mesh [{modelIndex}][{meshIndex}].");
+
+                if (!File.Exists(texturePath))
+                    return Results.NotFound($"Texture file no longer exists on disk: {texturePath}");
+
+                // Determine content type
+                var ext = Path.GetExtension(texturePath).ToLowerInvariant();
+                var contentType = ext switch
+                {
+                    ".png" => "image/png",
+                    ".jpg" or ".jpeg" => "image/jpeg",
+                    ".bmp" => "image/bmp",
+                    ".tga" => "image/x-tga",
+                    ".webp" => "image/webp",
+                    _ => "application/octet-stream",
+                };
+
+                return Results.File(texturePath, contentType);
+            }
+        });
+
         return routes;
     }
 
@@ -321,6 +376,15 @@ public static class ViewerEndpoints
                 Colors = [..allColors],
                 Indices = [..allIndices],
                 Bounds = bounds,
+                MeshTextures = refModel.Meshes.Select((mesh, mi) => new ViewerMeshTextureInfo
+                {
+                    MeshIndex = mi,
+                    MaterialName = mesh.MaterialName,
+                    DiffuseTexturePath = mesh.EffectiveDiffuseTexturePath,
+                    NormalTexturePath = mesh.EffectiveNormalTexturePath,
+                    EmissiveTexturePath = mesh.EffectiveEmissiveTexturePath,
+                    DiffuseSourceLabel = mesh.DiffuseSourceLabel,
+                }).ToList(),
             });
         }
 
@@ -517,4 +581,23 @@ public sealed class ViewerReferenceModelData
     public int[] Indices { get; set; } = [];
     /// <summary>Bounds of the local (untransformed) reference geometry.</summary>
     public ViewerBounds? Bounds { get; set; }
+    /// <summary>
+    /// Per-mesh texture info for the viewer to load and apply. One entry per mesh.
+    /// Each entry contains effective texture paths and source labels for each slot.
+    /// </summary>
+    public List<ViewerMeshTextureInfo>? MeshTextures { get; set; }
+}
+
+/// <summary>
+/// Per-mesh texture information exposed in the mesh-snapshot response.
+/// Enables the browser viewer to load and apply textures via THREE.TextureLoader.
+/// </summary>
+public sealed class ViewerMeshTextureInfo
+{
+    public int MeshIndex { get; set; }
+    public string MaterialName { get; set; } = "";
+    public string? DiffuseTexturePath { get; set; }
+    public string? NormalTexturePath { get; set; }
+    public string? EmissiveTexturePath { get; set; }
+    public string DiffuseSourceLabel { get; set; } = "none";
 }

@@ -2,12 +2,15 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.App;
 using VoxelForge.App.Console.Commands;
+using VoxelForge.App.Events;
 using VoxelForge.App.Services;
 using VoxelForge.Content;
 using VoxelForge.Core;
 using VoxelForge.Core.LLM.Handlers;
+using VoxelForge.Core.Reference;
 using VoxelForge.Core.Services;
 using VoxelForge.Mcp.Tools;
+using VoxelForge.Mcp.Viewer;
 
 namespace VoxelForge.Mcp.Tests;
 
@@ -284,6 +287,252 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
 
         Assert.False(result.Success);
         Assert.Contains("'solid' or 'surface'", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InspectReferenceMaterials_Success()
+    {
+        var session = CreateSession();
+        var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+        var loadTool = new LoadReferenceModelMcpTool(session, service);
+        Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+        var inspectTool = new InspectReferenceMaterialsMcpTool(session);
+        var result = inspectTool.Invoke(JsonArguments("""{ "index": 0 }"""), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.Equal(0, doc.RootElement.GetProperty("model_index").GetInt32());
+        Assert.Equal("cube.obj", doc.RootElement.GetProperty("file_name").GetString());
+        Assert.Equal("OBJ", doc.RootElement.GetProperty("format").GetString());
+        Assert.True(doc.RootElement.GetProperty("mesh_count").GetInt32() > 0);
+
+        var meshes = doc.RootElement.GetProperty("meshes");
+        Assert.True(meshes.GetArrayLength() > 0);
+        var firstMesh = meshes[0];
+        Assert.Equal(0, firstMesh.GetProperty("mesh_index").GetInt32());
+        Assert.Equal("DefaultMaterial", firstMesh.GetProperty("material_name").GetString());
+        Assert.Equal("none", firstMesh.GetProperty("diffuse_source_label").GetString());
+        Assert.False(firstMesh.GetProperty("has_manual_override").GetBoolean());
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_Success()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-override-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "test-diffuse.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.True(result.Success, result.Message);
+            Assert.Contains("diffuse", result.Message, StringComparison.Ordinal);
+            Assert.Contains("session-only", result.Message, StringComparison.Ordinal);
+
+            // Verify the override was applied
+            var model = session.ReferenceModels.Get(0);
+            Assert.NotNull(model);
+            Assert.Equal(texturePath, model.Meshes[0].ManualDiffuseOverridePath);
+            Assert.Equal(texturePath, model.Meshes[0].EffectiveDiffuseTexturePath);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_InvalidPathFails()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-fail-");
+        try
+        {
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+
+            // Test with non-existent path
+            var missingPath = Path.Combine(tempDir.FullName, "missing.png");
+            var failResult = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{missingPath}}" }
+                """), CancellationToken.None);
+
+            Assert.False(failResult.Success);
+            Assert.Contains("not found", failResult.Message, StringComparison.OrdinalIgnoreCase);
+
+            // Verify no mutation occurred (ManualDiffuseOverridePath should be null)
+            var model = session.ReferenceModels.Get(0);
+            Assert.NotNull(model);
+            Assert.Null(model.Meshes[0].ManualDiffuseOverridePath);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_InvalidFormatFails()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-format-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "test.unsupported");
+            File.WriteAllBytes(texturePath, [0x00, 0x01, 0x02]);
+
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Contains("Unsupported", result.Message, StringComparison.Ordinal);
+
+            // Verify no mutation occurred
+            var model = session.ReferenceModels.Get(0);
+            Assert.NotNull(model);
+            Assert.Null(model.Meshes[0].ManualDiffuseOverridePath);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_ViewerRevisionIncrements()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-revision-");
+        try
+        {
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+            int preOverrideRevision = session.ViewerRevision;
+
+            var texturePath = Path.Combine(tempDir.FullName, "test.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47]);
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.True(result.Success, result.Message);
+
+            // Viewer revision must have incremented after the override
+            int postOverrideRevision = session.ViewerRevision;
+            Assert.True(postOverrideRevision > preOverrideRevision,
+                "Viewer revision should increment after manual texture override");
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_DiagnosticsReflectOverride()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-diag-override-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "diag-test.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47]);
+
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+            var setTool = new SetReferenceModelTextureMcpTool(session);
+            Assert.True(setTool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None).Success);
+
+            // Use inspect_reference_materials to see the override
+            var inspectTool = new InspectReferenceMaterialsMcpTool(session);
+            var inspectResult = inspectTool.Invoke(JsonArguments("""{ "index": 0 }"""), CancellationToken.None);
+            Assert.True(inspectResult.Success, inspectResult.Message);
+
+            using var doc = JsonDocument.Parse(inspectResult.Message);
+            var meshes = doc.RootElement.GetProperty("meshes");
+            var firstMesh = meshes[0];
+
+            // Must show manual override
+            Assert.Equal("manual_override", firstMesh.GetProperty("diffuse_source_label").GetString());
+            Assert.True(firstMesh.GetProperty("has_manual_override").GetBoolean());
+            Assert.False(firstMesh.GetProperty("has_assimp_texture").GetBoolean());
+
+            // The effective diffuse texture path should equal the override path
+            var effectivePath = firstMesh.GetProperty("diffuse_texture_path").GetString();
+            Assert.Equal(texturePath, effectivePath);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void MeshSnapshot_ManualTextureExposed()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-snapshot-tex-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "snapshot-test.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47]);
+
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+            var setTool = new SetReferenceModelTextureMcpTool(session);
+            Assert.True(setTool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None).Success);
+
+            // Build viewer data to verify texture exposure
+            var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(session.ReferenceModels.Models);
+            Assert.NotEmpty(viewerData);
+
+            var rm = viewerData[0];
+            Assert.NotNull(rm.MeshTextures);
+            Assert.NotEmpty(rm.MeshTextures);
+
+            var meshTex = rm.MeshTextures[0];
+            Assert.Equal(0, meshTex.MeshIndex);
+            Assert.Equal("DefaultMaterial", meshTex.MaterialName);
+            Assert.Equal(texturePath, meshTex.DiffuseTexturePath);
+            Assert.Equal("manual_override", meshTex.DiffuseSourceLabel);
+            Assert.Null(meshTex.NormalTexturePath);
+            Assert.Null(meshTex.EmissiveTexturePath);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
     }
 
     private static VoxelForgeMcpSession CreateSession()
