@@ -181,6 +181,48 @@ Typed console-command adapters:
 - `undo` / `redo` — edit history for the MCP session.
 - `console_count` — legacy compatibility adapter over the headless console `count` command using already-tokenized argument arrays; it does not rebuild command-line strings.
 
+### Guarded console command bridge (dev/manual fallback)
+
+Two MCP tools provide a guarded fallback for console commands not yet promoted to typed MCP tools:
+
+- `run_console_command` — execute a named console command by name with tokenized arguments.
+  - **Input:** `{ command: "<name>", args: ["<token1>", ...], allow_mutation: false }`
+  - The `command` field accepts the primary name or any alias.
+  - `args` is an already-tokenized string array; the bridge never joins them into a shell command string.
+  - `allow_mutation` must be `true` for commands that modify model state; mutating commands fail closed without it.
+  - Returns a JSON object with `success`, `command`, `args`, `message`, `mutates_state`, and `allow_mutation`.
+  - Unknown or denied commands are rejected before reaching the router.
+- `list_console_commands` — list all bridge-accessible commands with names, aliases, help text, mutation classification, and allow_mutation requirements.
+
+**Design principles:**
+
+- Commands route through `CommandRouter` / `IConsoleCommand` with tokenized argument arrays — no shell string reconstruction.
+- The bridge uses an explicit allowlist catalog. Commands not in the catalog are denied.
+- Mutating commands require explicit `allow_mutation: true` opt-in.
+- This is a dev/manual fallback for low-frequency or experimental console commands. **Stable, high-frequency workflows should be promoted to typed MCP tools** with typed request DTOs, specific input validation, and explicit read-only/mutation annotations. See examples: `fill_box`, `count_voxels`, `get_voxel`, `clear_model`, `undo`, `redo`. The `console_count` adapter is a legacy bridge pattern; the `count_voxels` typed tool is the canonical way to count voxels.
+
+**Currently bridged commands:**
+
+| Command | Aliases | Mutation | Notes |
+|---------|---------|----------|-------|
+| `describe` | `desc`, `info` | No | Text summary of the current voxel model |
+| `get` | `g` | No | Read a single voxel coordinate: `get <x> <y> <z>` |
+| `getcube` | `gc` | No | Query voxels in a cube region |
+| `getsphere` | `gs` | No | Query voxels in a sphere |
+| `count` | — | No | Count voxels (all, by palette, or in a box) |
+| `list` | `ls`, `files` | No | List saved `.vforge` project files |
+| `set` | `s`, `place` | Yes | Set a voxel at a coordinate |
+| `remove` | `rm`, `delete` | Yes | Remove a voxel at a coordinate |
+| `fill` | `f` | Yes | Fill an inclusive cuboid region |
+| `clear` | `cls` | Yes | Remove all voxels |
+| `grid` | — | Yes | Toggle/set the measurement grid |
+| `undo` | — | Yes | Undo last editing operation |
+| `redo` | — | Yes | Redo last undone operation |
+
+For commands already covered by typed MCP tools (e.g., `fill_box`, `count_voxels`), prefer those tools over the bridge.
+
+Add new entries to the explicit catalog in `ConsoleCommandBridgeService` when promoting additional commands.
+
 Region/label tools:
 
 - `list_regions` — list regions with voxel counts, parent/child/ancestor/descendant ids, properties, and bounds.

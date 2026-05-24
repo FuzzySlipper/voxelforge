@@ -147,6 +147,15 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, GetCrossSectionServerTool>();
         services.AddSingleton<McpServerTool, CheckCollisionServerTool>();
 
+        // Console command bridge — guarded manual fallback for dev/low-frequency commands.
+        // Register additional console commands needed by the bridge.
+        services.AddSingleton<EditorConfigService>();
+        services.AddSingleton<ConsoleCommandBridgeService>();
+        services.AddSingleton<RunConsoleCommandMcpTool>();
+        services.AddSingleton<ListConsoleCommandsMcpTool>();
+        services.AddSingleton<McpServerTool, RunConsoleCommandServerTool>();
+        services.AddSingleton<McpServerTool, ListConsoleCommandsServerTool>();
+
         return services;
     }
 }
