@@ -385,8 +385,8 @@
           // Only frame camera if there are no reference models either
           if (!cameraInitiallyFramed) {
             if (referenceGroup.children.length > 0) {
-              // Frame to reference model bounds
-              frameCamera(data.bounds);
+              // Frame to combined bounds (voxel + visible reference models)
+              frameCamera(data.combined_bounds);
             } else {
               frameCamera(null);
             }
@@ -446,7 +446,7 @@
         // on subsequent mesh rebuilds. The user can explicitly reframe via
         // window.__voxelforgeViewer.frameCamera().
         if (!cameraInitiallyFramed) {
-          frameCamera(data.bounds);
+          frameCamera(data.combined_bounds || data.bounds);
           cameraInitiallyFramed = true;
         }
       }

@@ -114,6 +114,54 @@ public sealed class ViewerEndpointTests
     }
 
     [Fact]
+    public void MeshSnapshotResponse_EmptyVoxelWithReference_HasCombinedBounds()
+    {
+        var session = CreateSession();
+        var (meshService, _) = CreateServices();
+        AddTestReferenceModel(session.ReferenceModels);
+
+        // Voxel model is empty
+        var mesh = meshService.BuildSnapshot(session.Document.Model);
+        var referenceModels = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(session.ReferenceModels.Models);
+
+        // Simulate what the mesh-snapshot endpoint does: compute combined bounds
+        var modelBounds = session.Document.Model.GetBounds(); // null — empty model
+        Assert.Null(modelBounds);
+
+        var combinedBounds = ViewerEndpointsTestAccessors.ComputeCombinedBoundsPublic(
+            modelBounds, session.ReferenceModels.Models);
+
+        Assert.NotNull(combinedBounds);
+        Assert.True(combinedBounds.MinX < combinedBounds.MaxX, "Combined bounds should have positive extent");
+        Assert.True(combinedBounds.MinY < combinedBounds.MaxY, "Combined bounds should have positive extent");
+        Assert.True(combinedBounds.MinZ < combinedBounds.MaxZ, "Combined bounds should have positive extent");
+
+        // The test cube at scale=2, position=(10,20,5) should produce non-trivial bounds
+        Assert.True(combinedBounds.MinX >= 8, "Combined MinX should account for reference model position");
+        Assert.True(combinedBounds.MinY >= 18, "Combined MinY should account for reference model position");
+        Assert.True(combinedBounds.MinZ >= 3, "Combined MinZ should account for reference model position");
+        Assert.True(combinedBounds.MaxX <= 12, "Combined MaxX should account for reference model position");
+        Assert.True(combinedBounds.MaxY <= 22, "Combined MaxY should account for reference model position");
+        Assert.True(combinedBounds.MaxZ <= 7, "Combined MaxZ should account for reference model position");
+    }
+
+    [Fact]
+    public void MeshSnapshotResponse_EmptyVoxelNoReference_CombinedBoundsNull()
+    {
+        var session = CreateSession();
+        var (meshService, _) = CreateServices();
+
+        // No reference models loaded
+        var modelBounds = session.Document.Model.GetBounds(); // null — empty model
+        Assert.Null(modelBounds);
+
+        var combinedBounds = ViewerEndpointsTestAccessors.ComputeCombinedBoundsPublic(
+            modelBounds, session.ReferenceModels.Models);
+
+        Assert.Null(combinedBounds);
+    }
+
+    [Fact]
     public void ViewerRevision_IncrementsOnReferenceModelChangedEvent()
     {
         var session = CreateSession();
@@ -470,10 +518,32 @@ public sealed class ViewerEndpointTests
             Colors = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 0, 255, 255],
             Indices = [0, 1, 2, 0, 2, 3],
             Bounds = new ViewerBounds { MinX = 0, MinY = 0, MinZ = 0, MaxX = 1, MaxY = 1, MaxZ = 1 },
+            CombinedBounds = new ViewerBounds { MinX = 0, MinY = 0, MinZ = 0, MaxX = 2, MaxY = 2, MaxZ = 2 },
             PaletteMapping = new Dictionary<string, object>
             {
                 ["1"] = new { name = "Red", color = "#FF0000", a = 255, visible = true },
             },
+            ReferenceModels =
+            [
+                new ViewerReferenceModelData
+                {
+                    Index = 0,
+                    FileName = "ref.obj",
+                    Format = "OBJ",
+                    TotalVertices = 24,
+                    TotalTriangles = 12,
+                    IsVisible = true,
+                    PositionX = 10f,
+                    PositionY = 0f,
+                    PositionZ = 0f,
+                    Scale = 1f,
+                    Positions = [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0],
+                    Normals = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+                    Colors = [128, 128, 128, 255, 128, 128, 128, 255, 128, 128, 128, 255, 128, 128, 128, 255],
+                    Indices = [0, 1, 2, 0, 2, 3],
+                    Bounds = new ViewerBounds { MinX = 0, MinY = 0, MinZ = 0, MaxX = 1, MaxY = 1, MaxZ = 1 },
+                },
+            ],
         };
 
         var json = JsonSerializer.Serialize(response, new JsonSerializerOptions
@@ -492,12 +562,32 @@ public sealed class ViewerEndpointTests
         Assert.Contains("\"indices\"", json);
         Assert.Contains("\"palette_mapping\"", json);
         Assert.Contains("\"min_x\"", json);
+        Assert.Contains("\"combined_bounds\"", json);
+        Assert.Contains("\"reference_models\"", json);
+        Assert.Contains("\"file_name\"", json);
+        Assert.Contains("\"is_visible\"", json);
+        Assert.Contains("\"total_vertices\"", json);
+        Assert.Contains("\"total_triangles\"", json);
+        Assert.Contains("\"position_x\"", json);
+        Assert.Contains("\"rotation_x\"", json);
 
         using var document = JsonDocument.Parse(json);
         var colors = document.RootElement.GetProperty("colors");
         Assert.Equal(JsonValueKind.Array, colors.ValueKind);
         Assert.Equal(16, colors.GetArrayLength());
         Assert.Equal(255, colors[0].GetInt32());
+
+        // Verify combined_bounds serializes correctly
+        var combinedBounds = document.RootElement.GetProperty("combined_bounds");
+        Assert.Equal(0, combinedBounds.GetProperty("min_x").GetInt32());
+        Assert.Equal(2, combinedBounds.GetProperty("max_x").GetInt32());
+
+        // Verify reference_models array and snake_case fields
+        var refModels = document.RootElement.GetProperty("reference_models");
+        Assert.Equal(1, refModels.GetArrayLength());
+        Assert.Equal("ref.obj", refModels[0].GetProperty("file_name").GetString());
+        Assert.True(refModels[0].GetProperty("is_visible").GetBoolean());
+        Assert.Equal(24, refModels[0].GetProperty("total_vertices").GetInt32());
     }
 
     // ── Camera/view boundary tests ──

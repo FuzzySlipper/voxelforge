@@ -128,6 +128,13 @@ public static class ViewerEndpoints
                 Bounds = mesh.Bounds is { } b
                     ? new ViewerBounds { MinX = b.MinX, MinY = b.MinY, MinZ = b.MinZ, MaxX = b.MaxX, MaxY = b.MaxY, MaxZ = b.MaxZ }
                     : null,
+                // Combined bounds include visible reference model geometry, for
+                // camera framing when the voxel model is empty but refs exist.
+                CombinedBounds = ComputeCombinedBounds(
+                    mesh.Bounds is { } mb
+                        ? (new Point3(mb.MinX, mb.MinY, mb.MinZ), new Point3(mb.MaxX, mb.MaxY, mb.MaxZ))
+                        : null,
+                    session.ReferenceModels.Models),
                 PaletteMapping = paletteMapping.Count > 0 ? paletteMapping : null,
                 Metrics = new ViewerMeshSnapshotMetrics
                 {
@@ -464,6 +471,12 @@ public sealed class ViewerMeshSnapshotResponse
     public int[] Colors { get; set; } = [];
     public int[] Indices { get; set; } = [];
     public ViewerBounds? Bounds { get; set; }
+    /// <summary>
+    /// Combined bounds including visible reference model geometry, for camera
+    /// framing when the voxel model is empty but reference models exist.
+    /// Null when no geometry exists at all.
+    /// </summary>
+    public ViewerBounds? CombinedBounds { get; set; }
     public Dictionary<string, object>? PaletteMapping { get; set; }
     public ViewerMeshSnapshotMetrics? Metrics { get; set; }
     public List<ViewerReferenceModelData>? ReferenceModels { get; set; }
@@ -474,20 +487,6 @@ public sealed class ViewerMeshSnapshotMetrics
     public long MeshGenerationMs { get; set; }
     public long SerializationMs { get; set; }
     public long TotalMs { get; set; }
-}
-
-/// <summary>
-/// Lightweight per-reference-model entry for viewer-state (no geometry).
-/// </summary>
-public sealed class ViewerReferenceModelEntry
-{
-    public int Index { get; set; }
-    public string FileName { get; set; } = "";
-    public string Format { get; set; } = "";
-    public int TotalVertices { get; set; }
-    public int TotalTriangles { get; set; }
-    public bool IsVisible { get; set; }
-    public ViewerBounds? Bounds { get; set; }
 }
 
 /// <summary>
