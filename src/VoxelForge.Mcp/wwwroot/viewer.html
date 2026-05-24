@@ -93,6 +93,7 @@
       "use strict";
 
       // Update sources: SSE preferred (EventSource), polling fallback.
+      const CAPTURE_MODE = new URLSearchParams(window.location.search).get("capture") === "1";
       const POLL_INTERVAL_MS = 5000;
       const SSE_FALLBACK_POLL_MS = 2000;
       let sseSource = null;
@@ -438,7 +439,11 @@
         if (mesh) {
           lastMeshId = mesh.mesh_id;
           buildMesh(mesh);
-          if (!animationId && renderer) animate();
+          if (!animationId && renderer && !CAPTURE_MODE) {
+            animate();
+          } else if (renderer) {
+            renderer.render(scene, camera);
+          }
           // Fetch updated state for diagnostics after mesh update.
           var state = await fetchState();
           if (state) {
@@ -626,8 +631,10 @@
             return;
           }
 
-          // Connect to SSE for live updates
-          connectSse();
+          // Connect to SSE for live updates outside deterministic screenshot captures.
+          if (!CAPTURE_MODE) {
+            connectSse();
+          }
 
           // If camera params were provided, install the override before the
           // initial mesh fetch. buildMesh() calls frameCamera() during the first
@@ -646,8 +653,13 @@
           // Load initial data
           await updateViewer();
 
-          // Start polling (will short-circuit if SSE is active)
-          pollTimer = setInterval(updateViewer, SSE_FALLBACK_POLL_MS);
+          // Start polling (will short-circuit if SSE is active) for interactive viewers.
+          if (!CAPTURE_MODE) {
+            pollTimer = setInterval(updateViewer, SSE_FALLBACK_POLL_MS);
+          } else if (renderer) {
+            renderer.render(scene, camera);
+            document.body.dataset.captureReady = "true";
+          }
 
           loadingEl.classList.add("hidden");
         } catch (err) {

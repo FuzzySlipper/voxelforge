@@ -69,6 +69,10 @@ public sealed class ViewerCaptureRequest
         if (Distance.HasValue)
             query.Append($"&distance={Distance.Value}");
 
+        // Capture mode disables live SSE/poll loops in the viewer and renders a
+        // deterministic first frame for headless browser screenshots.
+        query.Append("&capture=1");
+
         return query.ToString();
     }
 }

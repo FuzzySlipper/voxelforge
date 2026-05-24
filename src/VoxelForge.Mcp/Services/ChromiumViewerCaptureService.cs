@@ -115,10 +115,13 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
             // Chromium writes the screenshot.
             psi.ArgumentList.Add("--headless=new");
             psi.ArgumentList.Add("--no-sandbox");
-            psi.ArgumentList.Add("--disable-gpu");
+            psi.ArgumentList.Add("--use-gl=swiftshader");
+            psi.ArgumentList.Add("--enable-unsafe-swiftshader");
+            psi.ArgumentList.Add("--ignore-gpu-blocklist");
             psi.ArgumentList.Add("--disable-dev-shm-usage");
             psi.ArgumentList.Add("--run-all-compositor-stages-before-draw");
-            psi.ArgumentList.Add("--virtual-time-budget=5000");
+            psi.ArgumentList.Add("--virtual-time-budget=8000");
+            psi.ArgumentList.Add("--timeout=30000");
             psi.ArgumentList.Add($"--window-size={request.Width},{request.Height}");
             psi.ArgumentList.Add($"--screenshot={outputPath}");
             psi.ArgumentList.Add("--disable-extensions");
