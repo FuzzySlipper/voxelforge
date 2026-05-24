@@ -181,8 +181,8 @@ public sealed class SuggestReferenceTransformMcpTool : ModelLifecycleMcpToolBase
             if (model is null)
                 return Fail($"No reference model at index {index}.");
 
-            var rawAabb = ReferenceDiagnosticsHelper.ComputeRawAabb(model);
-            var rawSize = rawAabb.Max - rawAabb.Min;
+            var unitAabb = ReferenceDiagnosticsHelper.ComputeUnitScaleWorldAabb(model);
+            var unitSize = unitAabb.Max - unitAabb.Min;
 
             HeightAxis heightAxis;
             float targetValue;
@@ -208,13 +208,13 @@ public sealed class SuggestReferenceTransformMcpTool : ModelLifecycleMcpToolBase
             float suggestedScale = ReferenceDiagnosticsHelper.SuggestScaleForTargetHeight(model, targetValue, heightAxis);
 
             // Build suggestion result
-            var rawDim = heightAxis switch
+            var unitDim = heightAxis switch
             {
-                HeightAxis.MaxDim => rawAabb.MaxDimension,
-                HeightAxis.X => rawSize.X,
-                HeightAxis.Y => rawSize.Y,
-                HeightAxis.Z => rawSize.Z,
-                _ => rawAabb.MaxDimension,
+                HeightAxis.MaxDim => unitAabb.MaxDimension,
+                HeightAxis.X => unitSize.X,
+                HeightAxis.Y => unitSize.Y,
+                HeightAxis.Z => unitSize.Z,
+                _ => unitAabb.MaxDimension,
             };
 
             var result = new Dictionary<string, object?>
@@ -224,8 +224,9 @@ public sealed class SuggestReferenceTransformMcpTool : ModelLifecycleMcpToolBase
                 ["suggested_scale"] = suggestedScale,
                 ["target_value"] = targetValue,
                 ["axis"] = axisStr.ToLowerInvariant(),
-                ["current_raw_dimension"] = rawDim,
-                ["expected_world_dimension_after_scale"] = rawDim * suggestedScale,
+                ["current_unit_world_dimension"] = unitDim,
+                ["current_world_dimension"] = unitDim * model.Scale,
+                ["expected_world_dimension_after_scale"] = unitDim * suggestedScale,
             };
 
             if (center)

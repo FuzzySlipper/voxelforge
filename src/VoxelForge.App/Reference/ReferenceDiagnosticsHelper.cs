@@ -104,8 +104,12 @@ public static class ReferenceDiagnosticsHelper
     }
 
     /// <summary>
-    /// Compute a suggested scale to make the model's max dimension (or a specific axis)
-    /// match a target value. Returns the model's current scale if target is zero or negative.
+    /// Compute a suggested absolute scale to make the model's transformed max dimension
+    /// (or a specific transformed world axis) match a target value. The dimension basis
+    /// uses the same scale → yaw/pitch/roll → translation order as voxelization, with
+    /// scale normalized to 1 and translation set to zero so rotation-induced AABB changes
+    /// are included without current scale/position affecting the recommendation.
+    /// Returns the model's current scale if target is zero or negative.
     /// </summary>
     public static float SuggestScaleForTargetHeight(
         ReferenceModelData model,
@@ -115,22 +119,46 @@ public static class ReferenceDiagnosticsHelper
         if (targetValue <= 0)
             return model.Scale;
 
-        var rawAabb = ComputeRawAabb(model);
-        var rawSize = rawAabb.Max - rawAabb.Min;
+        var unitAabb = ComputeUnitScaleWorldAabb(model);
+        var unitSize = unitAabb.Max - unitAabb.Min;
 
         float currentDimension = axis switch
         {
-            HeightAxis.MaxDim => MathF.Max(rawSize.X, MathF.Max(rawSize.Y, rawSize.Z)),
-            HeightAxis.X => rawSize.X,
-            HeightAxis.Y => rawSize.Y,
-            HeightAxis.Z => rawSize.Z,
-            _ => MathF.Max(rawSize.X, MathF.Max(rawSize.Y, rawSize.Z)),
+            HeightAxis.MaxDim => MathF.Max(unitSize.X, MathF.Max(unitSize.Y, unitSize.Z)),
+            HeightAxis.X => unitSize.X,
+            HeightAxis.Y => unitSize.Y,
+            HeightAxis.Z => unitSize.Z,
+            _ => MathF.Max(unitSize.X, MathF.Max(unitSize.Y, unitSize.Z)),
         };
 
         if (currentDimension <= float.Epsilon)
             return model.Scale;
 
         return targetValue / currentDimension;
+    }
+
+    /// <summary>
+    /// Compute the transformed AABB using current rotations, unit scale, and zero translation.
+    /// This is the correct basis for absolute scale suggestions because world AABB dimensions
+    /// can change under rotation even before scale is applied.
+    /// </summary>
+    public static AabbResult ComputeUnitScaleWorldAabb(ReferenceModelData model)
+    {
+        var tempModel = new ReferenceModelData
+        {
+            FilePath = model.FilePath,
+            Format = model.Format,
+            Meshes = model.Meshes,
+            PositionX = 0,
+            PositionY = 0,
+            PositionZ = 0,
+            RotationX = model.RotationX,
+            RotationY = model.RotationY,
+            RotationZ = model.RotationZ,
+            Scale = 1f,
+        };
+
+        return ComputeTransformedAabb(tempModel);
     }
 
     /// <summary>

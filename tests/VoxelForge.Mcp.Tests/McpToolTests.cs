@@ -512,6 +512,26 @@ public sealed class McpToolTests
     }
 
     [Fact]
+    public void SuggestReferenceTransformMcpTool_UsesRotatedWorldAxisForTargetHeight()
+    {
+        var session = CreateSession();
+        var model = CreateTestModel();
+        model.RotationX = 90f; // raw Z extent (3) becomes the world Y height basis.
+        session.ReferenceModels.Add(model);
+
+        var tool = new SuggestReferenceTransformMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0, "target_height": 6, "axis": "y" }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.Equal(2.0, doc.RootElement.GetProperty("suggested_scale").GetDouble(), precision: 3);
+        Assert.Equal(3.0, doc.RootElement.GetProperty("current_unit_world_dimension").GetDouble(), precision: 3);
+        Assert.Equal(6.0, doc.RootElement.GetProperty("expected_world_dimension_after_scale").GetDouble(), precision: 3);
+    }
+
+    [Fact]
     public void SuggestReferenceTransformMcpTool_IsReadOnly()
     {
         var tool = new SuggestReferenceTransformMcpTool(CreateSession());
