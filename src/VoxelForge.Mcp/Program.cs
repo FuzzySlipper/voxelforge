@@ -46,7 +46,7 @@ builder.Services.AddSingleton<IViewerCaptureService>(sp =>
     var logger = sp.GetRequiredService<ILogger<ChromiumViewerCaptureService>>();
     var mcpOptions = sp.GetRequiredService<VoxelForgeMcpOptions>();
     var projectDir = mcpOptions.GetResolvedProjectDirectory();
-    var capturesDir = Path.Combine(projectDir, "mcp", "captures");
+    var capturesDir = Path.Combine(projectDir, "captures");
     var baseUrl = mcpOptions.ListenUrl;
     // Use the listen URL as the viewer base URL for local Chromium capture
     return new ChromiumViewerCaptureService(baseUrl, capturesDir, logger);
