@@ -197,7 +197,6 @@ Two MCP tools provide a guarded fallback for console commands not yet promoted t
 - `list_console_commands` — list all bridge-accessible commands with names, aliases, help text, mutation classification, and allow_mutation requirements.
 
 **Design principles:**
-**Design principles:**
 
 - The MCP bridge catalog is derived from the normal VoxelForge `CommandRegistry` / `CommandRouter`.
   All IConsoleCommand implementations registered in the interactive console are automatically exposed
