@@ -275,12 +275,71 @@ public sealed class ReferenceMeshProbeTests
         Assert.True(frontView.OccupiedSamples > 0, "Front view should have occupied samples");
         Assert.True(frontView.OccupancyDensity > 0);
 
-        // Depth min should be -1 (back face at z=1, depth = dot((0,0,1), (0,0,-1)) = -1)
-        Assert.Equal(-1, frontView.DepthMin, 4);
+        // With ray-casting, the nearest hit depth is the front face (z=0).
+        // For front view with look=(0,0,-1): depth = dot((x,y,0),(0,0,-1)) = 0.
+        // All rays that hit the cube first intersect at z=0 (front face).
+        Assert.Equal(0, frontView.DepthMin, 4);
+
+        // Depth values should be finite and consistent for a flat front face
+        Assert.True(float.IsFinite(frontView.DepthMax));
+        Assert.Equal(frontView.DepthMin, frontView.DepthMax, 4);
+        Assert.NotNull(frontView.MedianDepth);
+        Assert.True(float.IsFinite(frontView.MedianDepth.Value));
 
         // Run-length rows should be present
         Assert.NotNull(frontView.RunLengthRows);
         Assert.Equal(16, frontView.RunLengthRows.Count);
+    }
+
+    [Fact]
+    public void SampleViews_UnitCube_FilledSilhouette()
+    {
+        // A unit cube sampled from front at resolution 8 should produce
+        // a filled or near-filled square silhouette (occupied_samples >= 60 of 64).
+        var model = MakeUnitCubeModel();
+        var result = ReferenceMeshProbeHelper.SampleReferenceModelViews(
+            model,
+            views: ["front"],
+            resolution: 8);
+
+        Assert.Single(result.Views);
+        var frontView = result.Views[0];
+        Assert.Equal("front", frontView.ViewName);
+
+        // 60+ of 64 cells occupied = filled square, not just corner dots
+        Assert.True(frontView.OccupiedSamples >= 60,
+            $"Expected >= 60 occupied samples for front view of cube at res 8, got {frontView.OccupiedSamples}");
+        Assert.True(frontView.OccupancyDensity >= 60f / 64f);
+    }
+
+    [Fact]
+    public void SampleViews_SingleTriangle_PartialOccupancy()
+    {
+        // A single triangle sampled from front at resolution 8 should occupy
+        // more than its 3 vertices but not all 64 cells.
+        var model = MakeSingleTriangleModel();
+        var result = ReferenceMeshProbeHelper.SampleReferenceModelViews(
+            model,
+            views: ["front"],
+            resolution: 8);
+
+        Assert.Single(result.Views);
+        var frontView = result.Views[0];
+
+        // Should occupy more than just the 3 vertex dots
+        Assert.True(frontView.OccupiedSamples > 3,
+            $"Expected > 3 occupied samples for triangle at res 8, got {frontView.OccupiedSamples}");
+
+        // But less than full grid
+        Assert.True(frontView.OccupiedSamples < 52,
+            $"Expected < 52 occupied samples for single triangle at res 8, got {frontView.OccupiedSamples}. " +
+            $"A single triangle covers roughly half the square.");
+
+        // Depth should be finite
+        Assert.True(float.IsFinite(frontView.DepthMin));
+        Assert.True(float.IsFinite(frontView.DepthMax));
+        Assert.NotNull(frontView.MedianDepth);
+        Assert.True(float.IsFinite(frontView.MedianDepth.Value));
     }
 
     [Fact]

@@ -205,6 +205,10 @@ public static class ReferenceMeshProbeHelper
     /// Orthographic silhouette/depth probes of the transformed mesh from
     /// one or more canonical view directions. Returns compact run-length-encoded
     /// occupancy rows and depth ranges. Avoids huge full-resolution JSON output.
+    ///
+    /// Uses ray-casting per cell center rather than vertex-only projection,
+    /// producing filled silhouettes for solid geometry (e.g., a cube yields
+    /// a filled square, not just corner dots).
     /// </summary>
     public static ProbeBatchResult SampleReferenceModelViews(
         ReferenceModelData model,
@@ -227,6 +231,23 @@ public static class ReferenceMeshProbeHelper
         float maxDim = MathF.Max(aabbSize.X, MathF.Max(aabbSize.Y, aabbSize.Z));
         if (maxDim < float.Epsilon)
             maxDim = 1f;
+
+        // Gather all transformed triangles once (mesh index → tri list with transformed verts)
+        var allTris = new List<(Vector3 P0, Vector3 P1, Vector3 P2)>();
+        foreach (var mesh in model.Meshes)
+        {
+            var verts = mesh.Vertices;
+            var indices = mesh.Indices;
+            for (int i = 0; i < indices.Length; i += 3)
+            {
+                int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+                allTris.Add((
+                    Vector3.Transform(new Vector3(verts[i0].PosX, verts[i0].PosY, verts[i0].PosZ), transform),
+                    Vector3.Transform(new Vector3(verts[i1].PosX, verts[i1].PosY, verts[i1].PosZ), transform),
+                    Vector3.Transform(new Vector3(verts[i2].PosX, verts[i2].PosY, verts[i2].PosZ), transform)
+                ));
+            }
+        }
 
         var viewResults = new List<ProbeViewResult>();
         int totalOccupied = 0;
@@ -273,7 +294,14 @@ public static class ReferenceMeshProbeHelper
             float cellU = uRange / cappedRes;
             float cellV = vRange / cappedRes;
 
-            // Rasterize to occupancy grid
+            // Place orthographic ray origin behind the far side of the model
+            // (relative to camera at -look*INF). Ray direction = -look (toward camera),
+            // so rays enter the model at the far face and exit at the near face
+            // capturing all geometry between.
+            float depthSpan = maxDepth - minDepth;
+            float originDepth = maxDepth + depthSpan;
+
+            // Rasterize to occupancy grid via ray-casting per cell
             bool[,] occupied = new bool[cappedRes, cappedRes];
             float[,] depthGrid = new float[cappedRes, cappedRes];
             int[,] depthCount = new int[cappedRes, cappedRes];
@@ -281,24 +309,43 @@ public static class ReferenceMeshProbeHelper
                 for (int v = 0; v < cappedRes; v++)
                     depthGrid[u, v] = float.MaxValue;
 
-            foreach (var mesh in model.Meshes)
+            for (int ui = 0; ui < cappedRes; ui++)
             {
-                foreach (var v in mesh.Vertices)
+                for (int vi = 0; vi < cappedRes; vi++)
                 {
-                    var worldPos = Vector3.Transform(new Vector3(v.PosX, v.PosY, v.PosZ), transform);
-                    float u = Vector3.Dot(worldPos, right);
-                    float vProj = Vector3.Dot(worldPos, up);
-                    float depth = Vector3.Dot(worldPos, look);
+                    // Cell center in UV space
+                    float uVal = minU + (ui + 0.5f) * cellU;
+                    float vVal = minV + (vi + 0.5f) * cellV;
 
-                    int ui = (int)((u - minU) / uRange * cappedRes);
-                    int vi = (int)((vProj - minV) / vRange * cappedRes);
-                    ui = Math.Clamp(ui, 0, cappedRes - 1);
-                    vi = Math.Clamp(vi, 0, cappedRes - 1);
+                    // World-space ray origin on the projection plane behind the model
+                    Vector3 rayOrigin = originDepth * look + uVal * right + vVal * up;
+                    Vector3 rayDir = -look;
 
-                    occupied[ui, vi] = true;
-                    if (depth < depthGrid[ui, vi])
-                        depthGrid[ui, vi] = depth;
-                    depthCount[ui, vi]++;
+                    // Test against all transformed triangles, early-exit on first hit
+                    bool cellHit = false;
+                    float nearestHitDepth = float.MaxValue;
+
+                    foreach (var (p0, p1, p2) in allTris)
+                    {
+                        if (VoxelizeService.RayTriangleIntersectBary(
+                                rayOrigin, rayDir, p0, p1, p2,
+                                out float tHit, out _, out _))
+                        {
+                            Vector3 hitPoint = rayOrigin + rayDir * tHit;
+                            float hitDepth = Vector3.Dot(hitPoint, look);
+                            if (hitDepth < nearestHitDepth)
+                                nearestHitDepth = hitDepth;
+                            cellHit = true;
+                            break; // Early exit: one hit is enough for occupancy
+                        }
+                    }
+
+                    if (cellHit)
+                    {
+                        occupied[ui, vi] = true;
+                        depthGrid[ui, vi] = nearestHitDepth;
+                        depthCount[ui, vi] = 1;
+                    }
                 }
             }
 
@@ -353,6 +400,8 @@ public static class ReferenceMeshProbeHelper
             }
 
             depthValues.Sort();
+            float probeDepthMin = depthSamples > 0 ? depthValues[0] : 0;
+            float probeDepthMax = depthSamples > 0 ? depthValues[^1] : 0;
             float? medianDepth = depthSamples > 0
                 ? depthValues[depthValues.Count / 2]
                 : null;
@@ -370,8 +419,8 @@ public static class ReferenceMeshProbeHelper
                 occupiedCount,
                 density,
                 rleRows,
-                minDepth,
-                maxDepth,
+                probeDepthMin,
+                probeDepthMax,
                 medianDepth));
         }
 
