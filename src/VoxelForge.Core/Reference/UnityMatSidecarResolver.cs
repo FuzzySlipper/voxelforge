@@ -114,10 +114,11 @@ public sealed class UnityMatSidecarResolver
         return result;
     }
 
-    private static List<string> DiscoverMatFiles(string modelDir)
+    private List<string> DiscoverMatFiles(string modelDir)
     {
         var matFiles = new List<string>();
 
+        // 1. Check model directory (top-level only)
         try
         {
             if (Directory.Exists(modelDir))
@@ -132,7 +133,7 @@ public sealed class UnityMatSidecarResolver
             // Ignore inaccessible directories
         }
 
-        // Also check parent directory (common Unity project structure)
+        // 2. Check parent directory (common Unity project structure)
         var parentDir = Path.GetDirectoryName(modelDir);
         if (parentDir is not null && Directory.Exists(parentDir))
         {
@@ -152,10 +153,52 @@ public sealed class UnityMatSidecarResolver
             }
         }
 
+        // 3. Scan configured asset roots recursively for .mat files
+        //    Use safe cap: max 1000 .mat files, max 5000 files scanned total
+        const int maxMatFiles = 1000;
+        const int maxFilesScanned = 5000;
+
+        foreach (var root in _unityAssetRoots)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+                continue;
+            if (!Directory.Exists(root))
+                continue;
+
+            try
+            {
+                int filesScanned = 0;
+                foreach (var f in Directory.EnumerateFiles(
+                    root, "*.mat", SearchOption.AllDirectories))
+                {
+                    if (filesScanned >= maxFilesScanned)
+                        break;
+                    filesScanned++;
+
+                    if (!matFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
+                    {
+                        matFiles.Add(f);
+                        if (matFiles.Count >= maxMatFiles)
+                            break;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore inaccessible subdirectories
+            }
+
+            if (matFiles.Count >= maxMatFiles)
+                break;
+        }
+
+        // Deterministic ordering
+        matFiles.Sort(StringComparer.OrdinalIgnoreCase);
+
         return matFiles;
     }
 
-    private static List<string> BuildSearchRoots(string modelDir)
+    private List<string> BuildSearchRoots(string modelDir)
     {
         var roots = new List<string>();
         roots.Add(modelDir);
@@ -185,6 +228,17 @@ public sealed class UnityMatSidecarResolver
             if (parent2 is null || parent2 == dir)
                 break;
             dir = parent2;
+        }
+
+        // Add configured asset roots for .meta GUID resolution
+        foreach (var root in _unityAssetRoots)
+        {
+            if (!string.IsNullOrWhiteSpace(root) &&
+                Directory.Exists(root) &&
+                !roots.Contains(root, StringComparer.OrdinalIgnoreCase))
+            {
+                roots.Add(root);
+            }
         }
 
         return roots;

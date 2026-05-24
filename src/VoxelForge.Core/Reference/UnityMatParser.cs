@@ -234,20 +234,40 @@ public static partial class UnityMatParser
 
     private static UnityTextureRef? ParseTextureRef(string line)
     {
-        var match = FileIdGuidRegex().Match(line);
-        if (!match.Success)
-            return null;
-
-        long fileId = long.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-        string guid = match.Groups[2].Value.ToLowerInvariant();
-        int type = int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
-
-        return new UnityTextureRef
+        // Try GUID-based {fileID: N, guid: "...", type: N} first
+        var guidMatch = FileIdGuidRegex().Match(line);
+        if (guidMatch.Success)
         {
-            FileId = fileId,
-            Guid = guid,
-            Type = type,
-        };
+            long fileId = long.Parse(guidMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+            string guid = guidMatch.Groups[2].Value.ToLowerInvariant();
+            int type = int.Parse(guidMatch.Groups[3].Value, CultureInfo.InvariantCulture);
+
+            return new UnityTextureRef
+            {
+                FileId = fileId,
+                Guid = guid,
+                Type = type,
+            };
+        }
+
+        // Fall back to direct path-like reference (e.g. m_Texture: Textures/diffuse.png)
+        // Extract the value after the colon
+        var colonIdx = line.IndexOf(':');
+        if (colonIdx >= 0)
+        {
+            var valuePart = line[(colonIdx + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(valuePart) &&
+                !valuePart.StartsWith('{') && !valuePart.StartsWith('"') &&
+                !valuePart.StartsWith('\''))
+            {
+                return new UnityTextureRef
+                {
+                    PathHint = valuePart,
+                };
+            }
+        }
+
+        return null;
     }
 
     private static void AssignTextureRef(string propertyName, UnityTextureRef texRef, UnityMatData data)

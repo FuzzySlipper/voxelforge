@@ -240,7 +240,7 @@ public sealed class UnityMatParserTests
         var tempPath = Path.Combine(Path.GetTempPath(), "test_unity_mat_" + Guid.NewGuid().ToString("N") + ".mat");
         try
         {
-            File.WriteAllText(tempPath, """
+            File.WriteAllText(tempPath, """"
                 %YAML 1.1
                 --- !u!21 &2100000
                 Material:
@@ -250,7 +250,7 @@ public sealed class UnityMatParserTests
                     m_Floats:
                     - _Cutoff: 0.5
                     m_Colors: []
-                """);
+                """");
 
             var parsed = UnityMatParser.ParseFile(tempPath);
             Assert.NotNull(parsed);
@@ -261,6 +261,88 @@ public sealed class UnityMatParserTests
         finally
         {
             if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
+    public void Parse_TextureWithDirectPath_ParsesPathHint()
+    {
+        // Some Unity exporters put a direct path instead of a GUID block
+        var yaml = """"
+            --- !u!21 &2100000
+            Material:
+              m_Name: DirectPathMat
+              m_SavedProperties:
+                m_TexEnvs:
+                - _MainTex:
+                    m_Texture: Textures/diffuse.png
+                    m_Scale: {x: 1, y: 1}
+                    m_Offset: {x: 0, y: 0}
+                m_Floats: []
+                m_Colors: []
+            """";
+        var parsed = UnityMatParser.Parse(yaml);
+        Assert.NotNull(parsed);
+        Assert.NotNull(parsed.MainTex);
+        Assert.Null(parsed.MainTex.Guid);
+        Assert.Equal("Textures/diffuse.png", parsed.MainTex.PathHint);
+    }
+
+    [Fact]
+    public void Parse_TextureWithDirectRelativePath_ResolvesRelativeToMatDir()
+    {
+        // Create a temp directory with a .mat file containing a direct path texture reference
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-path-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            // Create a texture file that the path references
+            var texSubDir = Path.Combine(tempDir, "Textures");
+            Directory.CreateDirectory(texSubDir);
+            var texPath = Path.Combine(texSubDir, "diffuse.png");
+            File.WriteAllText(texPath, "fake png bytes");
+
+            // Create .mat with direct path reference
+            var matPath = Path.Combine(tempDir, "PathMat.mat");
+            File.WriteAllText(matPath, """"
+                --- !u!21 &2100000
+                Material:
+                  m_Name: PathMat
+                  m_SavedProperties:
+                    m_TexEnvs:
+                    - _MainTex:
+                        m_Texture: Textures/diffuse.png
+                        m_Scale: {x: 1, y: 1}
+                        m_Offset: {x: 0, y: 0}
+                    m_Floats: []
+                    m_Colors: []
+                """");
+
+            var parsed = UnityMatParser.ParseFile(matPath);
+            Assert.NotNull(parsed);
+            Assert.NotNull(parsed.MainTex);
+            Assert.Equal("Textures/diffuse.png", parsed.MainTex.PathHint);
+
+            // Verify the resolver can resolve relative to the .mat directory
+            var resolver = new UnityMatSidecarResolver();
+            var result = resolver.ProcessModel(
+                Path.Combine(tempDir, "model.fbx"),
+                new List<string> { "PathMat" });
+
+            // Should have at least found the .mat file
+            Assert.True(result.FoundAnyMatFiles);
+            var match = result.Matches.FirstOrDefault(m => m.MatchedMaterialName == "PathMat");
+            Assert.NotNull(match);
+            Assert.NotNull(match.ParsedData);
+
+            // The ResolvedTextures should contain the resolved path for _MainTex
+            Assert.True(match.ParsedData.ResolvedTextures.ContainsKey("_MainTex"),
+                "Expected _MainTex to be resolved via PathHint from sidecar resolver");
+            Assert.Equal(Path.GetFullPath(texPath), match.ParsedData.ResolvedTextures["_MainTex"]);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 }

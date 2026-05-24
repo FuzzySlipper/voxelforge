@@ -246,12 +246,25 @@ public sealed class ReferenceModelLoader
             unitySidecarApplied = true;
 
             // Override diffuse texture if Unity mat has a resolved one
-            if (unityMat.MainTex is not null &&
-                unityMat.ResolvedTextures.TryGetValue("_MainTex", out var unityTexPath) &&
+            // Precedence: _MainTex / _BaseMap first, then _BaseColorMap fallback
+            string? resolvedDiffusePath = null;
+
+            if (unityMat.ResolvedTextures.TryGetValue("_MainTex", out var unityTexPath) &&
                 !unityTexPath.StartsWith("(unresolved:") &&
                 File.Exists(unityTexPath))
             {
-                diffuseTexturePath = unityTexPath;
+                resolvedDiffusePath = unityTexPath;
+            }
+            else if (unityMat.ResolvedTextures.TryGetValue("_BaseColorMap", out var baseColorTexPath) &&
+                !baseColorTexPath.StartsWith("(unresolved:") &&
+                File.Exists(baseColorTexPath))
+            {
+                resolvedDiffusePath = baseColorTexPath;
+            }
+
+            if (resolvedDiffusePath is not null)
+            {
+                diffuseTexturePath = resolvedDiffusePath;
                 if (!textureCache.TryGetValue(diffuseTexturePath, out diffuseImage))
                 {
                     diffuseImage = LoadImage(diffuseTexturePath);
