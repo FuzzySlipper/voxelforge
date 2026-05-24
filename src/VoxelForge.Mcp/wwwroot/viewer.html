@@ -451,15 +451,30 @@
         }
       }
 
+      // ── Recursively dispose meshes within a group tree ──
+      function disposeMeshTree(obj) {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+          if (obj.material) {
+            if (obj.material.map) obj.material.map.dispose();
+            obj.material.dispose();
+          }
+        }
+        if (obj.children && obj.children.length > 0) {
+          for (let i = obj.children.length - 1; i >= 0; i--) {
+            disposeMeshTree(obj.children[i]);
+          }
+        }
+      }
+
       // ── Build reference models from snapshot data ──
       function buildReferenceModels(data) {
         // Clear existing reference models
         while (referenceGroup.children.length > 0) {
           const child = referenceGroup.children[0];
           referenceGroup.remove(child);
-          if (child instanceof THREE.Mesh) {
-            child.geometry.dispose();
-          }
+          // Recursively dispose geometries in meshes within groups
+          disposeMeshTree(child);
         }
 
         if (!data.reference_models || data.reference_models.length === 0) {
@@ -474,105 +489,18 @@
           // Skip invisible models
           if (!rm.is_visible) continue;
 
-          if (!rm.positions || rm.positions.length === 0) continue;
+          // Use per-mesh geometry data if available (preferred), otherwise
+          // fall back to flattened model-level geometry (backward compat).
+          const perMeshData = rm.meshes && rm.meshes.length > 0;
 
-          // Build mesh geometry for the whole model (flat list of all meshes)
-          const geo = new THREE.BufferGeometry();
-          const positions = new Float32Array(rm.positions);
-          geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-
-          // Normals
-          if (rm.normals && rm.normals.length > 0) {
-            const normals = new Float32Array(rm.normals);
-            geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-          } else {
-            geo.computeVertexNormals();
-          }
-
-          // Colors — convert uint8 RGBA to float RGB; track alpha for
-          // transparency detection (all 255 => opaque; any <255 => transparent).
-          let hasAlphaBelow255 = false;
-          if (rm.colors && rm.colors.length > 0) {
-            const vc = rm.total_vertices;
-            const colors = new Float32Array(vc * 3);
-            for (let i = 0; i < vc; i++) {
-              colors[i * 3]     = rm.colors[i * 4] / 255;
-              colors[i * 3 + 1] = rm.colors[i * 4 + 1] / 255;
-              colors[i * 3 + 2] = rm.colors[i * 4 + 2] / 255;
-              if (rm.colors[i * 4 + 3] < 255) hasAlphaBelow255 = true;
-            }
-            geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-          }
-
-          // Indices
-          if (rm.indices && rm.indices.length > 0) {
-            const indices = new Uint32Array(rm.indices);
-            geo.setIndex(new THREE.BufferAttribute(indices, 1));
-          }
-
-          if (!rm.normals || rm.normals.length === 0) {
-            geo.computeVertexNormals();
-          }
-          geo.computeBoundingSphere();
-
-          // Derive material transparency from vertex alpha values:
-          //   all-alpha-255 => opaque (transparent:false, depthWrite:true)
-          //   any alpha <255 => transparent (depthWrite:false to avoid z-sort
-          //     artifacts, opacity derived from max vertex alpha)
-          // DoubleSide retained for old assets with potentially inverted or
-          // non-standard winding — back-face culling would hide faces on some
-          // imported FBX/GLB models where winding is not guaranteed clean.
-          const vc = rm.colors && rm.colors.length > 0 ? rm.total_vertices : 0;
-          const isRefTransparent = hasAlphaBelow255;
-          const refOpacity = isRefTransparent ? (() => {
-            let maxA = 0;
-            for (let i = 0; i < vc; i++) { const a = rm.colors[i * 4 + 3]; if (a > maxA) maxA = a; }
-            return maxA / 255;
-          })() : 1.0;
-
-          // Check if any mesh has a diffuse texture for this model
-          let useTexture = false;
-          let texturePath = null;
-          if (rm.mesh_textures && rm.mesh_textures.length > 0) {
-            // If the model has per-mesh textures, load the first one's diffuse
-            // (for now render the whole model with the first mesh's texture)
-            const firstTex = rm.mesh_textures[0];
-            if (firstTex.diffuse_texture_path) {
-              texturePath = "/api/reference-texture?index=" + rm.index + "&mesh_index=" + firstTex.mesh_index + "&slot=diffuse";
-              useTexture = true;
-            }
-          }
-
-          const mat = new THREE.MeshStandardMaterial({
-            vertexColors: useTexture ? false : (rm.colors && rm.colors.length > 0),
-            side: THREE.DoubleSide,
-            roughness: 0.6,
-            metalness: 0.05,
-            transparent: isRefTransparent,
-            opacity: refOpacity,
-            depthWrite: !isRefTransparent,
-            map: null,
-          });
-
-          // Load texture if available
-          if (useTexture && texturePath) {
-            textureLoader.load(texturePath, function(texture) {
-              mat.map = texture;
-              mat.needsUpdate = true;
-            }, undefined, function(err) {
-              console.warn("[viewer] Failed to load texture:", texturePath, err);
-            });
-          }
-
-          const mesh = new THREE.Mesh(geo, mat);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
+          // Create a group for this model to hold all per-mesh meshes.
+          // Apply model-level transform (position, rotation, scale) to the group.
+          const modelGroup = new THREE.Group();
 
           // Apply reference model transform (local coords + position + rotation + scale)
-          // We apply transforms to the mesh object for correct Three.js semantics.
           // Order: scale -> rotate (ZYX in degrees) -> translate.
           const scale = rm.scale || 1;
-          mesh.scale.set(scale, scale, scale);
+          modelGroup.scale.set(scale, scale, scale);
 
           // Convert degrees to radians for Three.js
           const rx = (rm.rotation_x || 0) * Math.PI / 180;
@@ -580,19 +508,205 @@
           const rz = (rm.rotation_z || 0) * Math.PI / 180;
 
           // Apply rotations in ZYX order to match server-side transform.
-          mesh.rotation.order = "ZYX";
-          mesh.rotation.set(rx, ry, rz);
+          modelGroup.rotation.order = "ZYX";
+          modelGroup.rotation.set(rx, ry, rz);
 
-          mesh.position.set(
+          modelGroup.position.set(
             rm.position_x || 0,
             rm.position_y || 0,
             rm.position_z || 0
           );
 
           // Name for debugging
-          mesh.name = "ref-" + ri + "-" + (rm.file_name || "unknown");
+          modelGroup.name = "ref-" + ri + "-" + (rm.file_name || "unknown");
 
-          referenceGroup.add(mesh);
+          if (perMeshData) {
+            // ── Per-mesh rendering: build one Three.js Mesh per source mesh ──
+            for (let mi = 0; mi < rm.meshes.length; mi++) {
+              const meshData = rm.meshes[mi];
+
+              if (!meshData.positions || meshData.positions.length === 0) continue;
+
+              const geo = new THREE.BufferGeometry();
+              const positions = new Float32Array(meshData.positions);
+              geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+              // Normals
+              if (meshData.normals && meshData.normals.length > 0) {
+                const normals = new Float32Array(meshData.normals);
+                geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+              } else {
+                geo.computeVertexNormals();
+              }
+
+              // Colors — convert uint8 RGBA to float RGB; track alpha for
+              // transparency detection (all 255 => opaque; any <255 => transparent).
+              let hasAlphaBelow255 = false;
+              if (meshData.colors && meshData.colors.length > 0) {
+                const vc = meshData.vertex_count || (meshData.positions.length / 3);
+                const colors = new Float32Array(vc * 3);
+                for (let i = 0; i < vc; i++) {
+                  colors[i * 3]     = meshData.colors[i * 4] / 255;
+                  colors[i * 3 + 1] = meshData.colors[i * 4 + 1] / 255;
+                  colors[i * 3 + 2] = meshData.colors[i * 4 + 2] / 255;
+                  if (meshData.colors[i * 4 + 3] < 255) hasAlphaBelow255 = true;
+                }
+                geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+              }
+
+              // Indices (per-mesh — no index offset needed, these are local to this mesh)
+              if (meshData.indices && meshData.indices.length > 0) {
+                const indices = new Uint32Array(meshData.indices);
+                geo.setIndex(new THREE.BufferAttribute(indices, 1));
+              }
+
+              if (!meshData.normals || meshData.normals.length === 0) {
+                geo.computeVertexNormals();
+              }
+              geo.computeBoundingSphere();
+
+              // Derive material transparency from vertex alpha values:
+              //   all-alpha-255 => opaque (transparent:false, depthWrite:true)
+              //   any alpha <255 => transparent (depthWrite:false to avoid z-sort
+              //     artifacts, opacity derived from max vertex alpha)
+              // DoubleSide retained for old assets with potentially inverted or
+              // non-standard winding.
+              const vc = meshData.colors && meshData.colors.length > 0 ? meshData.vertex_count : 0;
+              const isRefTransparent = hasAlphaBelow255;
+              const refOpacity = isRefTransparent ? (() => {
+                let maxA = 0;
+                for (let i = 0; i < vc; i++) { const a = meshData.colors[i * 4 + 3]; if (a > maxA) maxA = a; }
+                return maxA / 255;
+              })() : 1.0;
+
+              // Check if this mesh has a diffuse texture
+              let useTexture = false;
+              let texturePath = null;
+              if (meshData.diffuse_texture_path) {
+                texturePath = "/api/reference-texture?index=" + rm.index + "&mesh_index=" + meshData.mesh_index + "&slot=diffuse";
+                useTexture = true;
+              }
+
+              const mat = new THREE.MeshStandardMaterial({
+                vertexColors: useTexture ? false : (meshData.colors && meshData.colors.length > 0),
+                side: THREE.DoubleSide,
+                roughness: 0.6,
+                metalness: 0.05,
+                transparent: isRefTransparent,
+                opacity: refOpacity,
+                depthWrite: !isRefTransparent,
+                map: null,
+              });
+
+              // Load texture if available
+              if (useTexture && texturePath) {
+                textureLoader.load(texturePath, function(texture) {
+                  mat.map = texture;
+                  mat.needsUpdate = true;
+                }, undefined, function(err) {
+                  console.warn("[viewer] Failed to load texture:", texturePath, err);
+                });
+              }
+
+              const mesh = new THREE.Mesh(geo, mat);
+              mesh.castShadow = true;
+              mesh.receiveShadow = true;
+              mesh.name = "ref-" + ri + "-mesh-" + mi + "-" + (meshData.material_name || "default");
+
+              modelGroup.add(mesh);
+            }
+          } else {
+            // ── Fallback: flattened model-level geometry (backward compat) ──
+            if (!rm.positions || rm.positions.length === 0) continue;
+
+            const geo = new THREE.BufferGeometry();
+            const positions = new Float32Array(rm.positions);
+            geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+            // Normals
+            if (rm.normals && rm.normals.length > 0) {
+              const normals = new Float32Array(rm.normals);
+              geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+            } else {
+              geo.computeVertexNormals();
+            }
+
+            // Colors — convert uint8 RGBA to float RGB; track alpha for
+            // transparency detection (all 255 => opaque; any <255 => transparent).
+            let hasAlphaBelow255 = false;
+            if (rm.colors && rm.colors.length > 0) {
+              const vc = rm.total_vertices;
+              const colors = new Float32Array(vc * 3);
+              for (let i = 0; i < vc; i++) {
+                colors[i * 3]     = rm.colors[i * 4] / 255;
+                colors[i * 3 + 1] = rm.colors[i * 4 + 1] / 255;
+                colors[i * 3 + 2] = rm.colors[i * 4 + 2] / 255;
+                if (rm.colors[i * 4 + 3] < 255) hasAlphaBelow255 = true;
+              }
+              geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+            }
+
+            // Indices
+            if (rm.indices && rm.indices.length > 0) {
+              const indices = new Uint32Array(rm.indices);
+              geo.setIndex(new THREE.BufferAttribute(indices, 1));
+            }
+
+            if (!rm.normals || rm.normals.length === 0) {
+              geo.computeVertexNormals();
+            }
+            geo.computeBoundingSphere();
+
+            // Derive material transparency from vertex alpha values
+            const vc = rm.colors && rm.colors.length > 0 ? rm.total_vertices : 0;
+            const isRefTransparent = hasAlphaBelow255;
+            const refOpacity = isRefTransparent ? (() => {
+              let maxA = 0;
+              for (let i = 0; i < vc; i++) { const a = rm.colors[i * 4 + 3]; if (a > maxA) maxA = a; }
+              return maxA / 255;
+            })() : 1.0;
+
+            // Check if any mesh has a diffuse texture for this model (fallback path)
+            let useTexture = false;
+            let texturePath = null;
+            if (rm.mesh_textures && rm.mesh_textures.length > 0) {
+              const firstTex = rm.mesh_textures[0];
+              if (firstTex.diffuse_texture_path) {
+                texturePath = "/api/reference-texture?index=" + rm.index + "&mesh_index=" + firstTex.mesh_index + "&slot=diffuse";
+                useTexture = true;
+              }
+            }
+
+            const mat = new THREE.MeshStandardMaterial({
+              vertexColors: useTexture ? false : (rm.colors && rm.colors.length > 0),
+              side: THREE.DoubleSide,
+              roughness: 0.6,
+              metalness: 0.05,
+              transparent: isRefTransparent,
+              opacity: refOpacity,
+              depthWrite: !isRefTransparent,
+              map: null,
+            });
+
+            // Load texture if available
+            if (useTexture && texturePath) {
+              textureLoader.load(texturePath, function(texture) {
+                mat.map = texture;
+                mat.needsUpdate = true;
+              }, undefined, function(err) {
+                console.warn("[viewer] Failed to load texture:", texturePath, err);
+              });
+            }
+
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.name = "ref-" + ri + "-" + (rm.file_name || "unknown");
+
+            modelGroup.add(mesh);
+          }
+
+          referenceGroup.add(modelGroup);
         }
       }
 

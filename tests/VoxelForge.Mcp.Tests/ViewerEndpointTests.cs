@@ -692,6 +692,285 @@ public sealed class ViewerEndpointTests
         Assert.DoesNotContain("orbit", propertyNames);
         Assert.DoesNotContain("rotation", propertyNames);
     }
+    // ── Per-mesh geometry tests ──
+
+    [Fact]
+    public void MeshSnapshot_PerMeshGeometry_ExposedForSingleMesh()
+    {
+        // Given a reference model with one mesh, the viewer response must
+        // expose per-mesh geometry data with correct vertex/triangle counts.
+        var session = CreateSession();
+        AddTestReferenceModel(session.ReferenceModels);
+
+        var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(
+            session.ReferenceModels.Models);
+
+        Assert.NotEmpty(viewerData);
+        var rm = viewerData[0];
+        Assert.NotNull(rm.Meshes);
+        Assert.Single(rm.Meshes);
+
+        var mesh0 = rm.Meshes[0];
+        Assert.Equal(0, mesh0.MeshIndex);
+        Assert.Equal("default", mesh0.MaterialName);
+        Assert.Equal(8, mesh0.VertexCount);
+        Assert.Equal(12, mesh0.TriangleCount);
+        Assert.NotNull(mesh0.Positions);
+        Assert.Equal(8 * 3, mesh0.Positions.Length);
+        Assert.NotNull(mesh0.Indices);
+        Assert.Equal(12 * 3, mesh0.Indices.Length);
+        Assert.Null(mesh0.DiffuseTexturePath); // no texture in test cube
+        Assert.Equal("none", mesh0.DiffuseSourceLabel);
+
+        // Per-mesh indices must NOT have index offset (they are local to the mesh)
+        Assert.All(mesh0.Indices, idx => Assert.True(idx >= 0 && idx < 8,
+            $"Per-mesh index {idx} must be within mesh vertex range [0,{7}]"));
+    }
+
+    [Fact]
+    public void MeshSnapshot_PerMeshGeometry_MultiMeshExposedDistinctly()
+    {
+        // Given a reference model with two meshes having different properties,
+        // the viewer response must expose both entries distinctly with their
+        // own positions, normals, colors, indices, and texture info.
+        var mesh0 = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                new ReferenceVertex(0, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(1, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(1, 1, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(0, 1, 0, 0, 0, -1, 200, 200, 200, 255),
+            ],
+            Indices = [0, 1, 2, 0, 2, 3],
+            MaterialName = "MatA",
+            DiffuseTexturePath = "/path/to/tex_a.png",
+            DiffuseTextureSource = "assimp",
+        };
+
+        var mesh1 = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                new ReferenceVertex(0, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(1, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(1, 1, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(0, 1, 1, 0, 0, 1, 180, 180, 180, 255),
+            ],
+            Indices = [0, 1, 2, 0, 2, 3],
+            MaterialName = "MatB",
+            // No texture for mesh1 — should use vertex colors/fallback
+        };
+
+        var model = new ReferenceModelData
+        {
+            FilePath = "/tmp/two-mesh-cube.obj",
+            Format = "OBJ",
+            Meshes = [mesh0, mesh1],
+            IsVisible = true,
+        };
+
+        var state = new ReferenceModelState();
+        state.Add(model);
+        var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(
+            state.Models);
+
+        Assert.NotEmpty(viewerData);
+        var rm = viewerData[0];
+        Assert.NotNull(rm.Meshes);
+        Assert.Equal(2, rm.Meshes.Count);
+
+        // ── Mesh 0 ──
+        var m0 = rm.Meshes[0];
+        Assert.Equal(0, m0.MeshIndex);
+        Assert.Equal("MatA", m0.MaterialName);
+        Assert.Equal(4, m0.VertexCount);
+        Assert.Equal(2, m0.TriangleCount);
+        Assert.NotNull(m0.DiffuseTexturePath);
+        Assert.Contains("tex_a.png", m0.DiffuseTexturePath);
+        Assert.Equal("assimp", m0.DiffuseSourceLabel);
+        Assert.Null(m0.NormalTexturePath);
+        Assert.Null(m0.EmissiveTexturePath);
+
+        // Per-mesh indices must be local to mesh0's vertices (no offset)
+        Assert.All(m0.Indices, idx => Assert.True(idx >= 0 && idx < 4,
+            $"Mesh0 index {idx} must be within [0,{3}]"));
+
+        // ── Mesh 1 ──
+        var m1 = rm.Meshes[1];
+        Assert.Equal(1, m1.MeshIndex);
+        Assert.Equal("MatB", m1.MaterialName);
+        Assert.Equal(4, m1.VertexCount);
+        Assert.Equal(2, m1.TriangleCount);
+        Assert.Null(m1.DiffuseTexturePath); // no texture on mesh1
+        Assert.Equal("none", m1.DiffuseSourceLabel);
+
+        // Per-mesh indices must be local to mesh1's vertices
+        Assert.All(m1.Indices, idx => Assert.True(idx >= 0 && idx < 4,
+            $"Mesh1 index {idx} must be within [0,{3}]"));
+
+        // Each mesh must have its own positions array — vertex count * 3
+        Assert.Equal(12, m0.Positions.Length);
+        Assert.Equal(12, m1.Positions.Length);
+
+        // The flattened model-level geometry must still be present (backward compat)
+        Assert.NotNull(rm.Positions);
+        Assert.Equal(8 * 3, rm.Positions.Length);
+    }
+
+    [Fact]
+    public void MeshSnapshot_PerMeshGeometry_CorrectTextureUrlFormat()
+    {
+        // Verify that per-mesh texture info can be used to construct the
+        // correct /api/reference-texture URL with mesh_index parameter.
+        var mesh = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                new ReferenceVertex(0, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(1, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(1, 1, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(0, 1, 0, 0, 0, -1, 200, 200, 200, 255),
+            ],
+            Indices = [0, 1, 2, 0, 2, 3],
+            MaterialName = "MatA",
+            DiffuseTexturePath = "/tmp/texture.png",
+            DiffuseTextureSource = "assimp",
+        };
+
+        var model = new ReferenceModelData
+        {
+            FilePath = "/tmp/tex-cube.obj",
+            Format = "OBJ",
+            Meshes = [mesh],
+            IsVisible = true,
+        };
+
+        var state = new ReferenceModelState();
+        state.Add(model);
+        var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(
+            state.Models);
+
+        Assert.NotEmpty(viewerData);
+        var rm = viewerData[0];
+        Assert.NotNull(rm.Meshes);
+        var m0 = rm.Meshes[0];
+
+        // Construct the URL the viewer would build
+        int modelIndex = rm.Index;
+        int meshIndex = m0.MeshIndex;
+        string expectedUrl = $"/api/reference-texture?index={modelIndex}&mesh_index={meshIndex}&slot=diffuse";
+        // The per-mesh DiffuseTexturePath should match the source path
+        Assert.NotNull(m0.DiffuseTexturePath);
+        Assert.Equal("/tmp/texture.png", m0.DiffuseTexturePath);
+        Assert.Equal("assimp", m0.DiffuseSourceLabel);
+
+        // Verify snake_case serialization of new fields
+        var json = System.Text.Json.JsonSerializer.Serialize(viewerData, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+        });
+        Assert.Contains("\"mesh_index\"", json);
+        Assert.Contains("\"diffuse_texture_path\"", json);
+        Assert.Contains("\"diffuse_source_label\"", json);
+    }
+
+    [Fact]
+    public void ViewerHtml_PerMeshRendering_NoFirstMeshGlobalTexture()
+    {
+        // Static regression: the viewer HTML must NOT apply the first mesh's
+        // texture globally to the whole model. It must build per-mesh meshes.
+        var viewerHtmlPath = FindViewerHtmlPath();
+        var html = File.ReadAllText(viewerHtmlPath);
+
+        // The old "first mesh" comment must not appear
+        Assert.DoesNotContain("load the first one's diffuse", html);
+        Assert.DoesNotContain("render the whole model with the first mesh's texture", html);
+
+        // The new per-mesh rendering code must be present
+        Assert.Contains("Per-mesh rendering: build one Three.js Mesh per source mesh", html);
+        Assert.Contains("ref-\" + ri + \"-mesh-\" + mi", html);
+
+        // Per-mesh texture URL construction must reference meshData.mesh_index
+        Assert.Contains("mesh_index=\" + meshData.mesh_index", html);
+
+        // Model-level transform must be applied to a group, not individual meshes
+        Assert.Contains("const modelGroup = new THREE.Group()", html);
+
+        // Backward compat fallback path must still exist
+        Assert.Contains("flattened model-level geometry (backward compat)", html);
+    }
+
+    [Fact]
+    public void MeshSnapshot_PerMeshGeometry_ManualOverrideExposedInPerMesh()
+    {
+        // Verify that manual texture overrides appear in per-mesh geometry entries.
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-permesh-override-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "override.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47]);
+
+            var mesh0 = new ReferenceMeshData
+            {
+                Vertices =
+                [
+                    new ReferenceVertex(0, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                    new ReferenceVertex(1, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                ],
+                Indices = [0, 1],
+                MaterialName = "MatA",
+            };
+            // Apply manual override
+            mesh0.ManualDiffuseOverridePath = texturePath;
+
+            var mesh1 = new ReferenceMeshData
+            {
+                Vertices =
+                [
+                    new ReferenceVertex(0, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                    new ReferenceVertex(1, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                ],
+                Indices = [0, 1],
+                MaterialName = "MatB",
+                // No override — should have no diffuse texture
+            };
+
+            var model = new ReferenceModelData
+            {
+                FilePath = "/tmp/override-cube.obj",
+                Format = "OBJ",
+                Meshes = [mesh0, mesh1],
+                IsVisible = true,
+            };
+
+            var state = new ReferenceModelState();
+            state.Add(model);
+            var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(
+                state.Models);
+
+            Assert.NotEmpty(viewerData);
+            var rm = viewerData[0];
+            Assert.NotNull(rm.Meshes);
+            Assert.Equal(2, rm.Meshes.Count);
+
+            // Mesh 0: should have manual override
+            var m0 = rm.Meshes[0];
+            Assert.NotNull(m0.DiffuseTexturePath);
+            Assert.Equal(texturePath, m0.DiffuseTexturePath);
+            Assert.Equal("manual_override", m0.DiffuseSourceLabel);
+
+            // Mesh 1: should have no texture
+            var m1 = rm.Meshes[1];
+            Assert.Null(m1.DiffuseTexturePath);
+            Assert.Equal("none", m1.DiffuseSourceLabel);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
     // ── Reference model color/alpha handling tests ──
 
     [Fact]

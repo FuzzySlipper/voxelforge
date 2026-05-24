@@ -298,38 +298,64 @@ public static class ViewerEndpoints
             var allColors = new List<int>();
             var allIndices = new List<int>();
             int indexOffset = 0;
+            var perMeshGeometries = new List<ViewerReferenceMeshGeometry>(refModel.Meshes.Count);
 
             for (int m = 0; m < refModel.Meshes.Count; m++)
             {
                 var mesh = refModel.Meshes[m];
                 var verts = mesh.Vertices;
 
+                var meshPositions = new List<float>(verts.Length * 3);
+                var meshNormals = new List<float>(verts.Length * 3);
+                var meshColors = new List<int>(verts.Length * 4);
+
                 for (int v = 0; v < verts.Length; v++)
                 {
                     var vert = verts[v];
-                    allPositions.Add(vert.PosX);
-                    allPositions.Add(vert.PosY);
-                    allPositions.Add(vert.PosZ);
-                    allNormals.Add(vert.NormX);
-                    allNormals.Add(vert.NormY);
-                    allNormals.Add(vert.NormZ);
+                    meshPositions.Add(vert.PosX);
+                    meshPositions.Add(vert.PosY);
+                    meshPositions.Add(vert.PosZ);
+                    meshNormals.Add(vert.NormX);
+                    meshNormals.Add(vert.NormY);
+                    meshNormals.Add(vert.NormZ);
                     // Use vertex color if available, otherwise medium gray fallback.
                     if (vert.R > 0 || vert.G > 0 || vert.B > 0 || vert.A > 0)
                     {
-                        allColors.Add(vert.R);
-                        allColors.Add(vert.G);
-                        allColors.Add(vert.B);
-                        allColors.Add(vert.A);
+                        meshColors.Add(vert.R);
+                        meshColors.Add(vert.G);
+                        meshColors.Add(vert.B);
+                        meshColors.Add(vert.A);
                     }
                     else
                     {
-                        allColors.Add(128);
-                        allColors.Add(128);
-                        allColors.Add(128);
-                        allColors.Add(255);
+                        meshColors.Add(128);
+                        meshColors.Add(128);
+                        meshColors.Add(128);
+                        meshColors.Add(255);
                     }
                 }
 
+                // Build per-mesh geometry entry
+                perMeshGeometries.Add(new ViewerReferenceMeshGeometry
+                {
+                    MeshIndex = m,
+                    MaterialName = mesh.MaterialName,
+                    VertexCount = verts.Length,
+                    TriangleCount = mesh.Indices.Length / 3,
+                    Positions = [..meshPositions],
+                    Normals = [..meshNormals],
+                    Colors = [..meshColors],
+                    Indices = [..mesh.Indices],
+                    DiffuseTexturePath = mesh.EffectiveDiffuseTexturePath,
+                    NormalTexturePath = mesh.EffectiveNormalTexturePath,
+                    EmissiveTexturePath = mesh.EffectiveEmissiveTexturePath,
+                    DiffuseSourceLabel = mesh.DiffuseSourceLabel,
+                });
+
+                // Also add to flattened model-level arrays (backward compat)
+                allPositions.AddRange(meshPositions);
+                allNormals.AddRange(meshNormals);
+                allColors.AddRange(meshColors);
                 for (int idx = 0; idx < mesh.Indices.Length; idx++)
                 {
                     allIndices.Add(mesh.Indices[idx] + indexOffset);
@@ -385,6 +411,8 @@ public static class ViewerEndpoints
                     EmissiveTexturePath = mesh.EffectiveEmissiveTexturePath,
                     DiffuseSourceLabel = mesh.DiffuseSourceLabel,
                 }).ToList(),
+                // Per-mesh geometry for fine-grained viewer rendering
+                Meshes = perMeshGeometries,
             });
         }
 
@@ -586,6 +614,41 @@ public sealed class ViewerReferenceModelData
     /// Each entry contains effective texture paths and source labels for each slot.
     /// </summary>
     public List<ViewerMeshTextureInfo>? MeshTextures { get; set; }
+    /// <summary>
+    /// Per-mesh geometry data. One entry per source mesh, enabling the viewer
+    /// to build individual Three.js Mesh objects with per-mesh materials and
+    /// textures instead of applying the first mesh's texture globally.
+    /// </summary>
+    public List<ViewerReferenceMeshGeometry>? Meshes { get; set; }
+}
+
+/// <summary>
+/// Per-mesh geometry data for a reference model mesh. Carried alongside the
+/// flattened model-level geometry so the browser viewer can build individual
+/// Three.js Mesh objects with per-mesh materials and textures.
+/// </summary>
+public sealed class ViewerReferenceMeshGeometry
+{
+    public int MeshIndex { get; set; }
+    public string MaterialName { get; set; } = "";
+    public int VertexCount { get; set; }
+    public int TriangleCount { get; set; }
+    /// <summary>Flat interleaved positions (x,y,z triplets). In local (untransformed) coordinates.</summary>
+    public float[] Positions { get; set; } = [];
+    /// <summary>Flat interleaved normals (x,y,z triplets). In local coordinates.</summary>
+    public float[] Normals { get; set; } = [];
+    /// <summary>Flat RGBA color bytes as int array. Fallback to medium gray (128,128,128,255) when absent.</summary>
+    public int[] Colors { get; set; } = [];
+    /// <summary>Triangle index data.</summary>
+    public int[] Indices { get; set; } = [];
+    /// <summary>Effective diffuse texture path (manual override wins, then import path). Null if none.</summary>
+    public string? DiffuseTexturePath { get; set; }
+    /// <summary>Effective normal texture path (always manual override). Null if none.</summary>
+    public string? NormalTexturePath { get; set; }
+    /// <summary>Effective emissive texture path (manual override wins, then import path). Null if none.</summary>
+    public string? EmissiveTexturePath { get; set; }
+    /// <summary>Human-readable label for the diffuse texture source: "manual_override", "assimp", "unity_sidecar", or "none".</summary>
+    public string DiffuseSourceLabel { get; set; } = "none";
 }
 
 /// <summary>
