@@ -170,7 +170,9 @@ Core LLM-handler adapters:
 - `remove_voxels` — batch remove voxel coordinates through undoable App services.
 - `get_voxels_in_area` — query voxels in a bounding box, including region label id/name when present.
 - `apply_voxel_primitives` — generate block, box, and line primitive batches through the same validated LLM handler and undoable App service path. Supports `preview_only` for validation/count summaries without mutation.
-- `view_model`, `view_from_angle`, `compare_reference` — registered visual tool names that return a clear headless-mode error because screenshots require the JS viewer (browser/WebGL).
+- `view_model` — capture a screenshot of the current model from an isometric angle via headless Chromium browser against the JS viewer endpoint. Returns a capture manifest with PNG file path and camera metadata.
+- `view_from_angle` — capture from a specific camera angle (yaw/pitch or named preset). Supports front, right, back, top, isometric presets and explicit yaw/pitch in radians.
+- `capture_reference_views` — capture multiple standard camera views in a single batch. Default presets: front, right, top, isometric. Returns a combined manifest with image paths for all captures.
 
 Typed console-command adapters:
 
@@ -354,8 +356,121 @@ The GUI watcher accepts either `--watch <path>` or `--preview-watch <path>`. It 
 
 - The GUI preview is snapshot-based, not shared-document collaboration. User edits in the GUI are not synchronized back into the MCP session.
 - `VoxelForge.Mcp` is still headless and does not depend on any native renderer.
-- MCP visual tools such as `view_model`, `view_from_angle`, and `compare_reference` still return headless limitation errors. The preview window is for a human observer, not screenshot capture through MCP.
 - If an MCP process exits before `publish_preview` or `save_model`, unsaved in-memory session edits are lost.
+
+### MCP Visual Capture Tools
+
+VoxelForge.Mcp includes headless browser screenshot capture tools that use `/usr/bin/chromium` (or `chromium-browser`/`google-chrome`) to capture PNG screenshots of the built-in JS/WebGL viewer.
+
+**Prerequisites:** Chromium must be installed at one of the known paths. The service checks `/usr/bin/chromium`, `/usr/bin/chromium-browser`, and `/usr/bin/google-chrome`.
+
+#### Tools
+
+##### `view_model`
+
+Capture the current model from an isometric angle. No arguments required.
+
+```json
+{ }
+```
+
+Returns a capture manifest with a single `isometric` capture.
+
+##### `view_from_angle`
+
+Capture from a specific camera angle. Accepts:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `yaw` | number (optional) | Camera yaw in radians (0=front, pi/2=right, pi=back) |
+| `pitch` | number (optional) | Camera pitch in radians (0=level, pi/2=top-down) |
+| `preset` | string (optional) | Named preset: `front`, `right`, `back`, `top`, `isometric`. Overrides yaw/pitch. |
+| `distance` | number (optional) | Camera distance from model center. Auto-calculated from bounds if omitted. |
+| `width` | integer (optional) | Capture width in pixels (default: 960, range: 320–3840) |
+| `height` | integer (optional) | Capture height in pixels (default: 720, range: 240–2160) |
+
+Examples:
+
+```json
+{ "yaw": 1.5708, "pitch": 0.0 }
+{ "preset": "right", "width": 1280, "height": 960 }
+```
+
+##### `capture_reference_views`
+
+Capture from multiple standard camera angles in a single batch.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `presets` | string[] (optional) | List of presets. Default: `["front", "right", "top", "isometric"]`. Valid values: `front`, `right`, `back`, `top`, `isometric`. |
+| `width` | integer (optional) | Capture width (default: 960) |
+| `height` | integer (optional) | Capture height (default: 720) |
+
+Example:
+
+```json
+{ "presets": ["front", "right", "back", "top", "isometric"] }
+```
+
+#### Output Format
+
+All visual tools return a JSON capture manifest:
+
+```json
+{
+  "captures": [
+    {
+      "label": "front",
+      "success": true,
+      "image_path": "/home/dev/voxelforge/content/mcp/captures/front_20260524-051732.png",
+      "preset": "front",
+      "yaw": null,
+      "pitch": null
+    }
+  ],
+  "capture_count": 1,
+  "successful_count": 1,
+  "captured_at_utc": "2026-05-24T05:17:32Z"
+}
+```
+
+For `capture_reference_views`, the manifest contains a `captures` array with one entry per preset capture and top-level `capture_count`/`successful_count` fields.
+
+Image files are written to `content/mcp/captures/` (relative to the repo root or the configured project directory). The content/ directory is git-ignored. Each file is a real PNG suitable for vision-agent consumption.
+
+#### How It Works
+
+1. The tool builds a viewer URL with camera query parameters (e.g., `/viewer?preset=isometric` or `/viewer?yaw=1.5708&pitch=0`).
+2. The `ChromiumViewerCaptureService` launches Chromium in headless mode (`--headless=new`) with `--screenshot` and `--window-size` flags.
+3. Chromium navigates to the viewer URL, waits for the page to load and render the WebGL content, then saves a PNG screenshot.
+4. The tool returns the capture manifest with file paths and camera metadata.
+
+The viewer HTML supports these camera query parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `preset` | string | Named preset: `front`, `right`, `back`, `top`, `isometric` |
+| `yaw` | number | Camera yaw in radians (0=front, pi/2=right, pi=back) |
+| `pitch` | number | Camera pitch in radians (0=level, pi/2=top-down) |
+| `distance` | number | Camera distance from model center (optional, auto-calculated) |
+
+#### Vision-Agent Usage
+
+Hermes/vision agents can use the returned `image_path` values directly to read PNG files. Example workflow:
+
+```
+1. Agent calls view_model → gets image_path: /home/dev/voxelforge/content/mcp/captures/model-view_20260524-051732.png
+2. Agent reads the PNG file from the returned path
+3. Agent processes the visual content (model inspection, status verification, etc.)
+```
+
+#### Architecture
+
+- **Service boundary:** `IViewerCaptureService` with `ChromiumViewerCaptureService` (production) and `FakeViewerCaptureService` (tests).
+- **No shell invocation:** Chromium is launched via `ProcessStartInfo` with `ArgumentList` — no shell involvement, no command injection risk.
+- **No Playwright dependency:** Uses direct Chromium CLI flags (`--headless=new`, `--screenshot`). Minimizes dependency surface.
+- **Thread-safe:** Each capture runs in a separate Chromium process.
+- **Output directory:** `content/mcp/captures/` (git-ignored through `content/`).
 
 ### Electron renderer preview workflow
 

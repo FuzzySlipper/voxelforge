@@ -7,6 +7,7 @@ using VoxelForge.Core.Meshing;
 using VoxelForge.Mcp;
 using VoxelForge.Mcp.Tools;
 using VoxelForge.Mcp.Viewer;
+using VoxelForge.Mcp.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,6 +39,18 @@ builder.Services.AddSingleton<VoxelForgeMcpSession>();
 builder.Services.AddSingleton<IVoxelMesher>(_ => new GreedyMesher());
 builder.Services.AddSingleton<MeshSnapshotService>();
 builder.Services.AddSingleton<PaletteSnapshotService>();
+
+// Register viewer capture service (Chromium headless browser screenshot)
+builder.Services.AddSingleton<IViewerCaptureService>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<ChromiumViewerCaptureService>>();
+    var mcpOptions = sp.GetRequiredService<VoxelForgeMcpOptions>();
+    var projectDir = mcpOptions.GetResolvedProjectDirectory();
+    var capturesDir = Path.Combine(projectDir, "mcp", "captures");
+    var baseUrl = mcpOptions.ListenUrl;
+    // Use the listen URL as the viewer base URL for local Chromium capture
+    return new ChromiumViewerCaptureService(baseUrl, capturesDir, logger);
+});
 
 builder.Services.AddVoxelForgeMcpTools();
 builder.Services.AddMcpServer()

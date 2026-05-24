@@ -12,6 +12,7 @@ using VoxelForge.Core.LLM.Handlers;
 using VoxelForge.Core.Reference;
 using VoxelForge.Core.Services;
 using VoxelForge.Mcp;
+using VoxelForge.Mcp.Services;
 using VoxelForge.Mcp.Tools;
 
 namespace VoxelForge.Mcp.Tests;
@@ -21,11 +22,13 @@ public sealed class McpToolTests
     [Fact]
     public void ToolRegistry_RegistersMcpToolsExplicitly()
     {
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-registry");
         var services = new ServiceCollection();
-        services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
+        services.AddLogging();
         services.AddSingleton(new EditorConfigState());
         services.AddSingleton(new VoxelForgeMcpOptions());
         services.AddSingleton<VoxelForgeMcpSession>();
+        services.AddSingleton<IViewerCaptureService>(new FakeViewerCaptureService(tempDir));
         services.AddVoxelForgeMcpTools();
 
         using var provider = services.BuildServiceProvider();
@@ -39,10 +42,10 @@ public sealed class McpToolTests
             [
                 "apply_voxel_primitives",
                 "assign_voxels_to_region",
+                "capture_reference_views",
                 "check_collision",
                 "clear_model",
                 "clear_reference_models",
-                "compare_reference",
                 "console_count",
                 "count_voxels",
                 "create_region",
@@ -87,6 +90,9 @@ public sealed class McpToolTests
                 "voxelize_reference_model",
             ],
             toolNames);
+
+        // Clean up
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
     }
 
     [Fact]
@@ -372,21 +378,148 @@ public sealed class McpToolTests
     [Fact]
     public void VisualTools_ReturnHeadlessLimitationError()
     {
-        var viewTool = new ViewModelMcpTool();
-        var angleTool = new ViewFromAngleMcpTool();
-        var compareTool = new CompareReferenceMcpTool();
+        // The visual tools now require a capture service. When the service returns
+        // failure (e.g. no Chromium available), the tool should report the error
+        // rather than the old hardcoded headless message.
+        var capturesDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-captures");
+        var fakeService = new FakeViewerCaptureService(capturesDir, simulateFailure: true);
+        var logger = NullLogger<ViewModelMcpTool>.Instance;
+        var viewTool = new ViewModelMcpTool(fakeService, logger);
 
         var viewResult = viewTool.Invoke(EmptyArguments(), CancellationToken.None);
-        var angleResult = angleTool.Invoke(JsonArguments("""{ "yaw": 0.0, "pitch": 0.0 }"""), CancellationToken.None);
-        var compareResult = compareTool.Invoke(EmptyArguments(), CancellationToken.None);
 
         Assert.False(viewResult.Success);
-        Assert.False(angleResult.Success);
-        Assert.False(compareResult.Success);
-        Assert.Contains("headless", viewResult.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("JS viewer", viewResult.Message, StringComparison.Ordinal);
-        Assert.Equal("object", angleTool.InputSchema.GetProperty("type").GetString());
+        Assert.Contains("Simulated capture failure", viewResult.Message, StringComparison.Ordinal);
         Assert.True(viewTool.IsReadOnly);
+
+        // Clean up
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public void ViewFromAngleMcpTool_AcceptsYawPitchArguments()
+    {
+        var capturesDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-captures");
+        var fakeService = new FakeViewerCaptureService(capturesDir);
+        var logger = NullLogger<ViewFromAngleMcpTool>.Instance;
+        var angleTool = new ViewFromAngleMcpTool(fakeService, logger);
+
+        Assert.Equal("object", angleTool.InputSchema.GetProperty("type").GetString());
+        Assert.True(angleTool.IsReadOnly);
+
+        // Test with yaw/pitch
+        var result = angleTool.Invoke(
+            JsonArguments("""{ "yaw": 1.5708, "pitch": 0.0, "preset": "right" }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains("right", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("captures", result.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Clean up
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public void ViewModelMcpTool_ReturnsCaptureManifestOnSuccess()
+    {
+        var capturesDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-captures-capt");
+        var fakeService = new FakeViewerCaptureService(capturesDir);
+        var logger = NullLogger<ViewModelMcpTool>.Instance;
+        var viewTool = new ViewModelMcpTool(fakeService, logger);
+
+        var result = viewTool.Invoke(EmptyArguments(), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Contains("captures", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("isometric", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(result.Message.Length > 20);
+
+        // Clean up
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public void CaptureReferenceViewsMcpTool_DefaultPresetsIncludeStandardViews()
+    {
+        var capturesDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-captures-ref");
+        var fakeService = new FakeViewerCaptureService(capturesDir);
+        var logger = NullLogger<CaptureReferenceViewsMcpTool>.Instance;
+        var tool = new CaptureReferenceViewsMcpTool(fakeService, logger);
+
+        var result = tool.Invoke(EmptyArguments(), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+
+        // Parse manifest and verify all 4 default presets are included
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.Equal(4, doc.RootElement.GetProperty("capture_count").GetInt32());
+        Assert.Equal(4, doc.RootElement.GetProperty("successful_count").GetInt32());
+
+        var captures = doc.RootElement.GetProperty("captures").EnumerateArray().ToArray();
+        Assert.Contains(captures, c => c.GetProperty("preset").GetString() == "front");
+        Assert.Contains(captures, c => c.GetProperty("preset").GetString() == "right");
+        Assert.Contains(captures, c => c.GetProperty("preset").GetString() == "top");
+        Assert.Contains(captures, c => c.GetProperty("preset").GetString() == "isometric");
+
+        // Clean up
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public void CaptureReferenceViewsMcpTool_CustomPresetList()
+    {
+        var capturesDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-captures-custom");
+        var fakeService = new FakeViewerCaptureService(capturesDir);
+        var logger = NullLogger<CaptureReferenceViewsMcpTool>.Instance;
+        var tool = new CaptureReferenceViewsMcpTool(fakeService, logger);
+
+        var result = tool.Invoke(
+            JsonArguments("""{ "presets": ["front", "back", "top"], "width": 640, "height": 480 }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.Equal(3, doc.RootElement.GetProperty("capture_count").GetInt32());
+        Assert.Equal(3, doc.RootElement.GetProperty("successful_count").GetInt32());
+
+        var captures = doc.RootElement.GetProperty("captures").EnumerateArray().ToArray();
+        Assert.Contains(captures, c => c.GetProperty("preset").GetString() == "front");
+        Assert.Contains(captures, c => c.GetProperty("preset").GetString() == "back");
+        Assert.Contains(captures, c => c.GetProperty("preset").GetString() == "top");
+        Assert.DoesNotContain(captures, c => c.GetProperty("preset").GetString() == "isometric");
+
+        // Clean up
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public async Task FakeViewerCaptureService_WritesRealPngFiles()
+    {
+        var capturesDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-captures-png");
+        var service = new FakeViewerCaptureService(capturesDir);
+
+        var request = new ViewerCaptureRequest { Preset = "front", Label = "test-png" };
+        var result = await service.CaptureAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.ImagePath);
+        Assert.True(File.Exists(result.ImagePath), $"File should exist at {result.ImagePath}");
+        var fileInfo = new FileInfo(result.ImagePath);
+        Assert.True(fileInfo.Length > 0, "PNG file should be non-empty");
+
+        // Verify PNG header
+        var header = new byte[8];
+        using (var fs = File.OpenRead(result.ImagePath))
+            fs.ReadExactly(header, 0, 8);
+        Assert.Equal(0x89, header[0]);
+        Assert.Equal(0x50, header[1]); // 'P'
+        Assert.Equal(0x4E, header[2]); // 'N'
+        Assert.Equal(0x47, header[3]); // 'G'
+
+        // Clean up
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
     }
 
     [Fact]

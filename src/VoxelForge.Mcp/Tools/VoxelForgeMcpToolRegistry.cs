@@ -6,6 +6,7 @@ using VoxelForge.App.Services;
 using VoxelForge.Content;
 using VoxelForge.Core.LLM.Handlers;
 using VoxelForge.Core.Services;
+using VoxelForge.Mcp.Services;
 
 namespace VoxelForge.Mcp.Tools;
 
@@ -51,7 +52,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<SetVoxelsRunsMcpTool>();
         services.AddSingleton<ViewModelMcpTool>();
         services.AddSingleton<ViewFromAngleMcpTool>();
-        services.AddSingleton<CompareReferenceMcpTool>();
+        services.AddSingleton<CaptureReferenceViewsMcpTool>();
 
         services.AddSingleton<McpServerTool, DescribeModelServerTool>();
         services.AddSingleton<McpServerTool, GetModelInfoServerTool>();
@@ -62,7 +63,7 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, SetVoxelsRunsServerTool>();
         services.AddSingleton<McpServerTool, ViewModelServerTool>();
         services.AddSingleton<McpServerTool, ViewFromAngleServerTool>();
-        services.AddSingleton<McpServerTool, CompareReferenceServerTool>();
+        services.AddSingleton<McpServerTool, CaptureReferenceViewsServerTool>();
 
         services.AddSingleton<FillCommand>();
         services.AddSingleton<GetVoxelCommand>();

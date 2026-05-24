@@ -548,9 +548,65 @@
         }
       }
 
+      // ── Parse camera query-params ──
+      function parseCameraParams() {
+        var params = new URLSearchParams(window.location.search);
+        var yaw = parseFloat(params.get("yaw"));
+        var pitch = parseFloat(params.get("pitch"));
+        var distance = parseFloat(params.get("distance"));
+        var preset = params.get("preset");
+        if (preset) {
+          switch (preset) {
+            case "front":   yaw = 0;        pitch = 0;        break;
+            case "right":   yaw = 1.5708;   pitch = 0;        break;
+            case "back":    yaw = 3.14159;  pitch = 0;        break;
+            case "top":     yaw = 0;        pitch = 1.5708;   break;
+            case "isometric": yaw = 0.7854; pitch = 0.6155;   break;
+          }
+        }
+        if (isNaN(yaw))   yaw = null;
+        if (isNaN(pitch)) pitch = null;
+        if (isNaN(distance) || distance <= 0) distance = null;
+        return { yaw: yaw, pitch: pitch, distance: distance };
+      }
+
+      // ── Apply camera from parsed params (overrides auto-frame) ──
+      function applyCameraParams(cameraParams, bounds) {
+        if (!cameraParams || cameraParams.yaw === null || cameraParams.pitch === null) return false;
+        var center = new THREE.Vector3(0, 0, 0);
+        var dist = cameraParams.distance || 15;
+        if (bounds) {
+          var min = new THREE.Vector3(bounds.min_x, bounds.min_y, bounds.min_z);
+          var max = new THREE.Vector3(bounds.max_x, bounds.max_y, bounds.max_z);
+          center.addVectors(min, max).multiplyScalar(0.5);
+          var size = new THREE.Vector3().subVectors(max, min);
+          var maxDim = Math.max(size.x, Math.max(size.y, size.z));
+          if (!cameraParams.distance) {
+            dist = Math.max(maxDim * 2.5, 5);
+          }
+        }
+        var cp = Math.cos(cameraParams.pitch);
+        var sp = Math.sin(cameraParams.pitch);
+        var cy = Math.cos(cameraParams.yaw);
+        var sy = Math.sin(cameraParams.yaw);
+        camera.position.set(
+          center.x + dist * cp * sy,
+          center.y + dist * sp,
+          center.z + dist * cp * cy
+        );
+        camera.lookAt(center);
+        if (controls) {
+          controls.target.copy(center);
+          controls.update();
+        }
+        return true;
+      }
+
       // ── Start ──
       async function start() {
         try {
+          var cameraParams = parseCameraParams();
+
           const init = initScene();
           scene = init.scene;
           camera = init.camera;
@@ -575,6 +631,20 @@
 
           // Load initial data
           await updateViewer();
+
+          // If camera params were provided, apply them after mesh is loaded
+          // (applyCameraParams is called from buildMesh when camera params are set)
+          // Store for use after first frame
+          if (cameraParams && (cameraParams.yaw !== null || cameraParams.pitch !== null)) {
+            // Force camera params after mesh loads; override the auto-frame logic
+            var origFrameCamera = frameCamera;
+            frameCamera = function(bounds) {
+              if (!applyCameraParams(cameraParams, bounds)) {
+                origFrameCamera(bounds);
+              }
+              frameCamera = origFrameCamera; // restore after first call
+            };
+          }
 
           // Start polling (will short-circuit if SSE is active)
           pollTimer = setInterval(updateViewer, SSE_FALLBACK_POLL_MS);
