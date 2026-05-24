@@ -2,7 +2,7 @@ import { app, Menu, MenuItemConstructorOptions, BrowserWindow } from "electron";
 import { MenuChannels } from "../shared/menu-channels";
 
 /**
- * Build and set the native Electron application menu matching the Myra editor layout.
+ * Build and set the native Electron application menu for the canonical JS renderer shell.
  * Menu clicks send IPC events to the renderer, which wires them to existing bridge commands
  * (runAction / executeCommand) and may show dialogs natively in the renderer.
  */
