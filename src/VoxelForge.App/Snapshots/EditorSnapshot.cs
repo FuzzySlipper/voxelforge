@@ -4,7 +4,7 @@ namespace VoxelForge.App.Snapshots;
 /// Aggregate renderer-neutral snapshot of the full editor state.
 /// Combines document, session, palette, mesh, labels, undo history,
 /// and diagnostics into a single immutable snapshot suitable for
-/// serialization to non-FNA renderers.
+/// serialization to any renderer (WebGL, Electron, headless).
 /// <para>
 /// This type does not hold mutable state or references to engine types.
 /// Consumers should treat it as read-only; mutations flow through

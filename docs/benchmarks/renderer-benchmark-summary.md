@@ -5,7 +5,7 @@
 
 ## Overview
 
-This document describes the systematic renderer performance benchmark workflow for VoxelForge. It was created as follow-up Task C from the Electron renderer decision checkpoint (#1181). The benchmark provides measured data for comparing FNA/Myra and Electron/Three.js renderer paths, replacing unverified performance claims with repeatable metrics.
+This document describes the systematic renderer performance benchmark workflow for VoxelForge. It was created as follow-up Task C from the Electron renderer decision checkpoint (#1181). The benchmark provides measured data for comparing renderer paths, replacing unverified performance claims with repeatable metrics.
 
 ## Reference Scenes
 
@@ -20,7 +20,7 @@ Four deterministic reference scenes are defined in `src/VoxelForge.Core/Benchmar
 
 All scenes are:
 - **Deterministic**: identical output for every call
-- **Renderer-neutral**: no FNA/Myra/Three.js dependency
+- **Renderer-neutral**: no Three.js/WebGL dependency
 - **Lightweight constructors**: building a scene creates a `VoxelModel` in <1ms typically
 
 ## How to Run
@@ -104,7 +104,7 @@ Below are representative results from a development machine.
 
 ## Limitations
 
-1. **CPU-side only:** C# benchmarks measure mesh generation, snapshot construction, and model mutation — all CPU work. GPU upload, draw-call, and frame-time measurements require a full rendering framework (FNA or Electron/WebGL) and are not covered.
+1. **CPU-side only:** C# benchmarks measure mesh generation, snapshot construction, and model mutation — all CPU work. GPU upload, draw-call, and frame-time measurements require a full rendering framework (WebGL/Electron) and are not covered.
 2. **No per-scene Electron metrics yet:** The Electron smoke test uses C#'s default initial model. To measure per-scene Electron scene construction, a bridge extension is needed (e.g., `voxelforge.benchmark.create_scene` command).
 3. **JSON size estimate is rough:** The heuristic simply multiplies array element counts by estimated per-element JSON bytes. Actual serialized size depends on the `System.Text.Json` serializer settings.
 4. **Does not measure incremental mesh updates:** The incremental mesh pipeline (`MeshRegionService`, `MeshChangePushService`) is architecturally important for Electron but is not benchmarked here. Adding that measurement would require creating a model, editing it, and timing the incremental push.

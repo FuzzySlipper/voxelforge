@@ -84,4 +84,10 @@ AGENTS.MD
 CLAUDE.md
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/
+
+# Retired submodules (removed in #1632)
+lib/FNA/
+lib/Myra/
+lib/FontStashSharp/
+lib/XNAssets/ 

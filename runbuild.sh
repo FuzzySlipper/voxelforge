@@ -1,1 +1,0 @@
-dotnet run --project src/VoxelForge.Engine.MonoGame

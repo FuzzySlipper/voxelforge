@@ -1,3 +1,5 @@
+> **Historical / Archive Note:** This document evaluates a backport of incremental mesh updates to the FNA/Myra renderer, which was retired in task #1632. It is preserved as an architectural reference but no longer describes an active code path.
+
 # FNA/Myra Incremental Mesh Backport — Evaluation
 
 > Task: #1200 | Follow-up from: #1181 (Task D)

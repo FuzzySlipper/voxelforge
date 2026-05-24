@@ -8,7 +8,7 @@ namespace VoxelForge.Core.Benchmarking;
 /// <see cref="VoxelModel"/> with a predictable voxel count, bounds, and
 /// palette usage.
 /// <para>
-/// These scenes are intended for comparing FNA/Myra and Electron/Three.js
+/// These scenes are intended for comparing renderer paths (e.g. WebGL/Electron)
 /// renderer mesh generation, snapshot/serialization, and scene construction
 /// latency. They are <em>not</em> normal test fixtures — they live in Core
 /// so both evaluation and integration tests can reference them without

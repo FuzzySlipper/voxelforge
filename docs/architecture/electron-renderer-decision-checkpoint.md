@@ -7,9 +7,9 @@
 
 ## Overview
 
-This document records the evaluation and decision for the Electron/Three.js renderer experiment in VoxelForge. The experiment proposed replacing or supplementing the existing FNA/Myra frontend (`VoxelForge.Engine.MonoGame`) with an Electron-based TypeScript renderer using Three.js, communicating with a C# sidecar (`VoxelForge.Bridge`) over the `den-bridge` WebSocket protocol.
+This document records the evaluation and decision for the Electron/Three.js renderer in VoxelForge. The JavaScript/WebGL viewer (MCP `/viewer` endpoint) and the Electron renderer are now the canonical visual paths. The previous FNA/Myra frontend (`VoxelForge.Engine.MonoGame`) was retired in task #1632.
 
-The complete epic consisted of tasks #1169–#1181. All subtasks are completed and reviewed.
+The complete epic consisted of tasks #1169–#1181. All subtasks are completed and reviewed. The FNA/Myra path was retired in #1632 after the JS renderer proved successful.
 
 ## Evidence Summary
 
@@ -207,106 +207,58 @@ Using the success metrics from the architecture plan (`electron-renderer-experim
 | **Maintainer cost** | Bridge + renderer test coverage ≥ FNA renderer | ❌ Not met | 77 C# bridge tests ✅ but 0 TypeScript renderer tests. Total 369 tests vs. FNA's 292 (excluding bridge tests); however the TS code is untested. |
 | **MCP/live preview preservation** | MCP and `--watch` workflows remain functional and documented | ✅ Met | MCP server unchanged. `--watch` path unchanged. Electron `--preview` added as additional surface. Documented in `mcp-server.md` and README. |
 
-## Decision: Keep as Parallel Experimental Renderer
+## Decision: JS Renderer is Canonical; FNA/Myra Retired
 
-**Recommendation: Keep the Electron renderer as a parallel experimental renderer. Do not continue full migration. Do not abandon the experiment.**
+**Final decision (Task #1632): The JavaScript/WebGL viewer (MCP `/viewer`) and the Electron renderer are the canonical visual paths. The FNA/Myra native renderer (`VoxelForge.Engine.MonoGame`) and its submodules (FNA, Myra, FontStashSharp, XNAssets) have been removed from the active build.**
 
 ### Rationale
 
-**Core architecture is proven.** The bridge protocol, C# sidecar, renderer-neutral mesh services, incremental update pipeline, editing interaction round-trip, and MCP preservation are all implemented, tested (on the C# side), and reviewed. The architectural boundary (C# owns truth, TS owns pixels) is cleanly maintained. This is not wasted work — the bridge layer and sidecar are reusable even if the Electron renderer evolves into a different TS/JS backend.
+The core architecture (bridge protocol, C# sidecar, renderer-neutral mesh services, incremental update pipeline, editing interaction round-trip, and MCP preservation) is proven, tested, and reviewed. The architectural boundary (C# owns truth, TS/JS owns pixels) is cleanly maintained. The JS viewer provides a lightweight browser inspection surface without requiring Electron; the Electron renderer provides a full workbench when needed.
 
-**But three categories of evidence counsel against full migration now:**
+Removing the FNA/Myra path eliminates:
+- Dual build chains and CI complexity
+- Native library dependencies (SDL3, Vulkan drivers, FNA3D/FAudio builds)
+- Submodule maintenance burden for FNA, Myra, FontStashSharp, and XNAssets
+- Risk of neither renderer receiving focused improvement
 
-1. **Packaging is incomplete.** The sidecar is not bundled into Electron packages. Cross-platform packaging (macOS, Windows) is not configured. Dual build chains add real CI complexity. Until sidecar bundling is solved, Electron cannot be distributed standalone.
+### What Was Preserved
 
-2. **Performance profiling is incomplete.** No instrumented benchmark compares frame times between FNA and Three.js on equivalent scenes. While edit latency is acceptable, large-mesh JSON serialization bottlenecks are documented but not profiled. The incremental mesh pipeline is a genuine architectural advantage but could be backported to FNA as well.
+- `VoxelForge.Bridge` — C# sidecar and bridge protocol (used by Electron)
+- `VoxelForge.Mcp` — Headless MCP server with built-in WebGL viewer
+- `VoxelForge.App` — All editor state, services, and undo/redo (renderer-neutral)
+- `VoxelForge.Core` — Data model, meshing, serialization (renderer-neutral)
+- `lib/den-bridge` — WebSocket protocol submodule
 
-3. **Feature parity is far off.** Only 4 of 6+ tools are wired in Electron. Fill, label, animation, reference image, and region tools are not implemented. The TypeScript renderer has zero test coverage. Closing these gaps is many tasks of work — work that could also go into the FNA path.
+### What Was Removed
 
-### The "Neither Fish Nor Fowl" Risk
-
-Keeping both renderers maintained in parallel imposes real costs:
-- Dual build chains in CI (or careful conditional execution)
-- Two UI frameworks to understand and update
-- Two renderer implementations to keep in sync when mesh format or services change
-- Risk that neither renderer receives focused improvement
-
-However, abandoning the experiment would discard the architectural improvements (bridge protocol, incremental mesh, sidecar pattern) that are independently valuable. And digging deeper into migration would commit to a Electron path before packaging and profiling are resolved.
-
-**The parallel-experimental posture is the right balance:** the architecture work is preserved and reusable, the Electron renderer is available for future evaluation and demonstrations, and the FNA/Myra control path remains the supported, complete, packaged renderer.
+- `src/VoxelForge.Engine.MonoGame` — FNA/Myra native renderer project
+- `lib/FNA`, `lib/Myra`, `lib/FontStashSharp`, `lib/XNAssets` — Git submodules
+- `build-native.sh` — FNA3D/FAudio native build script
+- Active documentation references to FNA/Myra/MonoGame as supported paths
 
 ## Concrete Follow-Up Tasks
 
-If the decision is accepted, the following tasks should be created in Den under the `voxelforge` project, parent `#1168`:
+Historical follow-up tasks from the original decision checkpoint are listed below for reference. Their status reflects the world after #1632:
 
 ### Task A: Sidecar Bundling for Electron Packages
 
-**Title:** Bundle C# sidecar into Electron packages  
-**Priority:** Medium (3)  
-**Tags:** electron, packaging, release  
-
-**Description:** `VoxelForge.Bridge` is not bundled into Electron packages. The `.NET` sidecar must be discoverable for packaged Electron builds to work standalone.
-
-**Acceptance criteria:**
-- `npm run package:dir` produces an Electron directory that includes the published sidecar binary.
-- The Electron main process finds the bundled sidecar when running from a package directory.
-- `npm run package` (AppImage) also includes the bundled sidecar.
-- Document the bundling approach in `electron-builder.yml`.
+**Status:** Still open. The sidecar is not bundled into Electron packages. The `.NET` sidecar must be discoverable for packaged Electron builds to work standalone.
 
 ### Task B: TypeScript Renderer Test Suite
 
-**Title:** Add TypeScript test suite for Electron renderer  
-**Priority:** Medium (3)  
-**Tags:** electron, testing, quality  
-
-**Description:** The TypeScript renderer (`scene.ts`, `index.ts`, `bridge-client.ts`) has zero test coverage.
-
-**Acceptance criteria:**
-- Jest or Vitest test runner configured in `electron/`.
-- Snapshot construction in `scene.buildMeshFromSnapshot()` is tested with known mesh data.
-- Raycasting and `computePlacementPosition()` are tested with fixture data.
-- Bridge client frame parsing and event dispatch is tested.
-- Tests run in CI (headless, no GPU needed).
+**Status:** Still open. The TypeScript renderer has zero test coverage.
 
 ### Task C: Systematic Performance Benchmarks
 
-**Title:** Add systematic performance benchmarks for FNA and Electron renderers  
-**Priority:** Low (4)  
-**Tags:** electron, fna, performance, benchmarking  
+**Status:** Still open. No standardized benchmark compares frame time or edit latency across renderer paths on equivalent scenes.
 
-**Description:** No standardized benchmark compares frame time, edit latency, or mesh update time between the two renderers on equivalent scenes.
+### Task D: FNA Backport of Incremental Mesh Architecture
 
-**Acceptance criteria:**
-- Define 2-3 reference test scenes (small/~1000 voxels, medium/~10000 voxels, large/~100000 voxels).
-- Add a headless C# benchmark that measures mesh generation time for both renderers (same `GreedyMesher`; FNA via existing path, Electron via `MeshSnapshotService`).
-- Add a headless Electron benchmark (`--renderer-smoke-test` or similar) that measures scene construction and first-render time.
-- Document results in a benchmark summary doc.
+**Status:** Closed / Overtaken by events. The FNA renderer was retired in #1632; the incremental mesh architecture remains in the Electron/bridge path.
 
-### Task D: FNA Backport of Incremental Mesh Architecture (Optional)
+### Task E: Investigate Alternative TS/JS Rendering Backend
 
-**Title:** Backport incremental mesh pipeline to FNA/Myra control path  
-**Priority:** Low (4)  
-**Tags:** fna, performance, architecture  
-
-**Description:** The incremental mesh update pipeline developed for the Electron renderer (`MeshRegionService`, dirty region detection) is renderer-neutral and could improve FNA's mesh update performance.
-
-**Acceptance criteria:**
-- `MeshRegionService` is used (or adapted) for dirty region detection in the FNA path.
-- After a voxel edit, only dirty mesh regions are rebuilt instead of the full mesh.
-- Visual correctness verified with existing architecture tests.
-
-### Task E: Investigate Alternative TS/JS Rendering Backend (Exploratory)
-
-**Title:** Evaluate alternative TS/JS rendering backends for Electron renderer  
-**Priority:** Low (4)  
-**Tags:** electron, architecture, exploration  
-
-**Description:** The experiment currently uses Three.js. Some limitations (JSON serialization bottleneck, WebGL GPU requirement, complex raycasting) could be addressed with an alternative backend.
-
-**Acceptance criteria:**
-- Brief survey of alternatives: Babylon.js, raw WebGL/WebGPU, or a tile-based 2D canvas renderer.
-- Minimum criteria: must support the existing bridge protocol and mesh snapshot format.
-- Document findings; do not change the current Three.js implementation without a task.
+**Status:** Still open. The experiment currently uses Three.js. Alternative backends could be evaluated in the future.
 
 ## Known Gaps and Open Questions
 

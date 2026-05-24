@@ -3,7 +3,7 @@ using System.Numerics;
 namespace VoxelForge.Core.Voxelization;
 
 /// <summary>
-/// Engine-agnostic triangle mesh for voxelization. Uses System.Numerics — no FNA types.
+/// Engine-agnostic triangle mesh for voxelization. Uses System.Numerics — no rendering-framework types.
 /// </summary>
 public sealed class TriangleMesh
 {

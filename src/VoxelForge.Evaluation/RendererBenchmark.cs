@@ -18,7 +18,7 @@ namespace VoxelForge.Evaluation;
 /// Outputs JSON metrics to stdout, suitable for CI and comparison reports.
 /// </para>
 /// <para>
-/// Does not depend on FNA/Myra or any rendering framework — all measurements
+/// Does not depend on any rendering framework — all measurements
 /// are at the Core/App service layer.
 /// </para>
 /// </summary>

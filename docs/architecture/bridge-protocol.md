@@ -526,7 +526,7 @@ Request payload:
 }
 ```
 
-**C# stores but does not interpret** material override values. They are passed through to TS in state deltas so that overrides persist across sessions, but C# does not use them for mesh generation or FNA rendering. This is a **presentation concern owned by TS**.
+**C# stores but does not interpret** material override values. They are passed through to TS in state deltas so that overrides persist across sessions, but C# does not use them for mesh generation or native rendering. This is a **presentation concern owned by TS**.
 
 ---
 
@@ -824,7 +824,7 @@ The following patterns are **explicitly forbidden** by this protocol. They viola
 
 1. **Accept TS camera position as authoritative for model logic.** Camera hints are advisory.
 2. **Accept TS material overrides as semantic palette changes.** Material overrides are presentation-only.
-3. **Leak FNA/Myra types into bridge payloads.** Bridge DTOs must use renderer-neutral types (`float`, `int`, `string`, arrays).
+3. **Leak renderer-specific types into bridge payloads.** Bridge DTOs must use renderer-neutral types (`float`, `int`, `string`, arrays).
 4. **Send implementation-specific pointers or handles** (e.g., memory addresses, object IDs) across the bridge.
 
 ---

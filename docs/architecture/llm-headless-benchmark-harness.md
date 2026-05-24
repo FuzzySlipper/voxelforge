@@ -11,7 +11,7 @@ This is a design document. It fixes the first benchmark workflow, artifact layou
 - Compare outputs in a way that is useful before any renderer-driven screenshots exist.
 - Reuse VoxelForge's headless, stdio, MCP, Core/App/LLM, and undo-aware seams.
 - Keep benchmark orchestration local-first rather than building public leaderboard infrastructure.
-- Keep evaluation free of Engine, FNA, Myra, screenshot-provider, and windowing dependencies.
+- Keep evaluation free of Engine, renderer-specific, screenshot-provider, and windowing dependencies.
 
 ## Non-goals
 
@@ -48,7 +48,7 @@ Rationale:
 - `.vforge` is the durable artifact the editor already owns.
 - Metrics and hashes let runs be compared in CI or headless local environments.
 - Transcripts explain why two outputs differ and show whether the model used the intended tool surface.
-- Screenshots require the FNA renderer and are unavailable in `VoxelForge.Mcp` headless mode. They can be added later as an optional post-process that launches the Engine project, but benchmark correctness must not depend on them.
+- Screenshots require a GUI renderer and are unavailable in `VoxelForge.Mcp` headless mode. They can be added later as an optional post-process that launches a viewer, but benchmark correctness must not depend on them.
 
 ## Architecture overview
 
@@ -131,7 +131,7 @@ A stdio backend may be added for agents that already emit VoxelForge JSON-line c
 
 Responsibilities:
 
-- Launch `dotnet run --project src/VoxelForge.Engine.MonoGame -- --headless` with stdin/stdout redirected, or launch a future App-only stdio composition root if one exists.
+- Launch `dotnet run --project src/VoxelForge.Mcp` or a future App-only stdio composition root if one exists.
 - Send one JSON command per line using the existing stdio request shape:
   - `{"command":"set","args":["0","0","0","1"]}`
 - Capture every request/response pair.

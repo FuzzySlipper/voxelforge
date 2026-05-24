@@ -12,7 +12,7 @@ agent -> VoxelForge.Mcp headless session -> publish_preview snapshot
                                            -> GUI reload on update thread
 ```
 
-This keeps the MCP session authoritative, keeps `VoxelForge.Mcp` headless, and lets the GUI act as a human-facing observer. It also keeps benchmarks and non-GUI MCP use independent from FNA/Myra.
+This keeps the MCP session authoritative, keeps `VoxelForge.Mcp` headless, and lets the GUI act as a human-facing observer. It also keeps benchmarks and non-GUI MCP use independent from any native renderer.
 
 ## Option A: local push notification channel
 
@@ -70,7 +70,7 @@ The Electron path loads `.vforge` files through the `VoxelForge.Bridge` sidecar 
 watchers, which means:
 
 - The Electron renderer can be pointed at any `publish_preview` snapshot (via the Open button or `--preview` CLI arg).
-- It does not replace or require the MonoGame `--watch` file-watcher workflow; both remain independent.
+- It does not replace or require any file-watcher workflow; it is an independent preview surface.
 - It does not implement file-watching itself — previews are loaded on demand through the bridge's `voxelforge.project.load` command.
 - The Electron renderer is an **optional** viewer; MCP/headless/stdio workflows do not require it.
 

@@ -2,15 +2,13 @@
 
 LLM-assisted voxel authoring tool. Frame-swap animation, semantic region labels, built-in LLM assistance.
 
-Built with C#/.NET 10, FNA (XNA reimplementation), and Myra UI.
+Built with C#/.NET 10, with a canonical JavaScript/WebGL viewer (Three.js) and an Electron renderer experiment.
 
 ## Prerequisites
 
 - .NET 10 SDK
-- CMake, Make, GCC
-- SDL3 (`pacman -S sdl3` on Arch)
-- Vulkan-capable GPU and drivers
-- Node.js 20+ and npm (for Electron smoke test only)
+- Node.js 20+ and npm (for Electron/JS renderer)
+- Git submodules initialized (`git submodule update --init --recursive` also pulls `lib/den-bridge`)
 
 ## Building
 
@@ -18,17 +16,36 @@ Built with C#/.NET 10, FNA (XNA reimplementation), and Myra UI.
 # Initialize submodules (first time only)
 git submodule update --init --recursive
 
-# Build native libraries (FNA3D + FAudio against system SDL3)
-./build-native.sh
-
 # Build the .NET solution
 dotnet build voxelforge.slnx
-
-# Run
-dotnet run --project src/VoxelForge.Engine.MonoGame
 ```
 
-After the initial setup, the day-to-day cycle is just `dotnet build` + `dotnet run`. Re-run `./build-native.sh` only if you update the FNA submodule or clean the build output.
+## Running
+
+### MCP Server + Browser Viewer (Recommended)
+
+```bash
+# Start the MCP server with built-in WebGL viewer
+dotnet run --project src/VoxelForge.Mcp
+
+# Viewer available at http://localhost:5201/viewer
+```
+
+### Electron Renderer
+
+```bash
+# Dev loop with auto-build
+./scripts/run-electron-dev.sh
+
+# Or with a preview file
+./scripts/run-electron-dev.sh --preview content/mcp-preview.vforge
+```
+
+### Bridge Sidecar (Standalone)
+
+```bash
+dotnet run --project src/VoxelForge.Bridge
+```
 
 ## Running Tests
 
@@ -38,7 +55,7 @@ dotnet test voxelforge.slnx
 
 ## Bridge Smoke Tests
 
-The Electron renderer experiment uses a C# sidecar (`VoxelForge.Bridge`) that hosts a `den-bridge` WebSocket server. Three smoke-test scripts verify the bridge end-to-end:
+The Electron renderer uses a C# sidecar (`VoxelForge.Bridge`) that hosts a `den-bridge` WebSocket server. Three smoke-test scripts verify the bridge end-to-end:
 
 ```bash
 # C#-only smoke test (ping + version handshake via WebSocket, no Electron needed)
@@ -55,9 +72,9 @@ The Electron smoke tests require `cd electron && npm install` on first run (the 
 
 See [`docs/architecture/bridge-protocol.md`](docs/architecture/bridge-protocol.md) for the full VoxelForge bridge protocol specification.
 
-## Electron Renderer (Experiment)
+## Electron Renderer
 
-The [`electron/`](electron/) directory contains an experimental Electron + Three.js renderer that communicates with a C# sidecar over the `den-bridge` WebSocket protocol.
+The [`electron/`](electron/) directory contains an Electron + Three.js renderer that communicates with a C# sidecar over the `den-bridge` WebSocket protocol.
 
 ### Prerequisites
 
@@ -160,11 +177,9 @@ cd electron && npm run package:dir
 ./scripts/run-renderer-smoke-test.sh
 ```
 
-### Experiment Decision Checkpoint
+### Renderer Decision
 
-The Electron renderer experiment has been evaluated. See [`docs/architecture/electron-renderer-decision-checkpoint.md`](docs/architecture/electron-renderer-decision-checkpoint.md) for the full decision record.
-
-**Current posture:** Keep the Electron renderer as a **parallel experimental renderer**. The core architecture (bridge protocol, sidecar, incremental mesh pipeline) is proven, but packaging, performance profiling, and feature parity are incomplete. The existing FNA/Myra frontend remains the supported control path.
+The JavaScript/WebGL viewer (MCP `/viewer` endpoint) and the Electron renderer are the canonical visual paths. The previous FNA/Myra/MonoGame native renderer was retired in #1632. Future visual diagnostics should use the WebGL viewer or headless browser capture.
 
 ### TypeScript Tests
 
@@ -203,21 +218,29 @@ src/
   VoxelForge.Content           Palette definitions, templates, default assets
   VoxelForge.LLM               LLM provider adapters (Microsoft.Extensions.AI)
   VoxelForge.App               Editor state, undo/redo, tools, composition
-  VoxelForge.Engine.MonoGame   FNA rendering, Myra UI panels, input handling
-  VoxelForge.Bridge            Headless bridge sidecar for Electron renderer experiment
+  VoxelForge.Mcp               Headless MCP adapter with built-in WebGL viewer
+  VoxelForge.Bridge            Headless bridge sidecar for Electron renderer
+  VoxelForge.Evaluation        Benchmark and evaluation harnesses
+  VoxelForge.Import            Tool-call import and conversation replay
 
 tests/
   VoxelForge.Core.Tests        Data model, labels, animation, serialization, meshing, raycasting
+  VoxelForge.App.Tests         Editor state, undo, services, snapshots
   VoxelForge.LLM.Tests         Tool loop, handler dispatch
   Architecture.Tests           Dependency boundary enforcement
   VoxelForge.Bridge.Tests      Bridge handler and WebSocket transport smoke tests
+  VoxelForge.Mcp.Tests         MCP tool and endpoint tests
+  VoxelForge.Evaluation.Tests  Benchmark runner tests
+  VoxelForge.Import.Tests      Import pipeline tests
 
-lib/                           Git submodules (FNA, Myra, FontStashSharp, XNAssets, den-bridge)
+lib/                           Git submodules (den-bridge only)
 
-electron/                      Electron renderer experiment (TypeScript, minimal smoke test)
+electron/                      Electron + Three.js renderer (TypeScript)
 ```
 
 ## Controls
+
+Controls apply to the Electron/Three.js renderer viewport:
 
 - **Right-drag** — Orbit camera
 - **Scroll wheel** — Zoom

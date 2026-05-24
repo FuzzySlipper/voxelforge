@@ -1,13 +1,13 @@
 # Electron Renderer Experiment Architecture Plan
 
 > Task: #1169 | Parent: #1168
-> Status: architecture plan (documentation only)
+> Status: completed — JS renderer is now canonical (see #1632)
 
 ## Overview
 
-This document defines the architecture for an Electron-based renderer experiment for VoxelForge. The experiment evaluates whether a TypeScript/Electron frontend with a Three.js renderer can replace or supplement the current FNA/Myra frontend while preserving all existing VoxelForge architecture rules.
+This document defines the architecture for the Electron-based renderer in VoxelForge. The experiment evaluated whether a TypeScript/Electron frontend with a Three.js renderer could replace the FNA/Myra frontend while preserving all existing VoxelForge architecture rules.
 
-During the experiment, the existing FNA/Myra frontend remains the supported control path. The Electron renderer is an additive experiment, not a migration.
+**Outcome:** The experiment succeeded. The JavaScript/WebGL viewer (MCP `/viewer` endpoint) and the Electron renderer are now the canonical visual paths. The FNA/Myra frontend was retired in task #1632.
 
 ## Core Principle: C# Owns Truth, TypeScript Owns Pixels
 
@@ -159,7 +159,7 @@ voxelforge/
 │   ├── VoxelForge.Content                 (unchanged)
 │   ├── VoxelForge.LLM                     (unchanged)
 │   ├── VoxelForge.App                     (unchanged)
-│   ├── VoxelForge.Engine.MonoGame         (unchanged — FNA/Myra control path)
+│   ├── VoxelForge.Engine.MonoGame         (retired in #1632 — was FNA/Myra control path)
 │   ├── VoxelForge.Mcp                     (unchanged — headless MCP adapter)
 │   ├── VoxelForge.Evaluation              (unchanged)
 │   ├── VoxelForge.Import                  (unchanged)
@@ -226,20 +226,20 @@ voxelforge/
 
 ### Layout Rules
 
-- `VoxelForge.Bridge` references `VoxelForge.App` and `VoxelForge.Core` only. It does not reference `Engine.MonoGame`, FNA, or Myra.
+- `VoxelForge.Bridge` references `VoxelForge.App` and `VoxelForge.Core` only. It does not reference any engine renderer project.
 - `electron/` is a separate npm/TypeScript project. It does not import C# sources or vice versa.
 - `den-bridge` lives in `lib/den-bridge` as a submodule, not copied into `src/` or `electron/`.
-- Existing `VoxelForge.Engine.MonoGame` and `VoxelForge.Mcp` remain unchanged and independent.
+- Existing `VoxelForge.Mcp` remains unchanged and independent.
 
 ---
 
 ## C# Sidecar Design Sketch
 
-The sidecar is a console application with a `den-bridge` host loop. It is headless: no FNA window, no Myra UI.
+The sidecar is a console application with a `den-bridge` host loop. It is headless: no native window, no native UI.
 
 ### Composition Root (`VoxelForge.Bridge/Program.cs`)
 
-1. Compose the same `VoxelForge.App` service graph used by `Engine.MonoGame` and `Mcp`.
+1. Compose the same `VoxelForge.App` service graph used by `VoxelForge.Mcp`.
 2. Register `den-bridge` message handlers that wrap App services.
 3. Start the bridge host (stdio or socket).
 4. On bridge disconnect or sidecar stdin EOF, shut down cleanly.
@@ -283,25 +283,25 @@ The full VoxelForge bridge protocol is defined in [`bridge-protocol.md`](bridge-
 
 ---
 
-## FNA/Myra Control Path Preservation
+## Legacy FNA/Myra Control Path (Retired in #1632)
 
 During the entire experiment:
 
-- `VoxelForge.Engine.MonoGame` remains the supported interactive editor.
-- FNA/Myra continues to receive bug fixes and feature parity work required by the existing roadmap.
-- The Electron renderer does not claim feature completeness until the final decision checkpoint (#1181).
-- Live preview and MCP workflows ([`docs/mcp-server.md`](../mcp-server.md)) continue to function independently of the Electron path. The Electron renderer is an additional viewer/editor surface, not a replacement for MCP headless sessions or preview watchers.
-- If an implementation choice would require changing FNA/Myra internals, prefer adding a neutral service in `VoxelForge.App` rather than coupling the two renderers.
+- `VoxelForge.Engine.MonoGame` was the supported interactive editor until its retirement in #1632.
+- FNA/Myra received bug fixes and feature parity work during the experiment phase.
+- The Electron renderer did not claim feature completeness until the final decision checkpoint (#1181).
+- Live preview and MCP workflows ([`docs/mcp-server.md`](../mcp-server.md)) continued to function independently of the Electron path. The Electron renderer was an additional viewer/editor surface, not a replacement for MCP headless sessions or preview watchers.
+- Renderer-neutral services in `VoxelForge.App` were preferred over coupling to either renderer.
 
 #### Live preview paths at a glance
 
-The existing MonoGame `--watch`/`--preview-watch` file-watcher path and the Electron renderer's bridge-based project-load path are both valid ways to view published MCP preview snapshots, but they serve different use cases:
+The JS viewer (`/viewer`), the MonoGame `--watch` path (retired), and the Electron renderer's bridge-based project-load path were all ways to view published MCP preview snapshots:
 
 | Path | Process coordination | Refresh mechanism | Dependencies |
-|------|----------------------|-------------------|-------------|
-| MonoGame `--watch` (FNA/Myra) | File-system: `publish_preview` writes `.vforge`; watcher reloads on write | Automatic hot-reload on write | FNA, Myra, `VoxelForge.Engine.MonoGame` |
-| Electron Open / `--preview` (Three.js) | Bridge protocol: sidecar loads file via `voxelforge.project.load` | Manual Refresh button or future state-delta-driven reload | Electron, `VoxelForge.Bridge` sidecar |
-
+|------|----------------------|-------------------|--------------|
+| JS viewer (`/viewer`) | SSE/polling from MCP server | Automatic on model change | `VoxelForge.Mcp` |
+| Electron Open button | Bridge: `voxelForge.project.load` | Manual (user clicks Open) | `VoxelForge.Bridge`, `electron/` |
+| Electron `--preview` | Bridge auto-load at startup | Once at startup | `VoxelForge.Bridge`, `electron/` |
 Both paths use the same `publish_preview` snapshot format. The MCP session remains the authoritative editing session in both cases.
 
 Electron-specific preview launch details are documented in [`docs/mcp-server.md`](../mcp-server.md) under the "Electron renderer preview workflow" section.
@@ -314,7 +314,7 @@ Electron-specific preview launch details are documented in [`docs/mcp-server.md`
 
 The vertical slice is considered successful when:
 
-1. **Sidecar starts:** `VoxelForge.Bridge` launches from Electron main, handshakes over `den-bridge`, and composes the App service graph without FNA/Myra references.
+1. **Sidecar starts:** `VoxelForge.Bridge` launches from Electron main, handshakes over `den-bridge`, and composes the App service graph without renderer-specific references.
 2. **Mesh display:** A `.vforge` file opened via the sidecar renders as a colored voxel mesh in the Three.js canvas with correct palette colors.
 3. **Camera control:** Orbit, zoom, and snap-to-view work in the renderer without C# round-trips.
 4. **Single mutation round-trip:** Placing or removing one voxel via TS input flows through bridge → C# service → mesh regeneration → TS mesh update, end-to-end in under 100 ms on reference hardware.
@@ -327,20 +327,20 @@ Before deciding whether to adopt, extend, or abandon the Electron renderer:
 
 | Criterion | Threshold |
 |-----------|-----------|
-| **Feature parity** | Electron renderer supports all tools, labels, animation, and reference image workflows that FNA/Myra supports today, or has a documented gap list with migration plan. |
-| **Performance** | Frame time on reference scenes is within 2x of FNA renderer at equivalent quality. Mesh update latency stays under 100 ms for edits up to 1,000 voxels. |
+| **Feature parity** | Electron renderer supports all tools, labels, animation, and reference image workflows the legacy renderer supported, or has a documented gap list with migration plan. |
+| **Performance** | Frame time on reference scenes is within 2x of the legacy renderer at equivalent quality. Mesh update latency stays under 100 ms for edits up to 1,000 voxels. |
 | **Reliability** | Bridge disconnection, sidecar crash, or renderer crash is recoverable without data loss (unsaved state warning + graceful reconnect). |
 | **Build complexity** | `scripts/build-electron.sh` and `scripts/run-electron-dev.sh` run on Linux and macOS without manual steps beyond `git submodule update --init --recursive`. |
-| **Maintainer cost** | Bridge protocol, TS renderer, and sidecar adapters have test coverage ≥ the existing FNA renderer test coverage (or a documented plan to reach it). |
+| **Maintainer cost** | Bridge protocol, TS renderer, and sidecar adapters have test coverage ≥ the existing renderer test coverage (or a documented plan to reach it). |
 | **MCP/live preview preservation** | Existing `VoxelForge.Mcp` and `--watch` preview workflows remain fully functional and documented. |
 
 ### Decision Outcomes
 
-- **Adopt:** Make Electron the primary interactive renderer. FNA/Myra moves to legacy maintenance or is removed in a future task.
-- **Extend:** Keep both renderers supported. Electron is the default on some platforms; FNA/Myra remains the default on others.
-- **Abandon:** Remove `electron/`, `VoxelForge.Bridge`, and `lib/den-bridge`. Document lessons learned. FNA/Myra remains the sole renderer.
+- **Adopt:** Make Electron the primary interactive renderer. Legacy FNA/Myra moves to maintenance or is removed in a future task.
+- **Extend:** Keep both renderers supported. Electron is the default on some platforms; the legacy renderer remains the default on others.
+- **Abandon:** Remove `electron/`, `VoxelForge.Bridge`, and `lib/den-bridge`. Document lessons learned. The legacy renderer remains the sole renderer.
 
-> **Decision checkpoint outcome:** See [`electron-renderer-decision-checkpoint.md`](electron-renderer-decision-checkpoint.md) for the final evaluation and recommendation. The current recommendation is **keep as parallel experimental renderer** — core architecture is proven, but packaging, performance profiling, and feature parity are incomplete. Concrete follow-up tasks are listed in the decision document.
+> **Decision checkpoint outcome:** See [`electron-renderer-decision-checkpoint.md`](electron-renderer-decision-checkpoint.md) for the final evaluation. The JS renderer was adopted as canonical in #1632; the FNA/Myra path was retired.
 
 ---
 

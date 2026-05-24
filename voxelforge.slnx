@@ -7,7 +7,6 @@
     <Project Path="src/VoxelForge.Mcp/VoxelForge.Mcp.csproj" />
     <Project Path="src/VoxelForge.Evaluation/VoxelForge.Evaluation.csproj" />
     <Project Path="src/VoxelForge.Import/VoxelForge.Import.csproj" />
-    <Project Path="src/VoxelForge.Engine.MonoGame/VoxelForge.Engine.MonoGame.csproj" />
     <Project Path="src/VoxelForge.Bridge/VoxelForge.Bridge.csproj" />
   </Folder>
   <Folder Name="/tests/">

@@ -10,7 +10,7 @@ namespace VoxelForge.App.Services;
 /// Stateless service that produces renderer-neutral snapshots of editor state.
 /// Reads from explicit state objects (<see cref="EditorDocumentState"/>,
 /// <see cref="EditorSessionState"/>, etc.) and produces immutable snapshots
-/// suitable for serialization to non-FNA renderers.
+/// suitable for serialization to any renderer (WebGL, Electron, headless).
 /// <para>
 /// This service does NOT mutate any state. Mutations flow through
 /// <see cref="Commands.IEditorCommand"/> and <see cref="Commands.UndoStack"/>.

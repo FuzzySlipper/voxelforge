@@ -30,7 +30,7 @@ public abstract class UnavailableVisualMcpTool : IVoxelForgeMcpTool
         return new McpToolInvocationResult
         {
             Success = false,
-            Message = $"Visual MCP tool '{Name}' is unavailable in headless VoxelForge.Mcp because screenshot capture requires the FNA renderer. Run the Engine.MonoGame application for viewport screenshots, or use non-visual query tools such as describe_model, get_model_info, and get_voxels_in_area.",
+            Message = $"Visual MCP tool '{Name}' is unavailable in headless VoxelForge.Mcp because screenshot capture requires the JS viewer (browser/WebGL). Use the /viewer endpoint or the Electron renderer for visual inspection, or use non-visual query tools such as describe_model, get_model_info, and get_voxels_in_area.",
         };
     }
 }

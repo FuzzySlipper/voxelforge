@@ -1,3 +1,5 @@
+> **Historical / Archive Note:** This document describes FNA/XNA4-specific winding conventions for the legacy native renderer, which was retired in task #1632. The current WebGL/Three.js renderer uses standard WebGL conventions.
+
 # Winding Order in FNA / XNA4
 
 ## The Rule

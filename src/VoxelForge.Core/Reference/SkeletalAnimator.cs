@@ -2,7 +2,7 @@ namespace VoxelForge.Core.Reference;
 
 /// <summary>
 /// CPU-side skeletal animation: interpolates keyframes, computes bone transforms,
-/// and skins vertex positions/normals. Engine-agnostic (plain floats, no FNA types).
+/// and skins vertex positions/normals. Engine-agnostic (plain floats, no rendering-framework types).
 /// </summary>
 public static class SkeletalAnimator
 {

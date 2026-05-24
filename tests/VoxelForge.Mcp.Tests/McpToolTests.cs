@@ -377,7 +377,7 @@ public sealed class McpToolTests
         Assert.False(angleResult.Success);
         Assert.False(compareResult.Success);
         Assert.Contains("headless", viewResult.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("FNA renderer", viewResult.Message, StringComparison.Ordinal);
+        Assert.Contains("JS viewer", viewResult.Message, StringComparison.Ordinal);
         Assert.Equal("object", angleTool.InputSchema.GetProperty("type").GetString());
         Assert.True(viewTool.IsReadOnly);
     }

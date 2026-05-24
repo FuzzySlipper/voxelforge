@@ -1,3 +1,5 @@
+> **Historical / Archive Note:** This document describes the legacy FNA/Myra native renderer UI, which was retired in task #1632. The JS viewer (`/viewer` endpoint) and Electron renderer are now the canonical visual paths.
+
 # UI Status Event Manual Verification
 
 Task 866 adds a Myra status bar that consumes App-layer `EditorStatusEvent` messages through an explicit Engine UI handler.
@@ -7,7 +9,8 @@ Manual verification steps:
 1. Start the editor:
 
    ```bash
-   dotnet run --project src/VoxelForge.Engine.MonoGame
+   # Legacy FNA/Myra path (retired in #1632)
+   # dotnet run --project src/VoxelForge.Engine.MonoGame
    ```
 
 2. Select the fill tool in the left **Tools** panel.

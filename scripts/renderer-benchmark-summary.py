@@ -88,7 +88,7 @@ def main():
     lines.append("## Limitations")
     lines.append("")
     lines.append("- C# benchmarks measure CPU-side only: mesh generation, snapshot construction, and model mutation.")
-    lines.append("- GPU upload, draw-call, and frame-time measurements require a graphics API (FNA or Electron/WebGL).")
+    lines.append("- GPU upload, draw-call, and frame-time measurements require a graphics API (WebGL/Electron).")
     lines.append("- Electron Scene construction performance is measured via the existing `--renderer-smoke-test` path.")
     lines.append("- To measure per-scene Electron construction, a bridge command to create benchmark scenes on the C# sidecar would be needed.")
     lines.append("- JSON serialization estimate is approximate (float/byte/int size heuristics).")

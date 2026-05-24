@@ -8,9 +8,8 @@ Use project ID `voxelforge` for Den tasks, messages, documents, librarian querie
 
 ```bash
 git submodule update --init --recursive
-./build-native.sh
 dotnet build voxelforge.slnx
 dotnet test voxelforge.slnx
-dotnet run --project src/VoxelForge.Engine.MonoGame
-dotnet run --project src/VoxelForge.Engine.MonoGame -- --headless
+dotnet run --project src/VoxelForge.Mcp
+dotnet run --project src/VoxelForge.Bridge
 ```

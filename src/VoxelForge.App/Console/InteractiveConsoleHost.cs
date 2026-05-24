@@ -3,7 +3,7 @@ using Spectre.Console;
 namespace VoxelForge.App.Console;
 
 /// <summary>
-/// Interactive REPL that runs in the terminal alongside the MonoGame window.
+/// Interactive REPL that runs in the terminal alongside the application.
 /// Uses ReadLine for history and tab completion, Spectre.Console for output.
 /// </summary>
 public sealed class InteractiveConsoleHost

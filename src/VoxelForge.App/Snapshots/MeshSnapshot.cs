@@ -3,7 +3,7 @@ namespace VoxelForge.App.Snapshots;
 /// <summary>
 /// Renderer-neutral snapshot of mesh geometry produced by a mesher.
 /// Contains flat vertex and index buffers suitable for upload to any GPU API
-/// without leaking FNA/MonoGame or rendering framework types.
+/// without leaking rendering-framework types.
 /// </summary>
 public sealed class MeshSnapshot
 {
