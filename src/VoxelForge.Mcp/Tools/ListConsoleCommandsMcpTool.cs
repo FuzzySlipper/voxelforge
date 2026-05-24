@@ -64,7 +64,7 @@ public sealed class ListConsoleCommandsMcpTool : IVoxelForgeMcpTool
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var entries = _bridge.EntriesByName.Values
+        var entries = _bridge.UniqueEntries
             .OrderBy(e => e.Name, StringComparer.Ordinal)
             .Select(e => new
             {

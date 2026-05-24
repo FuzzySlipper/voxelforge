@@ -15,8 +15,12 @@ public sealed class ConsoleCommandBridgeService
 {
     private readonly CommandRouter _router;
     private readonly IReadOnlyDictionary<string, ConsoleCommandBridgeEntry> _entriesByName;
+    private readonly IReadOnlyList<ConsoleCommandBridgeEntry> _uniqueEntries;
 
     public IReadOnlyDictionary<string, ConsoleCommandBridgeEntry> EntriesByName => _entriesByName;
+
+    /// <summary>All unique catalog entries (one per primary command name).</summary>
+    public IReadOnlyList<ConsoleCommandBridgeEntry> UniqueEntries => _uniqueEntries;
 
     public ConsoleCommandBridgeService(
         VoxelForgeMcpSession session,
@@ -78,9 +82,11 @@ public sealed class ConsoleCommandBridgeService
 
         // Build lookup by primary name AND aliases, so "rm" maps to the "remove" entry.
         var dict = new Dictionary<string, ConsoleCommandBridgeEntry>(StringComparer.OrdinalIgnoreCase);
+        var unique = new List<ConsoleCommandBridgeEntry>();
         foreach (var entry in catalog)
         {
             dict[entry.Name] = entry;
+            unique.Add(entry);
             foreach (var alias in entry.Aliases)
             {
                 // Aliases only — skip if already taken by a primary name.
@@ -88,6 +94,7 @@ public sealed class ConsoleCommandBridgeService
             }
         }
         _entriesByName = dict;
+        _uniqueEntries = unique.AsReadOnly();
     }
 
     /// <summary>
