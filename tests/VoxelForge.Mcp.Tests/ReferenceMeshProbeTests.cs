@@ -367,6 +367,46 @@ public sealed class ReferenceMeshProbeTests
 
         Assert.Equal(1, result.ViewCount);
         Assert.Equal(0, result.TotalOccupiedSamples);
+        Assert.Single(result.Views);
+        Assert.Equal(0, result.Views[0].DepthMin);
+        Assert.Equal(0, result.Views[0].DepthMax);
+        Assert.NotNull(result.Views[0].RunLengthRows);
+        Assert.All(result.Views[0].RunLengthRows!, row => Assert.Equal("_", row));
+    }
+
+    [Fact]
+    public void Raycast_ZeroVertexNormals_FallsBackToTriangleNormal()
+    {
+        var mesh = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                new(0, 0, 0, 0, 0, 0, 255, 255, 255, 255),
+                new(1, 0, 0, 0, 0, 0, 255, 255, 255, 255),
+                new(0, 1, 0, 0, 0, 0, 255, 255, 255, 255),
+            ],
+            Indices = [0, 1, 2],
+        };
+        var model = new ReferenceModelData
+        {
+            FilePath = "/synthetic/zero-normals.obj",
+            Format = "OBJ",
+            Meshes = [mesh],
+            Scale = 1f,
+        };
+
+        var result = ReferenceMeshProbeHelper.RaycastReferenceModel(
+            model,
+            new Vector3(0.25f, 0.25f, 1f),
+            new Vector3(0, 0, -1));
+
+        Assert.Equal(1, result.HitCount);
+        Assert.NotNull(result.Hits);
+        var normal = result.Hits[0].Normal;
+        Assert.True(float.IsFinite(normal.X));
+        Assert.True(float.IsFinite(normal.Y));
+        Assert.True(float.IsFinite(normal.Z));
+        Assert.Equal(1f, normal.Length(), 4);
     }
 
     [Fact]

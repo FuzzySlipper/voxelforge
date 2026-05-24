@@ -152,20 +152,21 @@ public static class ReferenceMeshProbeHelper
                     Vector3 n0, n1, n2;
                     if (transformed && localToWorld.HasValue)
                     {
-                        // Transform normals by the inverse-transpose of localToWorld
-                        n0 = Vector3.Normalize(Vector3.TransformNormal(GetNorm(i0), localToWorld.Value));
-                        n1 = Vector3.Normalize(Vector3.TransformNormal(GetNorm(i1), localToWorld.Value));
-                        n2 = Vector3.Normalize(Vector3.TransformNormal(GetNorm(i2), localToWorld.Value));
+                        n0 = SafeNormalize(Vector3.TransformNormal(GetNorm(i0), localToWorld.Value));
+                        n1 = SafeNormalize(Vector3.TransformNormal(GetNorm(i1), localToWorld.Value));
+                        n2 = SafeNormalize(Vector3.TransformNormal(GetNorm(i2), localToWorld.Value));
                     }
                     else
                     {
-                        n0 = Vector3.Normalize(GetNorm(i0));
-                        n1 = Vector3.Normalize(GetNorm(i1));
-                        n2 = Vector3.Normalize(GetNorm(i2));
+                        n0 = SafeNormalize(GetNorm(i0));
+                        n1 = SafeNormalize(GetNorm(i1));
+                        n2 = SafeNormalize(GetNorm(i2));
                     }
 
                     float baryW = 1f - baryU - baryV;
-                    Vector3 hitNormal = Vector3.Normalize(n0 * baryW + n1 * baryU + n2 * baryV);
+                    Vector3 hitNormal = SafeNormalize(n0 * baryW + n1 * baryU + n2 * baryV);
+                    if (hitNormal == Vector3.Zero)
+                        hitNormal = SafeNormalize(Vector3.Cross(p1 - p0, p2 - p0));
 
                     hits.Add((tHit, meshIdx, i, new Vector3(baryU, baryV, baryW), hitPoint, hitNormal));
                 }
@@ -252,6 +253,30 @@ public static class ReferenceMeshProbeHelper
         var viewResults = new List<ProbeViewResult>();
         int totalOccupied = 0;
 
+        if (allTris.Count == 0)
+        {
+            foreach (var (viewName, lookDir, upDir) in selectedViews)
+            {
+                Vector3 look = SafeNormalize(lookDir);
+                Vector3 up = SafeNormalize(upDir);
+                viewResults.Add(new ProbeViewResult(
+                    viewName,
+                    look,
+                    up,
+                    Vector3.Zero,
+                    Vector3.Zero,
+                    cappedRes,
+                    0,
+                    0,
+                    EmptyRows(cappedRes),
+                    0,
+                    0,
+                    null));
+            }
+
+            return new ProbeBatchResult(viewResults, viewResults.Count, 0);
+        }
+
         foreach (var (viewName, lookDir, upDir) in selectedViews)
         {
             // Build orthographic basis: right = look × up, then re-up = right × look
@@ -294,10 +319,9 @@ public static class ReferenceMeshProbeHelper
             float cellU = uRange / cappedRes;
             float cellV = vRange / cappedRes;
 
-            // Place orthographic ray origin behind the far side of the model
-            // (relative to camera at -look*INF). Ray direction = -look (toward camera),
-            // so rays enter the model at the far face and exit at the near face
-            // capturing all geometry between.
+            // Place orthographic ray origin beyond max projected depth and trace
+            // back through the model along -look, capturing any surface under
+            // each projected cell center.
             float depthSpan = maxDepth - minDepth;
             float originDepth = maxDepth + depthSpan;
 
@@ -321,9 +345,11 @@ public static class ReferenceMeshProbeHelper
                     Vector3 rayOrigin = originDepth * look + uVal * right + vVal * up;
                     Vector3 rayDir = -look;
 
-                    // Test against all transformed triangles, early-exit on first hit
+                    // Test against all transformed triangles and keep the nearest
+                    // entry point along the ray for depth reporting.
                     bool cellHit = false;
                     float nearestHitDepth = float.MaxValue;
+                    float nearestT = float.MaxValue;
 
                     foreach (var (p0, p1, p2) in allTris)
                     {
@@ -331,12 +357,14 @@ public static class ReferenceMeshProbeHelper
                                 rayOrigin, rayDir, p0, p1, p2,
                                 out float tHit, out _, out _))
                         {
+                            if (tHit >= nearestT)
+                                continue;
+
                             Vector3 hitPoint = rayOrigin + rayDir * tHit;
                             float hitDepth = Vector3.Dot(hitPoint, look);
-                            if (hitDepth < nearestHitDepth)
-                                nearestHitDepth = hitDepth;
+                            nearestT = tHit;
+                            nearestHitDepth = hitDepth;
                             cellHit = true;
-                            break; // Early exit: one hit is enough for occupancy
                         }
                     }
 
@@ -505,5 +533,21 @@ public static class ReferenceMeshProbeHelper
             axis.ToString().ToLowerInvariant(),
             cappedBins, binWidth, minVal, maxVal,
             counts, mean, median, values.Count);
+    }
+
+    private static Vector3 SafeNormalize(Vector3 value)
+    {
+        var length = value.Length();
+        return length > float.Epsilon && float.IsFinite(length)
+            ? value / length
+            : Vector3.Zero;
+    }
+
+    private static List<string> EmptyRows(int count)
+    {
+        var rows = new List<string>(count);
+        for (int i = 0; i < count; i++)
+            rows.Add("_");
+        return rows;
     }
 }
