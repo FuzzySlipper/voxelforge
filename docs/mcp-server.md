@@ -415,6 +415,44 @@ A minimal agent workflow to convert a 3D reference model into a voxel model, ins
 
 Supported reference formats include FBX, OBJ, GLTF, GLB, DAE, and other formats supported by AssimpNetter. Texture baking and vertex colors are preserved during voxelization when color variation is detected.
 
+### Old FBX / FBX 6100 conversion
+
+The Assimp-backed `load_reference_model` path supports modern FBX versions well, but **old Kaydara FBX versions such as 6100 are not supported** by the bundled Assimp DOM. If you try to load an ancient FBX directly, the MCP tool will report an FBX-DOM unsupported error.
+
+**Recommended workflow:** convert to GLB first, then load the GLB through MCP.
+
+Use the provided helper script:
+
+```bash
+./scripts/convert-old-fbx-to-glb.sh /path/to/legacy-model.fbx --name my-model
+```
+
+What the script does:
+
+1. Detects the FBX version header (e.g. `Kaydara FBX model, version 6100`).
+2. Locates or auto-bootstraps the `FBX2glTF` converter from the npm registry into a temporary cache (`/tmp/voxelforge/fbx-convert-cache` by default). No large binaries are committed to the repository.
+3. Converts the FBX to GLB (or GLTF) and writes it to `content/mcp/imports/<name>.glb`.
+4. Prints the exact `load_reference_model` MCP call to run next.
+
+Environment variables the script respects:
+
+| Variable | Purpose |
+|----------|---------|
+| `FBX2GLTF_BIN` | Direct path to the `FBX2glTF` executable. |
+| `VOXELFORGE_IMPORT_DIR` | Output directory for converted files (default: `content/mcp/imports`). |
+| `VOXELFORGE_CACHE_DIR` | Directory for the bootstrapped converter cache (default: `/tmp/voxelforge/fbx-convert-cache`). |
+| `VOXELFORGE_MCP_URL` | Printed in the follow-up load hint (default: `http://127.0.0.1:5201/mcp`). |
+
+After conversion, load the GLB into MCP and continue the normal FBX-to-voxel workflow:
+
+```json
+{ "path": "content/mcp/imports/my-model.glb" }
+```
+
+Call `load_reference_model`, then `list_reference_models`, `transform_reference_model`, and `voxelize_reference_model` as usual.
+
+**Scale tuning note:** old FBX assets are often authored in centimeters or arbitrary units. If `voxelize_reference_model` produces too few voxels, increase `scale` in `transform_reference_model` before voxelizing. Values between `5` and `20` are common starting points. For example, a Watcher FBX model at `scale: 10` with `resolution: 64` produces a few hundred voxels, while `scale: 1` may yield only a handful.
+
 ---
 
 ## MCP Traffic / Token Ranging
