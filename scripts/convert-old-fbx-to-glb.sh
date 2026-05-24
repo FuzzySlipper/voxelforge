@@ -199,6 +199,7 @@ printf 'Converted:   %s (%s bytes)\n' "$OUT_PATH" "$OUT_SIZE"
 # ── Print follow-up MCP workflow ───────────────────────────────────────────
 printf '\n=== Next steps ===\n'
 printf 'Load the converted model into VoxelForge MCP:\n'
+printf '  Endpoint: %s\n' "$MCP_URL"
 printf '  MCP tool: load_reference_model\n'
 printf '  { "path": "%s" }\n' "$OUT_PATH"
 printf '\nSuggested workflow:\n'
