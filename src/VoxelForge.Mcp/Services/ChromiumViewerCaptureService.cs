@@ -109,13 +109,16 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
                 RedirectStandardOutput = true,
             };
 
-            // Build argument list for a headless screenshot
-            // window-size must match the requested capture dimensions
+            // Build argument list for a headless screenshot. The virtual-time
+            // budget gives the viewer time to load CDN scripts, fetch the mesh
+            // snapshot, apply camera params, and draw at least one frame before
+            // Chromium writes the screenshot.
             psi.ArgumentList.Add("--headless=new");
             psi.ArgumentList.Add("--no-sandbox");
             psi.ArgumentList.Add("--disable-gpu");
-            psi.ArgumentList.Add("--disable-software-rasterizer");
             psi.ArgumentList.Add("--disable-dev-shm-usage");
+            psi.ArgumentList.Add("--run-all-compositor-stages-before-draw");
+            psi.ArgumentList.Add("--virtual-time-budget=5000");
             psi.ArgumentList.Add($"--window-size={request.Width},{request.Height}");
             psi.ArgumentList.Add($"--screenshot={outputPath}");
             psi.ArgumentList.Add("--disable-extensions");
@@ -130,15 +133,53 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
             var sw = Stopwatch.StartNew();
             process.Start();
 
-            // Read stdout/stderr in background to avoid deadlocks
-            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
 
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            // Read stdout/stderr in background to avoid deadlocks.
+            var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+
+            try
+            {
+                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                }
+                catch (Exception killEx) when (killEx is InvalidOperationException or NotSupportedException)
+                {
+                    _logger.LogDebug(killEx, "Chromium process already exited or could not be killed for {Label}", label);
+                }
+
+                return new ViewerCaptureResult
+                {
+                    Success = false,
+                    ErrorMessage = "Chromium capture timed out after 30 seconds.",
+                    ImagePath = outputPath,
+                    Label = label,
+                    Preset = request.Preset,
+                    Yaw = request.Yaw,
+                    Pitch = request.Pitch,
+                };
+            }
             sw.Stop();
 
-            var stderr = await stderrTask;
-            var stdout = await stdoutTask;
+            string stderr = string.Empty;
+            string stdout = string.Empty;
+            try
+            {
+                stderr = await stderrTask;
+                stdout = await stdoutTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Process has exited or timed out; output is only diagnostic.
+            }
 
             if (process.ExitCode != 0)
             {

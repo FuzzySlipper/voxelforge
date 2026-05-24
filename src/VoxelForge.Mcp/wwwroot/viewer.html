@@ -629,14 +629,11 @@
           // Connect to SSE for live updates
           connectSse();
 
-          // Load initial data
-          await updateViewer();
-
-          // If camera params were provided, apply them after mesh is loaded
-          // (applyCameraParams is called from buildMesh when camera params are set)
-          // Store for use after first frame
+          // If camera params were provided, install the override before the
+          // initial mesh fetch. buildMesh() calls frameCamera() during the first
+          // update, so setting this after updateViewer() would be too late and
+          // all preset screenshots would use the default isometric framing.
           if (cameraParams && (cameraParams.yaw !== null || cameraParams.pitch !== null)) {
-            // Force camera params after mesh loads; override the auto-frame logic
             var origFrameCamera = frameCamera;
             frameCamera = function(bounds) {
               if (!applyCameraParams(cameraParams, bounds)) {
@@ -645,6 +642,9 @@
               frameCamera = origFrameCamera; // restore after first call
             };
           }
+
+          // Load initial data
+          await updateViewer();
 
           // Start polling (will short-circuit if SSE is active)
           pollTimer = setInterval(updateViewer, SSE_FALLBACK_POLL_MS);
