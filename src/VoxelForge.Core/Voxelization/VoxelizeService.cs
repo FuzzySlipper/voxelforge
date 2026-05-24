@@ -372,7 +372,7 @@ public sealed class VoxelizeService
     /// Möller–Trumbore ray-triangle intersection with barycentric coordinates.
     /// baryU/baryV correspond to v1/v2 weights; v0 weight = 1 - baryU - baryV.
     /// </summary>
-    internal static bool RayTriangleIntersectBary(
+    public static bool RayTriangleIntersectBary(
         Vector3 origin, Vector3 dir,
         Vector3 v0, Vector3 v1, Vector3 v2,
         out float t, out float baryU, out float baryV)

@@ -255,7 +255,41 @@ Reference model tools:
 - `fit_reference_model` — apply a recommended scale and optional centering (X/Z center, feet at Y=0) to a loaded reference model. Returns before/after diagnostics. Mutates the model transform (no undo for reference transforms, matching `transform_reference_model` behavior).
 - `remove_reference_model` — remove a single reference model by index.
 - `clear_reference_models` — remove all loaded reference models.
-- `voxelize_reference_model` — convert a loaded reference model into voxels at a chosen resolution (2–256) and mode (`solid` or `surface`). The result replaces the current session voxels and is undoable.
+|- `voxelize_reference_model` — convert a loaded reference model into voxels at a chosen resolution (2–256) and mode (`solid` or `surface`). The result replaces the current session voxels and is undoable.
+|- `raycast_reference_model` — cast a ray against a loaded reference model's mesh triangles (transformed or local space). Returns hit count, nearest hits with distance/point/normal, mesh index, and triangle index. Validates non-zero direction and valid model index. Cap `max_hits` at 1000. Deterministic and safe for agents to read directly.
+|  - **Input:** `{ index, origin: {x, y, z}, direction: {x, y, z}, max_hits?, transformed? }`
+|  - **Example output:**
+|    ```json
+|    {
+|      "hit_count": 2,
+|      "total_meshes": 1,
+|      "total_triangles": 12,
+|      "hits": [
+|        { "mesh_index": 0, "triangle_index": 4, "distance": 1.5, "point": {"x":0.5,"y":0.5,"z":0}, "normal": {"x":0,"y":0,"z":-1}, "material_name": "default", "color": {"r":128,"g":128,"b":128} }
+|      ]
+|    }
+|    ```
+|- `sample_reference_model_views` — sample orthographic silhouette/depth probes of a loaded reference model from canonical view directions (front, right, top, back, left, bottom). Returns compact run-length-encoded occupancy rows and depth ranges for each view. Cap resolution at 128 and view count at 6 for bounded output.
+|  - **Input:** `{ index, views?: ["front","right","top"], resolution?: 64 }`
+|  - **Example output:**
+|    ```json
+|    {
+|      "view_count": 3,
+|      "total_occupied_samples": 2450,
+|      "views": [
+|        { "view_name": "front", "resolution": 64, "occupied_samples": 820, "occupancy_density": 0.2, "depth_min": 0, "depth_max": 2, "median_depth": 0.5, "run_length_rows": ["_64", "4,3,..."] }
+|      ]
+|    }
+|    ```
+|- `reference_model_axis_histogram` — compute approximate distribution of vertex positions along a single axis (world-space by default) for scale/orientation sanity checks. Cap bins at 256. Returns bin counts, min/max, mean, median.
+|  - **Input:** `{ index, axis?: "y", bins?: 32, transformed?: true }`
+|  - **Example output:**
+|    ```json
+|    {
+|      "axis": "y", "bin_count": 32, "bin_width": 0.125, "min_value": 0, "max_value": 4,
+|      "mean": 2.1, "median": 2.0, "total_samples": 24, "counts": [0,0,1,...]
+|    }
+|    ```
 
 Spatial reasoning tools:
 

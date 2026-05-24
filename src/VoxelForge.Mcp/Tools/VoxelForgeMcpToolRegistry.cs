@@ -107,6 +107,10 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<SuggestReferenceTransformMcpTool>();
         services.AddSingleton<FitReferenceModelMcpTool>();
 
+        services.AddSingleton<RaycastReferenceModelMcpTool>();
+        services.AddSingleton<SampleReferenceModelViewsMcpTool>();
+        services.AddSingleton<ReferenceModelAxisHistogramMcpTool>();
+
         services.AddSingleton<GetRegionNeighborsMcpTool>();
         services.AddSingleton<GetInterfaceVoxelsMcpTool>();
         services.AddSingleton<MeasureDistanceMcpTool>();
@@ -147,6 +151,10 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, GetReferenceModelDiagnosticsServerTool>();
         services.AddSingleton<McpServerTool, SuggestReferenceTransformServerTool>();
         services.AddSingleton<McpServerTool, FitReferenceModelServerTool>();
+
+        services.AddSingleton<McpServerTool, RaycastReferenceModelServerTool>();
+        services.AddSingleton<McpServerTool, SampleReferenceModelViewsServerTool>();
+        services.AddSingleton<McpServerTool, ReferenceModelAxisHistogramServerTool>();
 
         services.AddSingleton<McpServerTool, GetRegionNeighborsServerTool>();
         services.AddSingleton<McpServerTool, GetInterfaceVoxelsServerTool>();
