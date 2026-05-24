@@ -132,9 +132,46 @@ public sealed class ReferenceModelLoader
         // Cache loaded textures by resolved path so we don't load the same image twice
         var textureCache = new Dictionary<string, ImageResult>(StringComparer.OrdinalIgnoreCase);
 
+        // --- Unity .mat sidecar discovery (optional, non-fatal) ---
+        var materialNames = new List<string>();
+        for (int mi = 0; mi < scene.MaterialCount; mi++)
+            materialNames.Add(scene.Materials[mi].Name ?? $"Material{mi}");
+
+        UnityMatSidecarResult? sidecarResult = null;
+        try
+        {
+            var sidecarResolver = new UnityMatSidecarResolver();
+            sidecarResult = sidecarResolver.ProcessModel(filePath, materialNames);
+            if (sidecarResult.FoundAnyMatFiles)
+            {
+                int matched = sidecarResult.Matches.Count(m => m.ParsedData is not null);
+                _logger.LogInformation(
+                    "Unity .mat sidecar: {Matched}/{Total} materials matched from {MatFiles} .mat files, {Resolved}/{Unresolved} textures resolved",
+                    matched, materialNames.Count,
+                    sidecarResult.Matches.Count,
+                    sidecarResult.Matches.Sum(m => m.ParsedData?.ResolvedTextures.Count ?? 0),
+                    sidecarResult.Matches.Sum(m => m.ParsedData?.UnresolvedGuids.Count ?? 0));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unity .mat sidecar processing failed (non-fatal): {Msg}", ex.Message);
+        }
+
         var meshes = new List<ReferenceMeshData>();
+        int meshIndex = 0;
         foreach (var mesh in scene.Meshes)
-            meshes.Add(ConvertMesh(mesh, scene, modelDir, textureCache, boneNameToIndex));
+        {
+            UnityMatMatchResult? matchForMesh = null;
+            if (sidecarResult is not null && mesh.MaterialIndex >= 0 && mesh.MaterialIndex < scene.MaterialCount)
+            {
+                var matName = scene.Materials[mesh.MaterialIndex].Name ?? $"Material{mesh.MaterialIndex}";
+                matchForMesh = sidecarResult.Matches.FirstOrDefault(
+                    m => string.Equals(m.MatchedMaterialName, matName, StringComparison.OrdinalIgnoreCase));
+            }
+            meshes.Add(ConvertMesh(mesh, scene, modelDir, textureCache, boneNameToIndex, matchForMesh));
+            meshIndex++;
+        }
 
         // Extract animation clips
         List<SkeletalAnimationClip>? clips = null;
@@ -154,12 +191,14 @@ public sealed class ReferenceModelLoader
             Meshes = meshes,
             Skeleton = skeleton,
             AnimationClips = clips,
+            UnitySidecarResult = sidecarResult,
         };
     }
 
     private ReferenceMeshData ConvertMesh(Mesh mesh, Scene scene, string modelDir,
         Dictionary<string, ImageResult> textureCache,
-        Dictionary<string, int>? boneNameToIndex = null)
+        Dictionary<string, int>? boneNameToIndex = null,
+        UnityMatMatchResult? unityMatMatch = null)
     {
         // Resolve material color if available
         byte matR = 180, matG = 180, matB = 180, matA = 255;
@@ -191,6 +230,72 @@ public sealed class ReferenceModelLoader
                     if (diffuseImage is not null)
                         textureCache[diffuseTexturePath] = diffuseImage;
                 }
+            }
+        }
+
+        // --- Optional Unity .mat sidecar overrides ---
+        UnityVector4? unityTint = null;
+        string? unityEmissionTexturePath = null;
+        ImageResult? unityEmissionImage = null;
+        float unityEmissionBrightness = 1f;
+        bool unitySidecarApplied = false;
+
+        if (unityMatMatch?.ParsedData is not null)
+        {
+            var unityMat = unityMatMatch.ParsedData;
+            unitySidecarApplied = true;
+
+            // Override diffuse texture if Unity mat has a resolved one
+            if (unityMat.MainTex is not null &&
+                unityMat.ResolvedTextures.TryGetValue("_MainTex", out var unityTexPath) &&
+                !unityTexPath.StartsWith("(unresolved:") &&
+                File.Exists(unityTexPath))
+            {
+                diffuseTexturePath = unityTexPath;
+                if (!textureCache.TryGetValue(diffuseTexturePath, out diffuseImage))
+                {
+                    diffuseImage = LoadImage(diffuseTexturePath);
+                    if (diffuseImage is not null)
+                        textureCache[diffuseTexturePath] = diffuseImage;
+                }
+                _logger.LogInformation("Unity .mat sidecar overrode diffuse texture for '{Mat}': {Path}",
+                    materialName, diffuseTexturePath);
+            }
+
+            // Apply Unity tint/main color
+            if (unityMat.MainColor.HasValue)
+            {
+                unityTint = unityMat.MainColor.Value;
+                _logger.LogInformation("Unity .mat sidecar tint for '{Mat}': ({R:F2},{G:F2},{B:F2},{A:F2})",
+                    materialName, unityTint.Value.R, unityTint.Value.G, unityTint.Value.B, unityTint.Value.A);
+            }
+
+            // Resolve emission texture
+            if (unityMat.EmissionMap is not null &&
+                unityMat.ResolvedTextures.TryGetValue("_EmissionMap", out var unityEmTexPath) &&
+                !unityEmTexPath.StartsWith("(unresolved:") &&
+                File.Exists(unityEmTexPath))
+            {
+                unityEmissionTexturePath = unityEmTexPath;
+                if (!textureCache.TryGetValue(unityEmissionTexturePath, out unityEmissionImage))
+                {
+                    unityEmissionImage = LoadImage(unityEmissionTexturePath);
+                    if (unityEmissionImage is not null)
+                        textureCache[unityEmissionTexturePath] = unityEmissionImage;
+                }
+                _logger.LogInformation("Unity .mat sidecar emission texture for '{Mat}': {Path}",
+                    materialName, unityEmissionTexturePath);
+            }
+
+            // Apply emission color
+            if (unityMat.EmissionColor.HasValue)
+            {
+                var ec = unityMat.EmissionColor.Value;
+                // Use the max component as brightness multiplier
+                float emBright = Math.Max(ec.R, Math.Max(ec.G, ec.B));
+                unityEmissionBrightness = Math.Max(unityEmissionBrightness, emBright);
+                _logger.LogInformation("Unity .mat sidecar emission color for '{Mat}': ({R:F2},{G:F2},{B:F2},{A:F2}) brightness={B:F2}",
+                    materialName, ec.R, ec.G, ec.B, ec.A, unityEmissionBrightness);
             }
         }
 
@@ -230,6 +335,33 @@ public sealed class ReferenceModelLoader
                 g = (byte)Math.Clamp((int)(vc.Y * 255), 0, 255);
                 b = (byte)Math.Clamp((int)(vc.Z * 255), 0, 255);
                 a = (byte)Math.Clamp((int)(vc.W * 255), 0, 255);
+            }
+
+            // Apply Unity .mat sidecar tint multiplication (texture × tint)
+            if (unityTint.HasValue && (diffuseImage is not null || unitySidecarApplied))
+            {
+                r = (byte)Math.Clamp((int)(r * unityTint.Value.R), 0, 255);
+                g = (byte)Math.Clamp((int)(g * unityTint.Value.G), 0, 255);
+                b = (byte)Math.Clamp((int)(b * unityTint.Value.B), 0, 255);
+                // Keep original alpha unless Unity specifies differently
+                if (unityTint.Value.A < 1f)
+                    a = (byte)Math.Clamp((int)(a * unityTint.Value.A), 0, 255);
+            }
+
+            // Apply Unity .mat sidecar emission blending
+            if (unityEmissionImage is not null && hasUvs && unityEmissionBrightness > 0f)
+            {
+                SampleTexture(unityEmissionImage, u, v, out byte er, out byte eg, out byte eb, out _);
+                r = (byte)Math.Clamp(r + (int)(er * unityEmissionBrightness), 0, 255);
+                g = (byte)Math.Clamp(g + (int)(eg * unityEmissionBrightness), 0, 255);
+                b = (byte)Math.Clamp(b + (int)(eb * unityEmissionBrightness), 0, 255);
+            }
+            else if (unityEmissionBrightness > 1f && unitySidecarApplied)
+            {
+                // Emission color only (no emission texture) — blend by brightness
+                r = (byte)Math.Clamp(r + (int)(r * (unityEmissionBrightness - 1f) * 0.5f), 0, 255);
+                g = (byte)Math.Clamp(g + (int)(g * (unityEmissionBrightness - 1f) * 0.5f), 0, 255);
+                b = (byte)Math.Clamp(b + (int)(b * (unityEmissionBrightness - 1f) * 0.5f), 0, 255);
             }
 
             vertices[i] = new ReferenceVertex(pos.X, pos.Y, pos.Z, nx, ny, nz, r, g, b, a, u, v);
@@ -293,6 +425,8 @@ public sealed class ReferenceModelLoader
             Indices = indices.ToArray(),
             MaterialName = materialName,
             DiffuseTexturePath = diffuseTexturePath,
+            EmissiveTexturePath = unityEmissionTexturePath,
+            EmissiveBrightness = unityEmissionBrightness,
         };
     }
 

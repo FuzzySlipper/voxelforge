@@ -45,6 +45,12 @@ public sealed class GetReferenceModelDiagnosticsMcpTool : ModelLifecycleMcpToolB
             var warnings = ReferenceDiagnosticsHelper.ComputeWarnings(model, worldAabb);
             var materialSummary = ReferenceDiagnosticsHelper.ComputeMaterialSummary(model);
 
+            // Add Unity .mat sidecar diagnostics
+            if (model.UnitySidecarResult is not null)
+            {
+                ReferenceDiagnosticsHelper.AddUnityMatSidecarDiagnostics(warnings, model.UnitySidecarResult);
+            }
+
             var rawSize = rawAabb.Size;
             var worldSize = worldAabb.Size;
 
@@ -94,10 +100,60 @@ public sealed class GetReferenceModelDiagnosticsMcpTool : ModelLifecycleMcpToolB
                     ["message"] = w.Message,
                     ["severity"] = w.Severity,
                 }).ToList(),
+                ["unity_sidecar"] = model.UnitySidecarResult is not null
+                    ? BuildUnitySidecarDiagnostics(model.UnitySidecarResult)
+                    : null,
             };
 
             return Ok(SerializeJson(diagnostics));
         }
+    }
+
+    private static Dictionary<string, object?>? BuildUnitySidecarDiagnostics(UnityMatSidecarResult sidecar)
+    {
+        if (!sidecar.FoundAnyMatFiles)
+            return new Dictionary<string, object?>
+            {
+                ["found"] = false,
+                ["matches"] = new List<object>(),
+            };
+
+        var matches = new List<Dictionary<string, object?>>();
+        foreach (var m in sidecar.Matches)
+        {
+            var matchData = new Dictionary<string, object?>
+            {
+                ["mat_file"] = Path.GetFileName(m.MatFilePath),
+                ["material_name"] = m.MatchedMaterialName,
+                ["match_kind"] = m.MatchKind.ToString(),
+                ["matched"] = m.ParsedData is not null,
+            };
+
+            if (m.ParsedData is not null)
+            {
+                matchData["resolved_textures"] = m.ParsedData.ResolvedTextures.Count > 0
+                    ? m.ParsedData.ResolvedTextures
+                    : null;
+                matchData["has_tint"] = m.ParsedData.MainColor.HasValue;
+                matchData["has_emission"] = m.ParsedData.EmissionColor.HasValue || m.ParsedData.EmissionMap is not null;
+                matchData["unresolved_guids"] = m.ParsedData.UnresolvedGuids.Count > 0
+                    ? m.ParsedData.UnresolvedGuids : null;
+                matchData["ignored_properties"] = m.ParsedData.IgnoredProperties.Count > 0
+                    ? m.ParsedData.IgnoredProperties.Take(10).ToList() : null;
+            }
+
+            if (m.Warnings.Count > 0)
+                matchData["warnings"] = m.Warnings;
+
+            matches.Add(matchData);
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["found"] = true,
+            ["matches"] = matches,
+            ["global_warnings"] = sidecar.GlobalWarnings.Count > 0 ? sidecar.GlobalWarnings : null,
+        };
     }
 }
 

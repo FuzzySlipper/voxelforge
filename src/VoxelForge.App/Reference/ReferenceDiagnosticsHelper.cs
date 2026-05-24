@@ -292,6 +292,90 @@ public static class ReferenceDiagnosticsHelper
             MeshesWithEmissiveTexture = emissiveTextures,
         };
     }
+
+    /// <summary>
+    /// Add Unity .mat sidecar diagnostic warnings if sidecar processing produced them.
+    /// </summary>
+    public static void AddUnityMatSidecarDiagnostics(
+        List<DiagnosticWarning> warnings,
+        UnityMatSidecarResult? sidecarResult,
+        IReadOnlyList<string>? materialNames = null)
+    {
+        if (sidecarResult is null)
+            return;
+
+        if (!sidecarResult.FoundAnyMatFiles)
+        {
+            warnings.Add(new DiagnosticWarning
+            {
+                Code = "no_unity_mat_sidecars",
+                Message = "No Unity .mat sidecar files found. Old Unity assets may lack original texture references.",
+                Severity = "info",
+            });
+            return;
+        }
+
+        int matched = sidecarResult.Matches.Count(m => m.ParsedData is not null);
+        int totalMaterials = sidecarResult.Matches.Count;
+
+        if (matched > 0)
+        {
+            warnings.Add(new DiagnosticWarning
+            {
+                Code = "unity_mat_sidecars_matched",
+                Message = $"Unity .mat sidecars: {matched}/{totalMaterials} materials matched, " +
+                          $"{sidecarResult.Matches.Sum(m => m.ParsedData?.ResolvedTextures.Count ?? 0)} textures resolved.",
+                Severity = "info",
+            });
+
+            foreach (var match in sidecarResult.Matches)
+            {
+                if (match.ParsedData is null)
+                    continue;
+
+                var mat = match.ParsedData;
+                if (mat.UnresolvedGuids.Count > 0)
+                {
+                    warnings.Add(new DiagnosticWarning
+                    {
+                        Code = "unresolved_texture_guids",
+                        Message = $"Material '{match.MatchedMaterialName}': {mat.UnresolvedGuids.Count} texture GUID(s) could not be resolved via .meta files.",
+                        Severity = "warning",
+                    });
+                }
+
+                if (mat.IgnoredProperties.Count > 0)
+                {
+                    warnings.Add(new DiagnosticWarning
+                    {
+                        Code = "ignored_unity_properties",
+                        Message = $"Material '{match.MatchedMaterialName}': {mat.IgnoredProperties.Count} unsupported Unity shader properties ignored ({string.Join(", ", mat.IgnoredProperties.Take(5))}{(mat.IgnoredProperties.Count > 5 ? "..." : "")}).",
+                        Severity = "info",
+                    });
+                }
+            }
+        }
+        else
+        {
+            warnings.Add(new DiagnosticWarning
+            {
+                Code = "unmatched_unity_mat_sidecars",
+                Message = $"Found {sidecarResult.Matches.Count} .mat file(s) but none matched any material by name or filename stem.",
+                Severity = "info",
+            });
+        }
+
+        // Surface global warnings
+        foreach (var gw in sidecarResult.GlobalWarnings)
+        {
+            warnings.Add(new DiagnosticWarning
+            {
+                Code = "unity_mat_sidecar_note",
+                Message = gw,
+                Severity = "info",
+            });
+        }
+    }
 }
 
 public readonly record struct AabbResult

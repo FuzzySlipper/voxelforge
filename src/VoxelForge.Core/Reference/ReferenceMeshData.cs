@@ -55,6 +55,10 @@ public sealed class ReferenceModelData
     public Skeleton? Skeleton { get; set; }
     public List<SkeletalAnimationClip>? AnimationClips { get; set; }
 
+    /// <summary>Unity .mat sidecar processing result (optional, populated during load).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public UnityMatSidecarResult? UnitySidecarResult { get; set; }
+
     // Animation playback state
     public int? ActiveClipIndex { get; set; }
     public float AnimationTime { get; set; }
