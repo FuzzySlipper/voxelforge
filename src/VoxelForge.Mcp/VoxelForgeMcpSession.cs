@@ -48,6 +48,7 @@ public sealed class VoxelForgeMcpSession
         Events.Register<PaletteChangedEvent>(new ViewerRevisionEventHandler(() => IncrementViewerRevision()));
         Events.Register<UndoHistoryChangedEvent>(new ViewerRevisionEventHandler(() => IncrementViewerRevision()));
         Events.Register<ProjectLoadedEvent>(new ViewerRevisionEventHandler(() => IncrementViewerRevision()));
+        Events.Register<ReferenceModelChangedEvent>(new ViewerRevisionEventHandler(() => IncrementViewerRevision()));
     }
 
     public EditorDocumentState Document { get; }
@@ -118,7 +119,8 @@ public sealed class VoxelForgeMcpSession
         IEventHandler<VoxelModelChangedEvent>,
         IEventHandler<PaletteChangedEvent>,
         IEventHandler<UndoHistoryChangedEvent>,
-        IEventHandler<ProjectLoadedEvent>
+        IEventHandler<ProjectLoadedEvent>,
+        IEventHandler<ReferenceModelChangedEvent>
     {
         private readonly Action _onEvent;
 
@@ -131,5 +133,6 @@ public sealed class VoxelForgeMcpSession
         public void Handle(PaletteChangedEvent e) => _onEvent();
         public void Handle(UndoHistoryChangedEvent e) => _onEvent();
         public void Handle(ProjectLoadedEvent e) => _onEvent();
+        public void Handle(ReferenceModelChangedEvent e) => _onEvent();
     }
 }

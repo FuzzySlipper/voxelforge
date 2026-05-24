@@ -5,6 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>VoxelForge.Mcp.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\VoxelForge.Core\VoxelForge.Core.csproj" />
     <ProjectReference Include="..\VoxelForge.App\VoxelForge.App.csproj" />
     <ProjectReference Include="..\VoxelForge.Content\VoxelForge.Content.csproj" />

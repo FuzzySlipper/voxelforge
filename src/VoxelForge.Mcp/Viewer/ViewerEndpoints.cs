@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
 using VoxelForge.App.Snapshots;
 using VoxelForge.Core;
+using VoxelForge.Core.Reference;
 
 namespace VoxelForge.Mcp.Viewer;
 
@@ -30,6 +32,8 @@ public static class ViewerEndpoints
             string modelName;
             int voxelCount;
             int gridHint;
+            int referenceModelCount;
+            int referenceVertexCount;
             List<ViewerPaletteEntry> paletteEntries;
             ViewerBounds? bounds;
 
@@ -51,10 +55,12 @@ public static class ViewerEndpoints
                     Visible = kvp.Key != 0,
                 }).OrderBy(e => e.Index).ToList();
 
+                referenceModelCount = session.ReferenceModels.Models.Count;
+                referenceVertexCount = session.ReferenceModels.Models.Sum(r => r.TotalVertices);
+
+                // Compute combined bounds: voxel model bounds + visible reference model bounds.
                 var modelBounds = model.GetBounds();
-                bounds = modelBounds is { } b
-                    ? new ViewerBounds { MinX = b.Min.X, MinY = b.Min.Y, MinZ = b.Min.Z, MaxX = b.Max.X, MaxY = b.Max.Y, MaxZ = b.Max.Z }
-                    : null;
+                bounds = ComputeCombinedBounds(modelBounds, session.ReferenceModels.Models);
             }
 
             return Results.Ok(new ViewerStateResponse
@@ -65,6 +71,8 @@ public static class ViewerEndpoints
                 GridHint = gridHint,
                 PaletteEntries = paletteEntries,
                 Bounds = bounds,
+                ReferenceModelCount = referenceModelCount,
+                ReferenceVertexCount = referenceVertexCount,
             });
         });
 
@@ -76,6 +84,7 @@ public static class ViewerEndpoints
             int revision;
             string modelName;
             long meshGenerationMs;
+            List<ViewerReferenceModelData> referenceModels;
 
             lock (session.SyncRoot)
             {
@@ -86,6 +95,7 @@ public static class ViewerEndpoints
                 palette = paletteService.BuildSnapshot(session.Document.Model.Palette);
                 revision = session.ViewerRevision;
                 modelName = session.CurrentModelName;
+                referenceModels = BuildReferenceModelDataList(session.ReferenceModels.Models);
             }
 
             string meshId = $"mesh-{modelName}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-r{revision}";
@@ -125,6 +135,7 @@ public static class ViewerEndpoints
                     SerializationMs = 0,
                     TotalMs = sw.ElapsedMilliseconds,
                 },
+                ReferenceModels = referenceModels,
             };
             sw.Stop();
 
@@ -209,6 +220,197 @@ public static class ViewerEndpoints
             expanded[i] = values[i];
         return expanded;
     }
+
+    /// <summary>
+    /// Build a list of <see cref="ViewerReferenceModelData"/> from the session's reference models,
+    /// extracting vertex geometry and transform data for the browser viewer to render.
+    /// </summary>
+    internal static List<ViewerReferenceModelData> BuildReferenceModelDataList(IReadOnlyList<ReferenceModelData> models)
+    {
+        var result = new List<ViewerReferenceModelData>(models.Count);
+        for (int i = 0; i < models.Count; i++)
+        {
+            var refModel = models[i];
+            var allPositions = new List<float>();
+            var allNormals = new List<float>();
+            var allColors = new List<int>();
+            var allIndices = new List<int>();
+            int indexOffset = 0;
+
+            for (int m = 0; m < refModel.Meshes.Count; m++)
+            {
+                var mesh = refModel.Meshes[m];
+                var verts = mesh.Vertices;
+
+                for (int v = 0; v < verts.Length; v++)
+                {
+                    var vert = verts[v];
+                    allPositions.Add(vert.PosX);
+                    allPositions.Add(vert.PosY);
+                    allPositions.Add(vert.PosZ);
+                    allNormals.Add(vert.NormX);
+                    allNormals.Add(vert.NormY);
+                    allNormals.Add(vert.NormZ);
+                    // Use vertex color if available, otherwise medium gray fallback.
+                    if (vert.R > 0 || vert.G > 0 || vert.B > 0 || vert.A > 0)
+                    {
+                        allColors.Add(vert.R);
+                        allColors.Add(vert.G);
+                        allColors.Add(vert.B);
+                        allColors.Add(vert.A);
+                    }
+                    else
+                    {
+                        allColors.Add(128);
+                        allColors.Add(128);
+                        allColors.Add(128);
+                        allColors.Add(255);
+                    }
+                }
+
+                for (int idx = 0; idx < mesh.Indices.Length; idx++)
+                {
+                    allIndices.Add(mesh.Indices[idx] + indexOffset);
+                }
+
+                indexOffset += verts.Length;
+            }
+
+            // Compute local bounds from all positions.
+            ViewerBounds? bounds = null;
+            if (allPositions.Count >= 3)
+            {
+                double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+                double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+                for (int p = 0; p < allPositions.Count; p += 3)
+                {
+                    minX = Math.Min(minX, allPositions[p]);
+                    minY = Math.Min(minY, allPositions[p + 1]);
+                    minZ = Math.Min(minZ, allPositions[p + 2]);
+                    maxX = Math.Max(maxX, allPositions[p]);
+                    maxY = Math.Max(maxY, allPositions[p + 1]);
+                    maxZ = Math.Max(maxZ, allPositions[p + 2]);
+                }
+                bounds = new ViewerBounds { MinX = minX, MinY = minY, MinZ = minZ, MaxX = maxX, MaxY = maxY, MaxZ = maxZ };
+            }
+
+            result.Add(new ViewerReferenceModelData
+            {
+                Index = i,
+                FileName = Path.GetFileName(refModel.FilePath),
+                Format = refModel.Format,
+                TotalVertices = allPositions.Count / 3,
+                TotalTriangles = allIndices.Count / 3,
+                IsVisible = refModel.IsVisible,
+                PositionX = refModel.PositionX,
+                PositionY = refModel.PositionY,
+                PositionZ = refModel.PositionZ,
+                RotationX = refModel.RotationX,
+                RotationY = refModel.RotationY,
+                RotationZ = refModel.RotationZ,
+                Scale = refModel.Scale,
+                Positions = [..allPositions],
+                Normals = [..allNormals],
+                Colors = [..allColors],
+                Indices = [..allIndices],
+                Bounds = bounds,
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Compute combined axis-aligned bounding box from voxel model bounds and visible
+    /// reference model applied-transforms. Returns null when both are empty.
+    /// </summary>
+    internal static ViewerBounds? ComputeCombinedBounds(
+        (Point3 Min, Point3 Max)? voxelBounds,
+        IReadOnlyList<ReferenceModelData> referenceModels)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+        bool hasAny = false;
+
+        if (voxelBounds is { } vb)
+        {
+            minX = Math.Min(minX, vb.Min.X);
+            minY = Math.Min(minY, vb.Min.Y);
+            minZ = Math.Min(minZ, vb.Min.Z);
+            maxX = Math.Max(maxX, vb.Max.X);
+            maxY = Math.Max(maxY, vb.Max.Y);
+            maxZ = Math.Max(maxZ, vb.Max.Z);
+            hasAny = true;
+        }
+
+        foreach (var refModel in referenceModels)
+        {
+            if (!refModel.IsVisible) continue;
+
+            foreach (var mesh in refModel.Meshes)
+            {
+                foreach (var vert in mesh.Vertices)
+                {
+                    // Apply transform: scale -> rotate -> translate
+                    var (tx, ty, tz) = ApplyReferenceTransform(
+                        vert.PosX, vert.PosY, vert.PosZ,
+                        refModel.PositionX, refModel.PositionY, refModel.PositionZ,
+                        refModel.RotationX, refModel.RotationY, refModel.RotationZ,
+                        refModel.Scale);
+
+                    minX = Math.Min(minX, tx);
+                    minY = Math.Min(minY, ty);
+                    minZ = Math.Min(minZ, tz);
+                    maxX = Math.Max(maxX, tx);
+                    maxY = Math.Max(maxY, ty);
+                    maxZ = Math.Max(maxZ, tz);
+                    hasAny = true;
+                }
+            }
+        }
+
+        return hasAny
+            ? new ViewerBounds { MinX = minX, MinY = minY, MinZ = minZ, MaxX = maxX, MaxY = maxY, MaxZ = maxZ }
+            : null;
+    }
+
+    /// <summary>
+    /// Apply reference model transform (scale -> rotate ZYX -> translate) to a local position.
+    /// Rotation angles are in degrees.
+    /// </summary>
+    private static (double X, double Y, double Z) ApplyReferenceTransform(
+        float localX, float localY, float localZ,
+        float posX, float posY, float posZ,
+        float rotXDeg, float rotYDeg, float rotZDeg,
+        float scale)
+    {
+        double x = localX * scale;
+        double y = localY * scale;
+        double z = localZ * scale;
+
+        // Rotation Z (yaw) in degrees
+        double rz = rotZDeg * Math.PI / 180.0;
+        double cosZ = Math.Cos(rz), sinZ = Math.Sin(rz);
+        double rx = x * cosZ - y * sinZ;
+        double ry = x * sinZ + y * cosZ;
+        x = rx; y = ry;
+
+        // Rotation Y (pitch) in degrees
+        double ryDeg = rotYDeg * Math.PI / 180.0;
+        double cosY = Math.Cos(ryDeg), sinY = Math.Sin(ryDeg);
+        double rzTmp = z * cosY - x * sinY;
+        x = z * sinY + x * cosY;
+        z = rzTmp;
+
+        // Rotation X (roll) in degrees
+        double rxDeg = rotXDeg * Math.PI / 180.0;
+        double cosX = Math.Cos(rxDeg), sinX = Math.Sin(rxDeg);
+        double ryTmp = y * cosX - z * sinX;
+        z = y * sinX + z * cosX;
+        y = ryTmp;
+
+        return (x + posX, y + posY, z + posZ);
+    }
 }
 
 // ── View Models (DTOs matching TS interfaces) ──
@@ -221,6 +423,8 @@ public sealed class ViewerStateResponse
     public int GridHint { get; set; }
     public List<ViewerPaletteEntry> PaletteEntries { get; set; } = [];
     public ViewerBounds? Bounds { get; set; }
+    public int ReferenceModelCount { get; set; }
+    public int ReferenceVertexCount { get; set; }
 }
 
 public sealed class ViewerPaletteEntry
@@ -234,12 +438,12 @@ public sealed class ViewerPaletteEntry
 
 public sealed class ViewerBounds
 {
-    public int MinX { get; set; }
-    public int MinY { get; set; }
-    public int MinZ { get; set; }
-    public int MaxX { get; set; }
-    public int MaxY { get; set; }
-    public int MaxZ { get; set; }
+    public double MinX { get; set; }
+    public double MinY { get; set; }
+    public double MinZ { get; set; }
+    public double MaxX { get; set; }
+    public double MaxY { get; set; }
+    public double MaxZ { get; set; }
 }
 
 public sealed class ViewerMeshSnapshotResponse
@@ -262,6 +466,7 @@ public sealed class ViewerMeshSnapshotResponse
     public ViewerBounds? Bounds { get; set; }
     public Dictionary<string, object>? PaletteMapping { get; set; }
     public ViewerMeshSnapshotMetrics? Metrics { get; set; }
+    public List<ViewerReferenceModelData>? ReferenceModels { get; set; }
 }
 
 public sealed class ViewerMeshSnapshotMetrics
@@ -269,4 +474,48 @@ public sealed class ViewerMeshSnapshotMetrics
     public long MeshGenerationMs { get; set; }
     public long SerializationMs { get; set; }
     public long TotalMs { get; set; }
+}
+
+/// <summary>
+/// Lightweight per-reference-model entry for viewer-state (no geometry).
+/// </summary>
+public sealed class ViewerReferenceModelEntry
+{
+    public int Index { get; set; }
+    public string FileName { get; set; } = "";
+    public string Format { get; set; } = "";
+    public int TotalVertices { get; set; }
+    public int TotalTriangles { get; set; }
+    public bool IsVisible { get; set; }
+    public ViewerBounds? Bounds { get; set; }
+}
+
+/// <summary>
+/// Full geometry + transform data for a reference model, included in /api/mesh-snapshot.
+/// </summary>
+public sealed class ViewerReferenceModelData
+{
+    public int Index { get; set; }
+    public string FileName { get; set; } = "";
+    public string Format { get; set; } = "";
+    public int TotalVertices { get; set; }
+    public int TotalTriangles { get; set; }
+    public bool IsVisible { get; set; }
+    public float PositionX { get; set; }
+    public float PositionY { get; set; }
+    public float PositionZ { get; set; }
+    public float RotationX { get; set; }
+    public float RotationY { get; set; }
+    public float RotationZ { get; set; }
+    public float Scale { get; set; } = 1f;
+    /// <summary>Flat interleaved positions (x,y,z triplets). In local (untransformed) coordinates.</summary>
+    public float[] Positions { get; set; } = [];
+    /// <summary>Flat interleaved normals (x,y,z triplets). In local coordinates.</summary>
+    public float[] Normals { get; set; } = [];
+    /// <summary>Flat RGBA color bytes as int array. Fallback to medium gray (128,128,128,255) when absent.</summary>
+    public int[] Colors { get; set; } = [];
+    /// <summary>Triangle index data.</summary>
+    public int[] Indices { get; set; } = [];
+    /// <summary>Bounds of the local (untransformed) reference geometry.</summary>
+    public ViewerBounds? Bounds { get; set; }
 }

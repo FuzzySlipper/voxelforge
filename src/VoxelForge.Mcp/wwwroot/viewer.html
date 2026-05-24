@@ -121,6 +121,7 @@
       let camera = null;
       let controls = null;
       let meshGroup = null;
+      let referenceGroup = null;
       let gridHelper = null;
       let lastMeshId = null;
       let lastRevision = -1;
@@ -252,6 +253,10 @@
         const mg = new THREE.Group();
         s.add(mg);
 
+        // Reference model group (separate from voxel mesh for independent rendering)
+        const rg = new THREE.Group();
+        s.add(rg);
+
         // Lights
         setupLights(s);
 
@@ -270,7 +275,7 @@
           });
         }
 
-        return { scene: s, camera: cam, renderer: r, controls: ctrl, meshGroup: mg, gridHelper: gh };
+        return { scene: s, camera: cam, renderer: r, controls: ctrl, meshGroup: mg, referenceGroup: rg, gridHelper: gh };
       }
 
       // ── Animate loop ──
@@ -373,7 +378,20 @@
           }
         }
 
+        // Build reference models first (so they're available for framing)
+        buildReferenceModels(data);
+
         if (data.vertex_count === 0 || !data.positions || data.positions.length === 0) {
+          // Only frame camera if there are no reference models either
+          if (!cameraInitiallyFramed) {
+            if (referenceGroup.children.length > 0) {
+              // Frame to reference model bounds
+              frameCamera(data.bounds);
+            } else {
+              frameCamera(null);
+            }
+            cameraInitiallyFramed = true;
+          }
           return;
         }
 
@@ -433,6 +451,105 @@
         }
       }
 
+      // ── Build reference models from snapshot data ──
+      function buildReferenceModels(data) {
+        // Clear existing reference models
+        while (referenceGroup.children.length > 0) {
+          const child = referenceGroup.children[0];
+          referenceGroup.remove(child);
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+          }
+        }
+
+        if (!data.reference_models || data.reference_models.length === 0) {
+          return;
+        }
+
+        for (let ri = 0; ri < data.reference_models.length; ri++) {
+          const rm = data.reference_models[ri];
+
+          // Skip invisible models
+          if (!rm.is_visible) continue;
+
+          if (!rm.positions || rm.positions.length === 0) continue;
+
+          const geo = new THREE.BufferGeometry();
+          const positions = new Float32Array(rm.positions);
+          geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+          // Normals
+          if (rm.normals && rm.normals.length > 0) {
+            const normals = new Float32Array(rm.normals);
+            geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+          } else {
+            geo.computeVertexNormals();
+          }
+
+          // Colors — convert uint8 RGBA to float RGB
+          if (rm.colors && rm.colors.length > 0) {
+            const vc = rm.total_vertices;
+            const colors = new Float32Array(vc * 3);
+            for (let i = 0; i < vc; i++) {
+              colors[i * 3]     = rm.colors[i * 4] / 255;
+              colors[i * 3 + 1] = rm.colors[i * 4 + 1] / 255;
+              colors[i * 3 + 2] = rm.colors[i * 4 + 2] / 255;
+            }
+            geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+          }
+
+          // Indices
+          if (rm.indices && rm.indices.length > 0) {
+            const indices = new Uint32Array(rm.indices);
+            geo.setIndex(new THREE.BufferAttribute(indices, 1));
+          }
+
+          if (!rm.normals || rm.normals.length === 0) {
+            geo.computeVertexNormals();
+          }
+          geo.computeBoundingSphere();
+
+          const mat = new THREE.MeshStandardMaterial({
+            vertexColors: rm.colors && rm.colors.length > 0,
+            side: THREE.DoubleSide,
+            roughness: 0.6,
+            metalness: 0.05,
+            transparent: true,
+            opacity: 0.85,
+          });
+
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+
+          // Apply reference model transform (local coords + position + rotation + scale)
+          // We apply transforms to the mesh object for correct Three.js semantics.
+          // Order: scale -> rotate (ZYX in degrees) -> translate.
+          const scale = rm.scale || 1;
+          mesh.scale.set(scale, scale, scale);
+
+          // Convert degrees to radians for Three.js
+          const rx = (rm.rotation_x || 0) * Math.PI / 180;
+          const ry = (rm.rotation_y || 0) * Math.PI / 180;
+          const rz = (rm.rotation_z || 0) * Math.PI / 180;
+
+          // Apply rotations in ZYX order to match server-side transform.
+          mesh.rotation.order = "ZYX";
+          mesh.rotation.set(rx, ry, rz);
+
+          mesh.position.set(
+            rm.position_x || 0,
+            rm.position_y || 0,
+            rm.position_z || 0
+          );
+
+          // Name for debugging
+          mesh.name = "ref-" + ri + "-" + (rm.file_name || "unknown");
+
+          referenceGroup.add(mesh);
+        }
+      }
+
       // ── Fetch mesh and rebuild scene ──
       async function fetchAndBuildMesh() {
         var mesh = await fetchMesh();
@@ -467,13 +584,21 @@
       function updateDiagnostics(state, mesh) {
         if (state) {
           const isUp = connected;
-          diagModel.textContent = "Model: " + state.model_name + " (" + state.voxel_count + " voxels)";
+          var refInfo = "";
+          if (state.reference_model_count && state.reference_model_count > 0) {
+            refInfo = " · ref " + state.reference_model_count + " models (" + state.reference_vertex_count + " verts)";
+          }
+          diagModel.textContent = "Model: " + state.model_name + " (" + state.voxel_count + " voxels" + refInfo + ")";
           diagConn.textContent = isUp ? "Connected · rev " + state.revision : "Disconnected";
           diagConn.className = "diag-pill " + (isUp ? "ok" : "warn");
           connDot.className = "dot " + (isUp ? "ok" : "warn");
           statusText.textContent = isUp ? "Connected" : "Disconnected — retrying…";
           statusRev.textContent = "rev " + state.revision;
-          statusVoxels.textContent = state.voxel_count + " voxels";
+          var voxelStr = state.voxel_count + " voxels";
+          if (state.reference_model_count && state.reference_model_count > 0) {
+            voxelStr += " · " + state.reference_model_count + " ref";
+          }
+          statusVoxels.textContent = voxelStr;
         }
         if (mesh) {
           diagMesh.textContent = "Mesh: " + mesh.vertex_count + " verts · " + mesh.triangle_count + " tris";
@@ -618,6 +743,7 @@
           renderer = init.renderer;
           controls = init.controls;
           meshGroup = init.meshGroup;
+          referenceGroup = init.referenceGroup;
           gridHelper = init.gridHelper;
 
           if (!webglAvailable) {

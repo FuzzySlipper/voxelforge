@@ -2,9 +2,12 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.App;
+using VoxelForge.App.Events;
+using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
 using VoxelForge.Core;
 using VoxelForge.Core.Meshing;
+using VoxelForge.Core.Reference;
 using VoxelForge.Mcp.Viewer;
 
 namespace VoxelForge.Mcp.Tests;
@@ -27,6 +30,198 @@ public sealed class ViewerEndpointTests
         var paletteService = new PaletteSnapshotService();
         return (meshService, paletteService);
     }
+
+    // ── Reference model visibility / viewer integration tests ──
+
+    [Fact]
+    public void ViewerState_ReferenceModelCount_ZeroWhenNoneLoaded()
+    {
+        var session = CreateSession();
+        var refCount = session.ReferenceModels.Models.Count;
+        var refVerts = session.ReferenceModels.Models.Sum(r => r.TotalVertices);
+
+        Assert.Equal(0, refCount);
+        Assert.Equal(0, refVerts);
+    }
+
+    [Fact]
+    public void ViewerState_ReferenceModelLoaded_ShowsCountAndVertices()
+    {
+        var session = CreateSession();
+        AddTestReferenceModel(session.ReferenceModels);
+
+        var refCount = session.ReferenceModels.Models.Count;
+        var refVerts = session.ReferenceModels.Models.Sum(r => r.TotalVertices);
+
+        Assert.Equal(1, refCount);
+        Assert.Equal(8, refVerts); // cube: 8 vertices total
+    }
+
+    [Fact]
+    public void MeshSnapshot_ReferenceModelLoaded_IncludesReferenceGeometry()
+    {
+        var session = CreateSession();
+        AddTestReferenceModel(session.ReferenceModels);
+
+        var referenceModels = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(session.ReferenceModels.Models);
+
+        Assert.NotNull(referenceModels);
+        Assert.Single(referenceModels);
+
+        var rm = referenceModels[0];
+        Assert.Equal("test-cube.obj", rm.FileName);
+        Assert.Equal("OBJ", rm.Format);
+        Assert.True(rm.IsVisible);
+        Assert.True(rm.TotalVertices > 0, "Reference model should have vertices");
+        Assert.True(rm.TotalTriangles > 0, "Reference model should have triangles");
+        Assert.NotNull(rm.Positions);
+        Assert.True(rm.Positions.Length > 0, "Positions array should be non-empty");
+        Assert.NotNull(rm.Indices);
+        Assert.True(rm.Indices.Length > 0, "Indices array should be non-empty");
+
+        // Verify transform fields are populated from the ReferenceModelData
+        Assert.Equal(10f, rm.PositionX);
+        Assert.Equal(20f, rm.PositionY);
+        Assert.Equal(5f, rm.PositionZ);
+        Assert.Equal(2f, rm.Scale);
+    }
+
+    [Fact]
+    public void MeshSnapshot_ReferenceModelLoaded_NoVoxels_StillIncludesGeometry()
+    {
+        var session = CreateSession();
+        var (meshService, _) = CreateServices();
+        AddTestReferenceModel(session.ReferenceModels);
+
+        // Voxel model is empty
+        var mesh = meshService.BuildSnapshot(session.Document.Model);
+        Assert.Equal(0, mesh.VertexCount);
+        Assert.Null(mesh.Bounds);
+
+        // But reference model data is present
+        var referenceModels = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(session.ReferenceModels.Models);
+        Assert.NotEmpty(referenceModels);
+        Assert.True(referenceModels[0].TotalVertices > 0);
+
+        // Combined bounds should reflect the reference model, not null
+        var voxelBounds = session.Document.Model.GetBounds();
+        var combinedBounds = ViewerEndpointsTestAccessors.ComputeCombinedBoundsPublic(voxelBounds, session.ReferenceModels.Models);
+        Assert.NotNull(combinedBounds);
+        // The cube fixture unit cube with scale=2 and position=(10,20,5) should have bounds
+        // centered around (10, 20, 5) with extent ~2 in each direction
+        Assert.True(combinedBounds.MinX >= 8, "Combined bounds MinX should account for reference model");
+        Assert.True(combinedBounds.MaxX <= 12, "Combined bounds MaxX should account for reference model");
+    }
+
+    [Fact]
+    public void ViewerRevision_IncrementsOnReferenceModelChangedEvent()
+    {
+        var session = CreateSession();
+        int initialRevision = session.ViewerRevision;
+
+        // Reference model load events should increment revision
+        session.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.Loaded, "Test load", 0));
+
+        Assert.True(session.ViewerRevision > initialRevision,
+            "Viewer revision should increment on ReferenceModelChangedEvent(Loaded)");
+    }
+
+    [Fact]
+    public void ViewerRevision_ReferenceModelTransform_Increments()
+    {
+        var session = CreateSession();
+        int initialRevision = session.ViewerRevision;
+
+        session.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.TransformChanged, "Test transform", 0));
+
+        Assert.True(session.ViewerRevision > initialRevision,
+            "Viewer revision should increment on ReferenceModelChangedEvent(TransformChanged)");
+    }
+
+    [Fact]
+    public void ViewerRevision_ReferenceModelRemoved_Increments()
+    {
+        var session = CreateSession();
+        int initialRevision = session.ViewerRevision;
+
+        session.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.Removed, "Test remove", 0));
+
+        Assert.True(session.ViewerRevision > initialRevision,
+            "Viewer revision should increment on ReferenceModelChangedEvent(Removed)");
+    }
+
+    [Fact]
+    public void ViewerRevision_ReferenceModelCleared_Increments()
+    {
+        var session = CreateSession();
+        int initialRevision = session.ViewerRevision;
+
+        session.Events.Publish(new ReferenceModelChangedEvent(
+            ReferenceModelChangeKind.Cleared, "Test clear", null));
+
+        Assert.True(session.ViewerRevision > initialRevision,
+            "Viewer revision should increment on ReferenceModelChangedEvent(Cleared)");
+    }
+
+    // ── Helper methods ──
+
+    private static void AddTestReferenceModel(ReferenceModelState referenceModels)
+    {
+        // Create a unit cube OBJ-style reference model with transform
+        var mesh = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                // Front face (z=0)
+                new ReferenceVertex(0, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(1, 0, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(1, 1, 0, 0, 0, -1, 200, 200, 200, 255),
+                new ReferenceVertex(0, 1, 0, 0, 0, -1, 200, 200, 200, 255),
+                // Back face (z=1)
+                new ReferenceVertex(0, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(1, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(1, 1, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(0, 1, 1, 0, 0, 1, 180, 180, 180, 255),
+            ],
+            Indices =
+            [
+                // Front
+                0, 1, 2, 0, 2, 3,
+                // Back
+                4, 6, 5, 4, 7, 6,
+                // Right
+                1, 5, 6, 1, 6, 2,
+                // Left
+                4, 0, 3, 4, 3, 7,
+                // Top
+                3, 2, 6, 3, 6, 7,
+                // Bottom
+                4, 5, 1, 4, 1, 0,
+            ],
+        };
+
+        var model = new ReferenceModelData
+        {
+            FilePath = "/tmp/test-cube.obj",
+            Format = "OBJ",
+            Meshes = [mesh],
+            PositionX = 10f,
+            PositionY = 20f,
+            PositionZ = 5f,
+            Scale = 2f,
+            RotationX = 0f,
+            RotationY = 0f,
+            RotationZ = 0f,
+            IsVisible = true,
+        };
+
+        referenceModels.Add(model);
+    }
+
+    // ── Existing tests ──
 
     [Fact]
     public void ViewerState_EmptyModel_ReturnsZeroVoxels()
@@ -389,4 +584,19 @@ public sealed class ViewerEndpointTests
         Assert.DoesNotContain("orbit", propertyNames);
         Assert.DoesNotContain("rotation", propertyNames);
     }
+}
+
+/// <summary>
+/// Public accessors for internal static helper methods to enable unit testing.
+/// </summary>
+public static class ViewerEndpointsTestAccessors
+{
+    public static List<ViewerReferenceModelData> BuildReferenceModelDataListPublic(
+        IReadOnlyList<ReferenceModelData> models)
+        => ViewerEndpoints.BuildReferenceModelDataList(models);
+
+    public static ViewerBounds? ComputeCombinedBoundsPublic(
+        (Point3 Min, Point3 Max)? voxelBounds,
+        IReadOnlyList<ReferenceModelData> referenceModels)
+        => ViewerEndpoints.ComputeCombinedBounds(voxelBounds, referenceModels);
 }
