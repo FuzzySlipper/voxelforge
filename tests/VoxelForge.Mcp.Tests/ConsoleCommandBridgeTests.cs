@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VoxelForge.App;
 using VoxelForge.App.Console;
+using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
+using VoxelForge.Content;
 using VoxelForge.Core;
 using VoxelForge.Core.Services;
 using VoxelForge.Mcp.Tools;
@@ -277,15 +280,125 @@ public sealed class ConsoleCommandBridgeTests
         Assert.Contains("(42,99,-5)", msg, StringComparison.Ordinal);
     }
 
+    // --- New tests required by task #1637 ---
+
+    [Fact]
+    public void BridgeCatalog_MatchesRegistry_ExceptExcluded()
+    {
+        var router = CreateRouter();
+        var bridge = new ConsoleCommandBridgeService(router);
+
+        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "help", "?", "commands", "exec", "run",
+        };
+
+        var registryPrimaryNames = router.Commands
+            .Select(kv => kv.Value.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(n => !excluded.Contains(n))
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var bridgePrimaryNames = bridge.UniqueEntries
+            .Select(e => e.Name)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Assert.Equal(registryPrimaryNames, bridgePrimaryNames);
+    }
+
+    [Fact]
+    public void BridgeCatalog_ExcludesHelpAndExec()
+    {
+        var bridge = CreateBridge();
+
+        Assert.False(bridge.EntriesByName.ContainsKey("help"));
+        Assert.False(bridge.EntriesByName.ContainsKey("?"));
+        Assert.False(bridge.EntriesByName.ContainsKey("commands"));
+        Assert.False(bridge.EntriesByName.ContainsKey("exec"));
+        Assert.False(bridge.EntriesByName.ContainsKey("run"));
+    }
+
+    [Fact]
+    public void MutationClassification_RefLoad_IsMutating()
+    {
+        var bridge = CreateBridge();
+        var entry = Assert.Contains("refload", bridge.EntriesByName);
+        Assert.True(entry.MutatesState);
+    }
+
+    [Fact]
+    public void MutationClassification_PaletteReduce_IsMutating()
+    {
+        var bridge = CreateBridge();
+        var entry = Assert.Contains("palette-reduce", bridge.EntriesByName);
+        Assert.True(entry.MutatesState);
+    }
+
+    [Fact]
+    public void MutationClassification_RegionLabel_IsMutating()
+    {
+        var bridge = CreateBridge();
+        var entry = Assert.Contains("label", bridge.EntriesByName);
+        Assert.True(entry.MutatesState);
+    }
+
+    [Fact]
+    public void MutationClassification_Config_IsMutating()
+    {
+        var bridge = CreateBridge();
+        var entry = Assert.Contains("config", bridge.EntriesByName);
+        Assert.True(entry.MutatesState);
+    }
+
+    [Fact]
+    public void MutationClassification_Save_IsMutating()
+    {
+        var bridge = CreateBridge();
+        var entry = Assert.Contains("save", bridge.EntriesByName);
+        Assert.True(entry.MutatesState);
+    }
+
+    [Fact]
+    public void RunConsoleCommand_RefInfo_IsRoutable()
+    {
+        var bridge = CreateBridge();
+        var session = CreateSession();
+
+        var result = bridge.Execute("refinfo", ["0"], allowMutation: false, session.CommandContext);
+
+        // Should be routed (not "Unknown or denied"), but fails because no reference model is loaded.
+        Assert.DoesNotContain("Unknown or denied", result.Message, StringComparison.Ordinal);
+        Assert.Contains("No reference model", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunConsoleCommand_DeniedExec_FailsClosed()
+    {
+        var bridge = CreateBridge();
+        var session = CreateSession();
+
+        var result = bridge.Execute("exec", ["/etc/passwd"], allowMutation: true, session.CommandContext);
+
+        Assert.False(result.Success);
+        Assert.Contains("Unknown or denied", result.Message, StringComparison.Ordinal);
+    }
+
+    private static CommandRouter CreateRouter()
+    {
+        var session = CreateSession();
+        return CommandRegistry.Build(
+            NullLoggerFactory.Instance,
+            new EditorConfigState(),
+            session.ReferenceModels,
+            new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance),
+            new ReferenceImageState());
+    }
+
     private static ConsoleCommandBridgeService CreateBridge()
     {
-        return new ConsoleCommandBridgeService(
-            CreateSession(),
-            NullLoggerFactory.Instance,
-            new VoxelEditingService(),
-            new VoxelQueryService(),
-            new EditorConfigState(),
-            new EditorConfigService());
+        return new ConsoleCommandBridgeService(CreateRouter());
     }
 
     private static VoxelForgeMcpSession CreateSession()

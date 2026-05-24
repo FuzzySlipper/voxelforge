@@ -13,8 +13,19 @@ namespace VoxelForge.App.Console;
 /// </summary>
 public static class CommandRegistry
 {
+    /// <summary>
+    /// Build a <see cref="CommandRouter"/> using pre-created service instances so the same
+    /// singletons can be shared by the MCP bridge, typed MCP tools, and the interactive console.
+    /// </summary>
     public static CommandRouter Build(
         ILoggerFactory loggerFactory,
+        VoxelEditingService voxelEditingService,
+        VoxelQueryService voxelQueryService,
+        RegionEditingService regionEditingService,
+        PaletteMaterialService paletteMaterialService,
+        ProjectLifecycleService projectLifecycleService,
+        ReferenceAssetService referenceAssetService,
+        EditorConfigService editorConfigService,
         EditorConfigState config,
         ReferenceModelState referenceModelState,
         ReferenceModelLoader refLoader,
@@ -22,13 +33,6 @@ public static class CommandRegistry
         Func<IScreenshotProvider?>? screenshotFactory = null)
     {
         var logger = loggerFactory.CreateLogger<CommandRouter>();
-        var voxelEditingService = new VoxelEditingService();
-        var voxelQueryService = new VoxelQueryService();
-        var regionEditingService = new RegionEditingService();
-        var paletteMaterialService = new PaletteMaterialService();
-        var projectLifecycleService = new ProjectLifecycleService(loggerFactory);
-        var referenceAssetService = new ReferenceAssetService(refLoader);
-        var editorConfigService = new EditorConfigService();
 
         var commands = new List<IConsoleCommand>
         {
@@ -91,5 +95,41 @@ public static class CommandRegistry
         router = new CommandRouter(allCommands, logger);
 
         return router;
+    }
+
+    /// <summary>
+    /// Build a <see cref="CommandRouter"/> by creating fresh service instances internally.
+    /// Suitable for standalone or test scenarios where DI singleton sharing is not required.
+    /// </summary>
+    public static CommandRouter Build(
+        ILoggerFactory loggerFactory,
+        EditorConfigState config,
+        ReferenceModelState referenceModelState,
+        ReferenceModelLoader refLoader,
+        ReferenceImageState referenceImageState,
+        Func<IScreenshotProvider?>? screenshotFactory = null)
+    {
+        var voxelEditingService = new VoxelEditingService();
+        var voxelQueryService = new VoxelQueryService();
+        var regionEditingService = new RegionEditingService();
+        var paletteMaterialService = new PaletteMaterialService();
+        var projectLifecycleService = new ProjectLifecycleService(loggerFactory);
+        var referenceAssetService = new ReferenceAssetService(refLoader);
+        var editorConfigService = new EditorConfigService();
+
+        return Build(
+            loggerFactory,
+            voxelEditingService,
+            voxelQueryService,
+            regionEditingService,
+            paletteMaterialService,
+            projectLifecycleService,
+            referenceAssetService,
+            editorConfigService,
+            config,
+            referenceModelState,
+            refLoader,
+            referenceImageState,
+            screenshotFactory);
     }
 }

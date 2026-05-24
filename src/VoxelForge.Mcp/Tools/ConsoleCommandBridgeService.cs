@@ -8,8 +8,9 @@ using VoxelForge.Core.Services;
 namespace VoxelForge.Mcp.Tools;
 
 /// <summary>
-/// Holds the explicit command catalog and a CommandRouter for bridge-accessible console commands.
+/// Holds the MCP bridge catalog derived from the normal VoxelForge <see cref="CommandRouter"/>.
 /// Unknown/denied commands are rejected before reaching the router.
+/// Mutating commands require explicit <c>allow_mutation: true</c>.
 /// </summary>
 public sealed class ConsoleCommandBridgeService
 {
@@ -22,53 +23,43 @@ public sealed class ConsoleCommandBridgeService
     /// <summary>All unique catalog entries (one per primary command name).</summary>
     public IReadOnlyList<ConsoleCommandBridgeEntry> UniqueEntries => _uniqueEntries;
 
-    public ConsoleCommandBridgeService(
-        VoxelForgeMcpSession session,
-        ILoggerFactory loggerFactory,
-        VoxelEditingService editingService,
-        VoxelQueryService queryService,
-        EditorConfigState config,
-        EditorConfigService configService)
+    /// <summary>
+    /// Commands excluded from the bridge catalog. Default is include; exclusions are documented
+    /// with exact reasons.
+    /// </summary>
+    private static readonly HashSet<string> ExcludedCommandNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(loggerFactory);
+        // Help lists all router commands, including non-bridge ones (e.g. exec).
+        // list_console_commands is the canonical bridge catalog query.
+        "help",
+        "?",
+        "commands",
 
-        // All bridge-accessible commands must be registered here explicitly.
-        // Unknown console commands — or commands deemed dangerous in headless — are denied.
-        var bridgeCommands = new List<IConsoleCommand>
-        {
-            // Read-only query commands
-            new DescribeCommand(queryService),
-            new GetVoxelCommand(queryService),
-            new GetCubeCommand(queryService),
-            new GetSphereCommand(queryService),
-            new CountCommand(queryService),
-            new ListFilesCommand(),
+        // Exec reads arbitrary file paths and chains commands via the internal router,
+        // bypassing per-command mutation guards and file-access controls.
+        "exec",
+        "run",
+    };
 
-            // Mutating editing commands (require allow_mutation: true)
-            new SetVoxelConsoleCommand(editingService),
-            new RemoveVoxelConsoleCommand(editingService),
-            new FillCommand(editingService),
-            new ClearCommand(editingService),
-            new GridCommand(editingService),
-            new UndoCommand(),
-            new RedoCommand(),
-        };
+    public ConsoleCommandBridgeService(CommandRouter router)
+    {
+        ArgumentNullException.ThrowIfNull(router);
+        _router = router;
 
-        var logger = loggerFactory.CreateLogger<CommandRouter>();
-        _router = new CommandRouter(bridgeCommands, logger);
-
-        // Build metadata catalog
-        var catalog = new List<ConsoleCommandBridgeEntry>();
+        var dict = new Dictionary<string, ConsoleCommandBridgeEntry>(StringComparer.OrdinalIgnoreCase);
+        var unique = new List<ConsoleCommandBridgeEntry>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var cmd in bridgeCommands.OrderBy(c => c.Name, StringComparer.Ordinal))
+        foreach (var (name, cmd) in router.Commands.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
+            if (ExcludedCommandNames.Contains(name))
+                continue;
+
             if (!seen.Add(cmd.Name))
                 continue;
 
             var mutates = IsMutatingCommand(cmd.Name);
-            catalog.Add(new ConsoleCommandBridgeEntry
+            var entry = new ConsoleCommandBridgeEntry
             {
                 Name = cmd.Name,
                 Aliases = cmd.Aliases,
@@ -77,22 +68,18 @@ public sealed class ConsoleCommandBridgeService
                 BridgeNotes = mutates
                     ? "Mutates model state — requires allow_mutation: true."
                     : null,
-            });
-        }
+            };
 
-        // Build lookup by primary name AND aliases, so "rm" maps to the "remove" entry.
-        var dict = new Dictionary<string, ConsoleCommandBridgeEntry>(StringComparer.OrdinalIgnoreCase);
-        var unique = new List<ConsoleCommandBridgeEntry>();
-        foreach (var entry in catalog)
-        {
             dict[entry.Name] = entry;
             unique.Add(entry);
             foreach (var alias in entry.Aliases)
             {
-                // Aliases only — skip if already taken by a primary name.
+                if (ExcludedCommandNames.Contains(alias))
+                    continue;
                 dict.TryAdd(alias, entry);
             }
         }
+
         _entriesByName = dict;
         _uniqueEntries = unique.AsReadOnly();
     }
@@ -156,18 +143,74 @@ public sealed class ConsoleCommandBridgeService
     }
 
     /// <summary>
-    /// Conservative classification: commands that write to the model or document.
+    /// Comprehensive mutation classification covering the full VoxelForge command surface.
+    /// Read-only commands are explicitly listed; everything else defaults to false, but the
+    /// switch is exhaustive for clarity and auditability.
     /// </summary>
     private static bool IsMutatingCommand(string name) => name.ToLowerInvariant() switch
     {
+        // Voxel edits
         "set" or "s" or "place" => true,
         "remove" or "rm" or "delete" => true,
         "fill" or "f" => true,
         "clear" or "cls" => true,
         "grid" => true,
-        "undo" => true,
-        "redo" => true,
-        // Read-only commands are everything else in the bridge catalog.
+        "undo" or "u" => true,
+        "redo" or "r" => true,
+        "voxelize" or "vox" => true,
+        "voxcompare" or "vcomp" => true,
+
+        // Region edits
+        "label" => true,
+
+        // Palette edits / bakes
+        "palette" or "pal" => true,
+        "palette-map" or "pmap" => true,
+        "palette-reduce" or "preduce" => true,
+        "ao-bake" or "ao" => true,
+        "edge-darken" or "edged" => true,
+        "light-bake" or "lbake" => true,
+
+        // Reference model changes
+        "refload" => true,
+        "refremove" => true,
+        "refclear" => true,
+        "reftransform" or "refmove" => true,
+        "refmode" => true,
+        "refshow" => true,
+        "refhide" => true,
+        "refscale" => true,
+        "refrotate" or "refrot" => true,
+        "reforient" or "refautopose" => true,
+        "refanim" => true,
+        "reftex" => true,
+        "reftex-emissive" or "refemissive" => true,
+        "refsave" => true,
+        "refloadmeta" or "refmeta" => true,
+
+        // Image changes
+        "imgload" => true,
+        "imgremove" => true,
+
+        // Save / load / config / file-writing / state-changing
+        "save" => true,
+        "load" => true,
+        "config" or "cfg" => true,
+        "measure" => true,
+        "screenshot" or "ss" => true,
+
+        // Read-only queries
+        "describe" or "desc" or "info" => false,
+        "get" or "g" => false,
+        "getcube" or "gc" => false,
+        "getsphere" or "gs" => false,
+        "count" => false,
+        "list" or "ls" or "files" => false,
+        "regions" or "lr" => false,
+        "reflist" => false,
+        "refinfo" => false,
+        "imglist" => false,
+
         _ => false,
     };
 }

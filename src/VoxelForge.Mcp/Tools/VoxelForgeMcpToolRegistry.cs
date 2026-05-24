@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
+using VoxelForge.App;
+using VoxelForge.App.Console;
 using VoxelForge.App.Console.Commands;
 using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
@@ -30,9 +32,27 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<ReferenceModelLoader>(sp => new ReferenceModelLoader(
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<ReferenceModelLoader>()));
         services.AddSingleton<ReferenceAssetService>();
+        services.AddSingleton<ReferenceImageState>();
         services.AddSingleton<VoxelizeCommand>(sp => new VoxelizeCommand(
             sp.GetRequiredService<VoxelForgeMcpSession>().ReferenceModels,
             sp.GetRequiredService<ILoggerFactory>()));
+
+        // Build the full VoxelForge CommandRouter using shared DI singletons so the MCP bridge
+        // catalog is derived from the same registry the interactive console uses.
+        services.AddSingleton(sp => CommandRegistry.Build(
+            sp.GetRequiredService<ILoggerFactory>(),
+            sp.GetRequiredService<VoxelEditingService>(),
+            sp.GetRequiredService<VoxelQueryService>(),
+            sp.GetRequiredService<RegionEditingService>(),
+            sp.GetRequiredService<PaletteMaterialService>(),
+            sp.GetRequiredService<ProjectLifecycleService>(),
+            sp.GetRequiredService<ReferenceAssetService>(),
+            sp.GetRequiredService<EditorConfigService>(),
+            sp.GetRequiredService<EditorConfigState>(),
+            sp.GetRequiredService<VoxelForgeMcpSession>().ReferenceModels,
+            sp.GetRequiredService<ReferenceModelLoader>(),
+            sp.GetRequiredService<ReferenceImageState>(),
+            () => null));
 
         services.AddSingleton<DescribeModelHandler>();
         services.AddSingleton<GetModelInfoHandler>();
@@ -163,7 +183,8 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, CheckCollisionServerTool>();
 
         // Console command bridge — guarded manual fallback for dev/low-frequency commands.
-        // Register additional console commands needed by the bridge.
+        // The bridge now derives its catalog from the shared CommandRouter so all VoxelForge
+        // console commands are exposed automatically (with documented exclusions).
         services.AddSingleton<EditorConfigService>();
         services.AddSingleton<ConsoleCommandBridgeService>();
         services.AddSingleton<RunConsoleCommandMcpTool>();
