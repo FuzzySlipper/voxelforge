@@ -741,6 +741,30 @@ public sealed class McpToolTests
         Assert.Contains("viewer is not ignoring a known texture path", warning.Message);
     }
 
+    [Fact]
+    public void ReferenceModelDiagnostics_TextureOnDiskWarnsViewerDoesNotRenderTextures()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-diagnostics-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "apple-diffuse.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47]);
+            var model = CreatePlainModelWithoutTextureLinks(texturePath);
+            var worldAabb = ReferenceDiagnosticsHelper.ComputeTransformedAabb(model);
+            var warnings = ReferenceDiagnosticsHelper.ComputeWarnings(model, worldAabb);
+
+            var warning = Assert.Single(warnings, w => w.Code == "texture_not_rendered_in_viewer");
+            Assert.Equal("info", warning.Severity);
+            Assert.Contains("renders vertex colors only", warning.Message);
+            Assert.Contains("no texture sampling", warning.Message);
+            Assert.Contains("follow-up task #1648", warning.Message);
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
     private static ReferenceModelData CreateTestModel()
     {
         return new ReferenceModelData
@@ -767,7 +791,7 @@ public sealed class McpToolTests
         };
     }
 
-    private static ReferenceModelData CreatePlainModelWithoutTextureLinks()
+    private static ReferenceModelData CreatePlainModelWithoutTextureLinks(string? diffuseTexturePath = null)
     {
         return new ReferenceModelData
         {
@@ -785,7 +809,7 @@ public sealed class McpToolTests
                     ],
                     Indices = [0, 1, 2],
                     MaterialName = "plain",
-                    DiffuseTexturePath = null,
+                    DiffuseTexturePath = diffuseTexturePath,
                 },
             ],
         };
