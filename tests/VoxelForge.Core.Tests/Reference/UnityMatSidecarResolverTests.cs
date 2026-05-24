@@ -516,4 +516,116 @@ Material:
                 Directory.Delete(baseDir, recursive: true);
         }
     }
+
+    [Fact]
+    public void ProcessModel_MatOutsideModelDir_ResolvesPathHintRelativeToMatDir()
+    {
+        // Test that when a .mat lives outside the model directory and references
+        // a texture via PathHint relative to its own location, the resolver
+        // resolves the texture relative to the .mat file directory first.
+        var rootDir = Path.Combine(Path.GetTempPath(), "voxelforge-matdir-test-" + Guid.NewGuid().ToString("N"));
+        var modelDir = Path.Combine(rootDir, "Models");
+        var matDir = Path.Combine(rootDir, "Materials");
+        var texDir = Path.Combine(matDir, "Textures");
+        Directory.CreateDirectory(modelDir);
+        Directory.CreateDirectory(texDir);
+        try
+        {
+            var modelPath = Path.Combine(modelDir, "model.fbx");
+            File.WriteAllText(modelPath, "");
+
+            // .mat file in Materials/ (not model dir, not parent)
+            // with a PathHint relative to its own directory
+            var matPath = Path.Combine(matDir, "SidecarMat.mat");
+            File.WriteAllText(matPath, """
+                --- !u!21 &2100000
+                Material:
+                  m_Name: SidecarMat
+                  m_SavedProperties:
+                    m_TexEnvs:
+                    - _MainTex:
+                        m_Texture: Textures/diffuse.png
+                    m_Floats: []
+                    m_Colors: []
+                """);
+
+            // Texture lives next to the .mat file (in Materials/Textures/)
+            var texPath = Path.Combine(texDir, "diffuse.png");
+            File.WriteAllText(texPath, "fake png bytes");
+
+            var materialNames = new List<string> { "SidecarMat" };
+
+            // Resolver with explicit asset roots so the .mat is discovered
+            // (no Assets/ root to walk up to in this test layout)
+            var resolver = new UnityMatSidecarResolver([matDir]);
+            var result = resolver.ProcessModel(modelPath, materialNames);
+
+            Assert.True(result.FoundAnyMatFiles);
+            var match = result.Matches.FirstOrDefault(m => m.MatchedMaterialName == "SidecarMat");
+            Assert.NotNull(match);
+            Assert.NotNull(match.ParsedData);
+            Assert.True(match.ParsedData.ResolvedTextures.ContainsKey("_MainTex"),
+                "PathHint should resolve relative to .mat file directory");
+            Assert.Equal(Path.GetFullPath(texPath), match.ParsedData.ResolvedTextures["_MainTex"]);
+        }
+        finally
+        {
+            if (Directory.Exists(rootDir))
+                Directory.Delete(rootDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProcessModel_DefaultDiscovery_FindsMatUnderAssetsRoot()
+    {
+        // Test that default resolver (no explicit constructor roots) discovers
+        // .mat files by walking up from modelDir to find an Assets/ root and
+        // scanning it recursively.
+        var projectDir = Path.Combine(Path.GetTempPath(), "voxelforge-defaultdisc-" + Guid.NewGuid().ToString("N"));
+        var assetsDir = Path.Combine(projectDir, "Assets");
+        var modelsDir = Path.Combine(assetsDir, "Models");
+        var materialsDir = Path.Combine(assetsDir, "Materials");
+        Directory.CreateDirectory(modelsDir);
+        Directory.CreateDirectory(materialsDir);
+        try
+        {
+            var modelPath = Path.Combine(modelsDir, "model.fbx");
+            File.WriteAllText(modelPath, "");
+
+            // .mat file lives in Assets/Materials/, not in model dir or its parent
+            var matPath = Path.Combine(materialsDir, "AssetMat.mat");
+            File.WriteAllText(matPath, """
+                --- !u!21 &2100000
+                Material:
+                  m_Name: AssetMat
+                  m_SavedProperties:
+                    m_TexEnvs: []
+                    m_Floats: []
+                    m_Colors:
+                    - _Color: {r: 0.2, g: 0.4, b: 0.6, a: 1}
+                """);
+
+            var materialNames = new List<string> { "AssetMat" };
+
+            // Default resolver — NO explicit roots
+            var resolver = new UnityMatSidecarResolver();
+            var result = resolver.ProcessModel(modelPath, materialNames);
+
+            Assert.True(result.FoundAnyMatFiles,
+                "Default resolver should find .mat by walking up to Assets/ root");
+            var match = result.Matches.FirstOrDefault(m => m.MatchedMaterialName == "AssetMat");
+            Assert.NotNull(match);
+            Assert.NotNull(match.ParsedData);
+            Assert.Equal("AssetMat", match.ParsedData.MaterialName);
+            Assert.True(match.ParsedData.MainColor.HasValue);
+            Assert.Equal(0.2f, match.ParsedData.MainColor.Value.R);
+            Assert.Equal(0.4f, match.ParsedData.MainColor.Value.G);
+            Assert.Equal(0.6f, match.ParsedData.MainColor.Value.B);
+        }
+        finally
+        {
+            if (Directory.Exists(projectDir))
+                Directory.Delete(projectDir, recursive: true);
+        }
+    }
 }

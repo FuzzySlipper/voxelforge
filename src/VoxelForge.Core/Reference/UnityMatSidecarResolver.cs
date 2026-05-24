@@ -92,7 +92,7 @@ public sealed class UnityMatSidecarResolver
             var (matPath, mat, kind, warnings) = matchData.Value;
 
             // 5. Resolve textures
-            ResolveTextures(mat, guidMap, modelDir);
+            ResolveTextures(mat, guidMap, modelDir, matPath);
             mat.SourceFilePath = matPath;
 
             result.Matches.Add(new UnityMatMatchResult
@@ -153,15 +153,51 @@ public sealed class UnityMatSidecarResolver
             }
         }
 
-        // 3. Scan configured asset roots recursively for .mat files
-        //    Use safe cap: max 1000 .mat files, max 5000 files scanned total
+        // 3. Walk up from modelDir to discover nearby Unity Assets roots
+        //    and scan them recursively for .mat files (with safe caps).
+        //    Works even when no explicit constructor roots are provided,
+        //    so the default new UnityMatSidecarResolver() finds practical sidecars.
         const int maxMatFiles = 1000;
         const int maxFilesScanned = 5000;
 
+        var discoveryRoots = new List<string>();
+
+        // Walk up looking for Assets/ or Library/ (Unity project root)
+        var dir = modelDir;
+        while (dir is not null)
+        {
+            if (Directory.Exists(Path.Combine(dir, "Assets")))
+            {
+                discoveryRoots.Add(Path.Combine(dir, "Assets"));
+                break;
+            }
+            if (Directory.Exists(Path.Combine(dir, "Library")))
+            {
+                discoveryRoots.Add(Path.Combine(dir, "Assets"));
+                break;
+            }
+            var parent = Path.GetDirectoryName(dir);
+            if (parent is null || parent == dir)
+                break;
+            dir = parent;
+        }
+
+        // Also include explicit constructor roots
         foreach (var root in _unityAssetRoots)
         {
-            if (string.IsNullOrWhiteSpace(root))
-                continue;
+            if (!string.IsNullOrWhiteSpace(root) &&
+                !discoveryRoots.Contains(root, StringComparer.OrdinalIgnoreCase))
+            {
+                discoveryRoots.Add(root);
+            }
+        }
+
+        // Deduplicate and sort for deterministic ordering
+        discoveryRoots.Sort(StringComparer.OrdinalIgnoreCase);
+
+        // Scan each discovery root recursively
+        foreach (var root in discoveryRoots)
+        {
             if (!Directory.Exists(root))
                 continue;
 
@@ -301,12 +337,17 @@ public sealed class UnityMatSidecarResolver
     private static void ResolveTextures(
         UnityMatData data,
         Dictionary<string, string> guidMap,
-        string modelDir)
+        string modelDir,
+        string? matFilePath = null)
     {
+        string? matDir = matFilePath is not null
+            ? Path.GetDirectoryName(Path.GetFullPath(matFilePath))
+            : null;
+
         // Resolve each texture reference
         if (data.MainTex is not null)
         {
-            var resolved = ResolveTextureRef(data.MainTex, guidMap, modelDir);
+            var resolved = ResolveTextureRef(data.MainTex, guidMap, modelDir, matDir);
             if (resolved is not null)
             {
                 if (resolved.StartsWith("(unresolved:"))
@@ -318,7 +359,7 @@ public sealed class UnityMatSidecarResolver
 
         if (data.BaseColorMap is not null)
         {
-            var resolved = ResolveTextureRef(data.BaseColorMap, guidMap, modelDir);
+            var resolved = ResolveTextureRef(data.BaseColorMap, guidMap, modelDir, matDir);
             if (resolved is not null)
             {
                 if (resolved.StartsWith("(unresolved:"))
@@ -330,7 +371,7 @@ public sealed class UnityMatSidecarResolver
 
         if (data.EmissionMap is not null)
         {
-            var resolved = ResolveTextureRef(data.EmissionMap, guidMap, modelDir);
+            var resolved = ResolveTextureRef(data.EmissionMap, guidMap, modelDir, matDir);
             if (resolved is not null)
             {
                 if (resolved.StartsWith("(unresolved:"))
@@ -344,7 +385,8 @@ public sealed class UnityMatSidecarResolver
     private static string? ResolveTextureRef(
         UnityTextureRef texRef,
         Dictionary<string, string> guidMap,
-        string modelDir)
+        string modelDir,
+        string? matDir = null)
     {
         // Try GUID resolution first
         if (texRef.Guid is not null)
@@ -356,17 +398,34 @@ public sealed class UnityMatSidecarResolver
             return $"(unresolved:{texRef.Guid})";
         }
 
-        // Path-based reference — try relative to model dir
+        // Path-based reference — try relative to .mat file directory first,
+        // then relative to model directory
         if (texRef.PathHint is not null)
         {
-            var candidate = Path.Combine(modelDir, texRef.PathHint);
-            if (File.Exists(candidate))
-                return Path.GetFullPath(candidate);
+            string filename;
 
-            var filename = Path.GetFileName(texRef.PathHint);
-            candidate = Path.Combine(modelDir, filename);
-            if (File.Exists(candidate))
-                return Path.GetFullPath(candidate);
+            // 1. Try relative to .mat file directory
+            if (matDir is not null)
+            {
+                var candidate = Path.Combine(matDir, texRef.PathHint);
+                if (File.Exists(candidate))
+                    return Path.GetFullPath(candidate);
+
+                filename = Path.GetFileName(texRef.PathHint);
+                candidate = Path.Combine(matDir, filename);
+                if (File.Exists(candidate))
+                    return Path.GetFullPath(candidate);
+            }
+
+            // 2. Try relative to model directory
+            var candidate2 = Path.Combine(modelDir, texRef.PathHint);
+            if (File.Exists(candidate2))
+                return Path.GetFullPath(candidate2);
+
+            filename = Path.GetFileName(texRef.PathHint);
+            candidate2 = Path.Combine(modelDir, filename);
+            if (File.Exists(candidate2))
+                return Path.GetFullPath(candidate2);
         }
 
         return null;

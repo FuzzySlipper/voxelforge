@@ -251,19 +251,28 @@ public static partial class UnityMatParser
         }
 
         // Fall back to direct path-like reference (e.g. m_Texture: Textures/diffuse.png)
-        // Extract the value after the colon
+        // or quoted variants (e.g. m_Texture: "Textures/diffuse.png")
         var colonIdx = line.IndexOf(':');
         if (colonIdx >= 0)
         {
             var valuePart = line[(colonIdx + 1)..].Trim();
-            if (!string.IsNullOrWhiteSpace(valuePart) &&
-                !valuePart.StartsWith('{') && !valuePart.StartsWith('"') &&
-                !valuePart.StartsWith('\''))
+            if (!string.IsNullOrWhiteSpace(valuePart) && !valuePart.StartsWith('{'))
             {
-                return new UnityTextureRef
+                // Strip surrounding quotes if present
+                var pathValue = valuePart;
+                if ((pathValue.StartsWith('"') && pathValue.EndsWith('"')) ||
+                    (pathValue.StartsWith('\'') && pathValue.EndsWith('\'')))
                 {
-                    PathHint = valuePart,
-                };
+                    pathValue = pathValue[1..^1].Trim();
+                }
+
+                if (!string.IsNullOrWhiteSpace(pathValue))
+                {
+                    return new UnityTextureRef
+                    {
+                        PathHint = pathValue,
+                    };
+                }
             }
         }
 

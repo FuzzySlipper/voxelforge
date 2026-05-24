@@ -289,6 +289,53 @@ public sealed class UnityMatParserTests
     }
 
     [Fact]
+    public void Parse_TextureWithQuotedDirectPath_ParsesPathHint()
+    {
+        // Some Unity exporters produce quoted path values
+        var yaml = """
+            --- !u!21 &2100000
+            Material:
+              m_Name: QuotedPathMat
+              m_SavedProperties:
+                m_TexEnvs:
+                - _MainTex:
+                    m_Texture: "Textures/diffuse.png"
+                    m_Scale: {x: 1, y: 1}
+                    m_Offset: {x: 0, y: 0}
+                m_Floats: []
+                m_Colors: []
+            """;
+        var parsed = UnityMatParser.Parse(yaml);
+        Assert.NotNull(parsed);
+        Assert.NotNull(parsed.MainTex);
+        Assert.Null(parsed.MainTex.Guid);
+        Assert.Equal("Textures/diffuse.png", parsed.MainTex.PathHint);
+    }
+
+    [Fact]
+    public void Parse_TextureWithSingleQuotedDirectPath_ParsesPathHint()
+    {
+        var yaml = """
+            --- !u!21 &2100000
+            Material:
+              m_Name: SingleQuotedMat
+              m_SavedProperties:
+                m_TexEnvs:
+                - _MainTex:
+                    m_Texture: 'Textures/diffuse.png'
+                    m_Scale: {x: 1, y: 1}
+                    m_Offset: {x: 0, y: 0}
+                m_Floats: []
+                m_Colors: []
+            """;
+        var parsed = UnityMatParser.Parse(yaml);
+        Assert.NotNull(parsed);
+        Assert.NotNull(parsed.MainTex);
+        Assert.Null(parsed.MainTex.Guid);
+        Assert.Equal("Textures/diffuse.png", parsed.MainTex.PathHint);
+    }
+
+    [Fact]
     public void Parse_TextureWithDirectRelativePath_ResolvesRelativeToMatDir()
     {
         // Create a temp directory with a .mat file containing a direct path texture reference
