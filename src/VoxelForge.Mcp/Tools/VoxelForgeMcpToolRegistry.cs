@@ -102,6 +102,9 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<RemoveReferenceModelMcpTool>();
         services.AddSingleton<ClearReferenceModelsMcpTool>();
         services.AddSingleton<VoxelizeReferenceModelMcpTool>();
+        services.AddSingleton<GetReferenceModelDiagnosticsMcpTool>();
+        services.AddSingleton<SuggestReferenceTransformMcpTool>();
+        services.AddSingleton<FitReferenceModelMcpTool>();
 
         services.AddSingleton<GetRegionNeighborsMcpTool>();
         services.AddSingleton<GetInterfaceVoxelsMcpTool>();
@@ -140,6 +143,9 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, RemoveReferenceModelServerTool>();
         services.AddSingleton<McpServerTool, ClearReferenceModelsServerTool>();
         services.AddSingleton<McpServerTool, VoxelizeReferenceModelServerTool>();
+        services.AddSingleton<McpServerTool, GetReferenceModelDiagnosticsServerTool>();
+        services.AddSingleton<McpServerTool, SuggestReferenceTransformServerTool>();
+        services.AddSingleton<McpServerTool, FitReferenceModelServerTool>();
 
         services.AddSingleton<McpServerTool, GetRegionNeighborsServerTool>();
         services.AddSingleton<McpServerTool, GetInterfaceVoxelsServerTool>();

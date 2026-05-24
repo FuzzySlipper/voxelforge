@@ -248,6 +248,9 @@ Reference model tools:
 - `load_reference_model` — load a 3D model file (FBX, OBJ, GLTF, etc.) by absolute or relative path.
 - `list_reference_models` — list loaded reference models with index, file name, format, vertex count, render mode, and visibility.
 - `transform_reference_model` — translate, rotate, and/or scale a reference model by index.
+- `get_reference_model_diagnostics` — inspect a loaded model's raw and world-space bounds, dimensions, center, transform state, summary counts (meshes/vertices/triangles/materials/textures), and warnings (tiny extent, flat axis, missing textures, no color variation, high triangle count). Useful pre-voxelization preflight.
+- `suggest_reference_transform` — dry-run scale recommendation to match a target height or max dimension. Returns suggested scale and optional centering translation. Does not mutate state.
+- `fit_reference_model` — apply a recommended scale and optional centering (X/Z center, feet at Y=0) to a loaded reference model. Returns before/after diagnostics. Mutates the model transform (no undo for reference transforms, matching `transform_reference_model` behavior).
 - `remove_reference_model` — remove a single reference model by index.
 - `clear_reference_models` — remove all loaded reference models.
 - `voxelize_reference_model` — convert a loaded reference model into voxels at a chosen resolution (2–256) and mode (`solid` or `surface`). The result replaces the current session voxels and is undoable.
@@ -494,6 +497,40 @@ After conversion, load the GLB into MCP and continue the normal FBX-to-voxel wor
 Call `load_reference_model`, then `list_reference_models`, `transform_reference_model`, and `voxelize_reference_model` as usual.
 
 **Scale tuning note:** old FBX assets are often authored in centimeters or arbitrary units. If `voxelize_reference_model` produces too few voxels, increase `scale` in `transform_reference_model` before voxelizing. Values between `5` and `20` are common starting points. For example, a Watcher FBX model at `scale: 10` with `resolution: 64` produces a few hundred voxels, while `scale: 1` may yield only a handful.
+
+### Scale-tuning workflow with diagnostics
+
+The diagnostics and fit tools give agents a principled way to determine the right scale before voxelizing:
+
+1. **Load and diagnose**
+   ```json
+   { "path": "content/mcp/imports/Watcher.glb" }
+   ```
+   Call `load_reference_model`, then:
+   ```json
+   { "index": 0 }
+   ```
+   Call `get_reference_model_diagnostics` to check the world-space bounds, max dimension, and warnings. A tiny max dimension (e.g. `0.03`) confirms the model needs scaling.
+
+2. **Suggest scale**
+   ```json
+   { "index": 0, "target_max_dim": 20 }
+   ```
+   Call `suggest_reference_transform` to get a dry-run scale recommendation. The response includes the suggested scale, the current dimension, and optional position for centering.
+
+3. **Fit**
+   ```json
+   { "index": 0, "target_height": 10, "axis": "y", "center": true }
+   ```
+   Call `fit_reference_model` to apply the scale and centering. The response includes before/after diagnostics so you can confirm the change.
+
+4. **Voxelize**
+   ```json
+   { "index": 0, "resolution": 64, "mode": "solid" }
+   ```
+   Call `voxelize_reference_model` with a reasonable resolution for the fitted bounds.
+
+**Example:** For the Watcher GLB at scale 1, `get_reference_model_diagnostics` shows a max dimension < 0.1. `suggest_reference_transform` with `target_max_dim: 20` returns `suggested_scale: ~670`. After `fit_reference_model`, voxelizing at resolution 64 produces thousands of voxels instead of a handful.
 
 ---
 

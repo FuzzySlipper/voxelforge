@@ -5,9 +5,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Server;
 using VoxelForge.App;
 using VoxelForge.App.Console.Commands;
+using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
 using VoxelForge.Core;
 using VoxelForge.Core.LLM.Handlers;
+using VoxelForge.Core.Reference;
 using VoxelForge.Core.Services;
 using VoxelForge.Mcp;
 using VoxelForge.Mcp.Tools;
@@ -47,9 +49,11 @@ public sealed class McpToolTests
                 "delete_region",
                 "describe_model",
                 "fill_box",
+                "fit_reference_model",
                 "get_cross_section",
                 "get_interface_voxels",
                 "get_model_info",
+                "get_reference_model_diagnostics",
                 "get_region_bounds",
                 "get_region_neighbors",
                 "get_region_tree",
@@ -75,6 +79,7 @@ public sealed class McpToolTests
                 "set_palette_entry",
                 "set_voxels",
                 "set_voxels_runs",
+                "suggest_reference_transform",
                 "transform_reference_model",
                 "undo",
                 "view_from_angle",
@@ -398,6 +403,222 @@ public sealed class McpToolTests
         Assert.Contains("voxel model", serverTool.ProtocolTool.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("object", serverTool.ProtocolTool.InputSchema.GetProperty("type").GetString());
         Assert.True(serverTool.ProtocolTool.Annotations?.ReadOnlyHint);
+    }
+
+    [Fact]
+    public void GetReferenceModelDiagnosticsMcpTool_ReturnsDiagnosticsForLoadedModel()
+    {
+        var session = CreateSession();
+        var model = CreateTestModel();
+        session.ReferenceModels.Add(model);
+
+        var tool = new GetReferenceModelDiagnosticsMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0 }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.Equal(0, doc.RootElement.GetProperty("index").GetInt32());
+        Assert.True(doc.RootElement.TryGetProperty("raw_bounds", out _));
+        Assert.True(doc.RootElement.TryGetProperty("world_bounds", out _));
+        Assert.True(doc.RootElement.TryGetProperty("transform", out _));
+        Assert.True(doc.RootElement.TryGetProperty("summary", out _));
+        Assert.True(doc.RootElement.TryGetProperty("warnings", out _));
+    }
+
+    [Fact]
+    public void GetReferenceModelDiagnosticsMcpTool_TransformedBoundsDifferFromRaw()
+    {
+        var session = CreateSession();
+        var model = CreateTestModel();
+        model.Scale = 10f;
+        model.PositionX = 5f;
+        model.PositionY = 3f;
+        model.PositionZ = -2f;
+        session.ReferenceModels.Add(model);
+
+        var tool = new GetReferenceModelDiagnosticsMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0 }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var doc = JsonDocument.Parse(result.Message);
+        var rawSize = doc.RootElement.GetProperty("raw_bounds").GetProperty("size");
+        var worldSize = doc.RootElement.GetProperty("world_bounds").GetProperty("size");
+
+        // Scaled by 10, so world size should be ~10x raw size
+        double rawMax = Math.Max(Math.Max(rawSize.GetProperty("x").GetDouble(), rawSize.GetProperty("y").GetDouble()), rawSize.GetProperty("z").GetDouble());
+        double worldMax = Math.Max(Math.Max(worldSize.GetProperty("x").GetDouble(), worldSize.GetProperty("y").GetDouble()), worldSize.GetProperty("z").GetDouble());
+        Assert.True(worldMax > rawMax * 5, $"World max ({worldMax}) should be at least 5x raw max ({rawMax})");
+    }
+
+    [Fact]
+    public void GetReferenceModelDiagnosticsMcpTool_MissingIndexReturnsFail()
+    {
+        var session = CreateSession();
+        var tool = new GetReferenceModelDiagnosticsMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0 }"""),
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("No reference model", result.Message);
+    }
+
+    [Fact]
+    public void GetReferenceModelDiagnosticsMcpTool_IsReadOnly()
+    {
+        var tool = new GetReferenceModelDiagnosticsMcpTool(CreateSession());
+        Assert.True(tool.IsReadOnly);
+    }
+
+    [Fact]
+    public void SuggestReferenceTransformMcpTool_SuggestsScaleForTargetHeight()
+    {
+        var session = CreateSession();
+        var model = CreateTestModel();
+        session.ReferenceModels.Add(model);
+
+        var tool = new SuggestReferenceTransformMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0, "target_height": 10, "axis": "y" }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.True(doc.RootElement.GetProperty("suggested_scale").GetDouble() > 0);
+        Assert.Equal(10, doc.RootElement.GetProperty("target_value").GetDouble());
+        Assert.Equal("y", doc.RootElement.GetProperty("axis").GetString());
+    }
+
+    [Fact]
+    public void SuggestReferenceTransformMcpTool_TargetMaxDimWorks()
+    {
+        var session = CreateSession();
+        var model = CreateTestModel();
+        session.ReferenceModels.Add(model);
+
+        var tool = new SuggestReferenceTransformMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0, "target_max_dim": 20 }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.True(doc.RootElement.GetProperty("suggested_scale").GetDouble() > 0);
+        Assert.Equal(20, doc.RootElement.GetProperty("target_value").GetDouble());
+    }
+
+    [Fact]
+    public void SuggestReferenceTransformMcpTool_IsReadOnly()
+    {
+        var tool = new SuggestReferenceTransformMcpTool(CreateSession());
+        Assert.True(tool.IsReadOnly);
+    }
+
+    [Fact]
+    public void FitReferenceModelMcpTool_AppliesScaleAndReportsBeforeAfter()
+    {
+        var session = CreateSession();
+        var model = CreateTestModel();
+        session.ReferenceModels.Add(model);
+
+        var tool = new FitReferenceModelMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0, "target_height": 10, "axis": "y", "center": true }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var doc = JsonDocument.Parse(result.Message);
+        Assert.True(doc.RootElement.TryGetProperty("before", out _));
+        Assert.True(doc.RootElement.TryGetProperty("after", out _));
+
+        var afterTransform = doc.RootElement.GetProperty("after").GetProperty("transform");
+        Assert.True(afterTransform.GetProperty("scale").GetDouble() > 0);
+
+        // Model should have been mutated
+        Assert.True(model.Scale > 1f); // scaled up for target height of 10
+        Assert.True(model.PositionY >= 0); // centered at Y=0
+    }
+
+    [Fact]
+    public void FitReferenceModelMcpTool_NotReadOnly()
+    {
+        var tool = new FitReferenceModelMcpTool(CreateSession());
+        Assert.False(tool.IsReadOnly);
+    }
+
+    [Fact]
+    public void ReferenceModelDiagnostics_WarnsOnTinyExtent()
+    {
+        var model = CreateTinyModel();
+        var worldAabb = ReferenceDiagnosticsHelper.ComputeTransformedAabb(model);
+        var warnings = ReferenceDiagnosticsHelper.ComputeWarnings(model, worldAabb);
+
+        Assert.Contains(warnings, w => w.Code == "tiny_extent");
+    }
+
+    [Fact]
+    public void ReferenceModelDiagnostics_NoWarningsOnReasonableModel()
+    {
+        var model = CreateTestModel();
+        var worldAabb = ReferenceDiagnosticsHelper.ComputeTransformedAabb(model);
+        var warnings = ReferenceDiagnosticsHelper.ComputeWarnings(model, worldAabb);
+
+        // Reasonably sized model should not have critical warnings
+        Assert.DoesNotContain(warnings, w => w.Code == "tiny_extent");
+        Assert.DoesNotContain(warnings, w => w.Code == "small_extent");
+    }
+
+    private static ReferenceModelData CreateTestModel()
+    {
+        return new ReferenceModelData
+        {
+            FilePath = "/test/model.obj",
+            Format = "obj",
+            Meshes =
+            [
+                new ReferenceMeshData
+                {
+                    Vertices =
+                    [
+                        new ReferenceVertex(0, 0, 0, 0, 1, 0, 128, 128, 128, 255),
+                        new ReferenceVertex(1, 0, 0, 0, 1, 0, 128, 128, 128, 255),
+                        new ReferenceVertex(0, 2, 0, 0, 1, 0, 128, 128, 128, 255),
+                        new ReferenceVertex(0, 0, 0, 0, 1, 0, 200, 100, 50, 255),
+                        new ReferenceVertex(0, 0, 3, 0, 1, 0, 200, 100, 50, 255),
+                        new ReferenceVertex(1, 1, 0, 0, 1, 0, 200, 100, 50, 255),
+                    ],
+                    Indices = [0, 1, 2, 3, 4, 5],
+                    MaterialName = "test_mat",
+                },
+            ],
+        };
+    }
+
+    private static ReferenceModelData CreateTinyModel()
+    {
+        return new ReferenceModelData
+        {
+            FilePath = "/test/tiny.obj",
+            Format = "obj",
+            Meshes =
+            [
+                new ReferenceMeshData
+                {
+                    Vertices =
+                    [
+                        new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255),
+                        new ReferenceVertex(0.001f, 0, 0, 0, 1, 0, 255, 255, 255, 255),
+                        new ReferenceVertex(0, 0.002f, 0, 0, 1, 0, 255, 255, 255, 255),
+                    ],
+                    Indices = [0, 1, 2],
+                    MaterialName = "tiny",
+                },
+            ],
+        };
     }
 
     private static VoxelForgeMcpSession CreateSession()
