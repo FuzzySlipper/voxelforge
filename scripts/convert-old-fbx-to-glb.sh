@@ -83,8 +83,9 @@ done
 if [[ -n "$OUTPUT" ]]; then
   OUT_PATH="$OUTPUT"
 else
-  STEM="${NAME:-$(basename "$SOURCE" .fbx)}"
-  STEM="${STEM:-$(basename "$SOURCE" .FBX)}"
+  STEM="${NAME:-$(basename "$SOURCE")}"
+  STEM="${STEM%.fbx}"
+  STEM="${STEM%.FBX}"
   mkdir -p "$IMPORT_DIR"
   OUT_PATH="$IMPORT_DIR/${STEM}.${FORMAT}"
 fi
