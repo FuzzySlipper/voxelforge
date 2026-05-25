@@ -1059,6 +1059,63 @@ export function applyUvFlip(
   return result;
 }
 
+/** Get the base URL for the current context (MCP HTTP server or Electron bridge). */
+function getBaseUrl(): string {
+  if (typeof window !== "undefined" && window.location) {
+    return window.location.origin;
+  }
+  return "http://localhost:5100";
+}
+
+/** Check if a URI uses the custom texture:// scheme. */
+function isTextureSchemeUri(uri: string): boolean {
+  return uri.startsWith("texture://");
+}
+
+/**
+ * Resolve a texture:// URI to an HTTP URL for browser use.
+ * Falls back to the raw URI if it's already an HTTP URL.
+ */
+export function resolveTextureHandle(uri: string): string {
+  if (!isTextureSchemeUri(uri)) {
+    // Already a regular URL (HTTP URL or relative path) — pass through
+    return uri;
+  }
+
+  // Parse texture://host/texId
+  const match = uri.match(/^texture:\/\/([^/]+)\/(.+)$/);
+  if (!match) {
+    console.warn(`[VoxelForgeScene] Unrecognized texture URI format: ${uri}`);
+    return uri;
+  }
+
+  const host = match[1];
+  const texId = match[2];
+
+  // For MCP host, resolve to the MCP server's texture API
+  if (host === "mcp") {
+    // Resolve via the reference-texture endpoint — but we need model/mesh/slot,
+    // so emit a warning. In practice, MCP snapshots now carry HTTP URLs directly.
+    console.warn(
+      `[VoxelForgeScene] texture:// URI for mcp host cannot be resolved without model/mesh context: ${uri}`,
+    );
+    return uri;
+  }
+
+  // For bridge host, the URI must be resolved by the bridge transport layer
+  // (which has access to the actual file paths via IPC).
+  if (host === "bridge") {
+    console.warn(
+      `[VoxelForgeScene] texture:// URI for bridge host must be resolved by bridge transport: ${uri}`,
+    );
+    return uri;
+  }
+
+  // Unknown host — return as-is
+  console.warn(`[VoxelForgeScene] Unknown texture host: ${host} for URI: ${uri}`);
+  return uri;
+}
+
 /**
  * Load a texture from the transport URI and apply it to the given material.
  * Handles srgb vs linear color space based on texture slot metadata.
@@ -1068,6 +1125,8 @@ export function loadTexture(
   slot: RenderTextureSlot,
   material: THREE.MeshStandardMaterial,
 ): void {
+  // Resolve the URI for the browser context
+  const resolvedUri = resolveTextureHandle(uri);
   const texLoader = new THREE.TextureLoader();
 
   // Notify capture readiness manager of pending texture load
@@ -1081,7 +1140,7 @@ export function loadTexture(
   );
 
   texLoader.load(
-    uri,
+    resolvedUri,
     (texture) => {
       texture.colorSpace = isNormalOrLinear
         ? THREE.LinearSRGBColorSpace
@@ -1114,7 +1173,7 @@ export function loadTexture(
     },
     undefined,
     (err) => {
-      console.warn(`[VoxelForgeScene] Failed to load texture ${uri}:`, err);
+      console.warn(`[VoxelForgeScene] Failed to load texture ${resolvedUri}:`, err);
       captureReadyManager.onTextureLoadEnd();
     },
   );

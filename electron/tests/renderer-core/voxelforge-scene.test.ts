@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import {
   detectVertexAlpha,
   applyUvFlip,
+  resolveTextureHandle,
 } from "../../src/renderer-core/scene/VoxelForgeScene";
 import type { RenderPrimitive, RenderMaterial, RenderTexture, RenderTextureSlot } from "../../src/renderer-core/protocol/types";
 
@@ -183,5 +184,48 @@ describe("primitive material_index contract (RenderPrimitive)", () => {
     const mat = materials[prim.material_index];
     expect(mat).toBeDefined();
     expect(mat.id).toBe("mat-0");
+  });
+});
+
+// ── resolveTextureHandle tests ──
+
+describe("resolveTextureHandle", () => {
+  it("passes through HTTP URLs unchanged", () => {
+    expect(resolveTextureHandle("/api/reference-texture?index=0&mesh_index=0&slot=diffuse"))
+      .toBe("/api/reference-texture?index=0&mesh_index=0&slot=diffuse");
+  });
+
+  it("passes through absolute HTTP URLs unchanged", () => {
+    expect(resolveTextureHandle("http://localhost:5100/api/texture/tex-0"))
+      .toBe("http://localhost:5100/api/texture/tex-0");
+  });
+
+  it("passes through HTTPS URLs unchanged", () => {
+    expect(resolveTextureHandle("https://server.com/api/texture/tex-0"))
+      .toBe("https://server.com/api/texture/tex-0");
+  });
+
+  it("warns but returns texture:// URIs for unknown host", () => {
+    const result = resolveTextureHandle("texture://unknown/tex-0");
+    expect(result).toBe("texture://unknown/tex-0");
+  });
+
+  it("warns but returns texture:// URIs for mcp host", () => {
+    const result = resolveTextureHandle("texture://mcp/tex-0");
+    expect(result).toBe("texture://mcp/tex-0");
+  });
+
+  it("warns but returns texture:// URIs for bridge host", () => {
+    const result = resolveTextureHandle("texture://bridge/tex-0");
+    expect(result).toBe("texture://bridge/tex-0");
+  });
+
+  it("returns unrecognized format as-is", () => {
+    const result = resolveTextureHandle("texture://");
+    expect(result).toBe("texture://");
+  });
+
+  it("returns empty string as-is", () => {
+    expect(resolveTextureHandle("")).toBe("");
   });
 });

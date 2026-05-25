@@ -491,9 +491,12 @@ public sealed class RenderSceneSnapshotServiceTests
 
             var snapshot = service.BuildSnapshot(workspace, hostId: "mcp");
 
-            // Texture URI must use transport-handle, not raw filesystem path
+            // Texture URI must use HTTP endpoint for MCP host
             var texture = Assert.Single(snapshot.Textures);
-            Assert.StartsWith("texture://mcp/", texture.Uri);
+            Assert.StartsWith("/api/reference-texture?", texture.Uri);
+            Assert.Contains("index=0", texture.Uri);
+            Assert.Contains("mesh_index=0", texture.Uri);
+            Assert.Contains("slot=diffuse", texture.Uri);
             Assert.DoesNotContain("/tmp/", texture.Uri);
             Assert.DoesNotContain("test_texture.png", texture.Uri);
 
@@ -501,6 +504,62 @@ public sealed class RenderSceneSnapshotServiceTests
             var material = Assert.Single(snapshot.Materials);
             Assert.NotNull(material.BaseColorTexture);
             Assert.Equal(texture.Id, material.BaseColorTexture.TextureId);
+        }
+        finally
+        {
+            if (File.Exists(texturePath))
+                File.Delete(texturePath);
+        }
+    }
+
+    [Fact]
+    public void BuildSnapshot_TextureUris_NonMcpHostUsesTextureScheme()
+    {
+        // For non-MCP hosts (bridge, test), texture URIs should use
+        // the transport-handle `texture://{hostId}/{texId}` scheme.
+        var texturePath = "/tmp/test_bridge_texture.png";
+        try
+        {
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47]);
+
+            var mesh = new ReferenceMeshData
+            {
+                Vertices =
+                [
+                    new(0, 0, 0, 0, 0, 1, 255, 255, 255, 255, 1, 0),
+                    new(1, 0, 0, 0, 0, 1, 255, 255, 255, 255, 0, 1),
+                    new(0, 1, 0, 0, 0, 1, 255, 255, 255, 255, 0, 0),
+                ],
+                Indices = [0, 1, 2],
+                DiffuseTexturePath = texturePath,
+                DiffuseTextureSource = "assimp",
+                MaterialName = "bridge_mat",
+            };
+
+            var model = new ReferenceModelData
+            {
+                FilePath = "/fake/bridge.obj",
+                Format = "obj",
+                Meshes = [mesh],
+                IsVisible = true,
+                Scale = 1f,
+            };
+
+            var refModels = new ReferenceModelState();
+            refModels.Add(model);
+
+            var workspace = CreateWorkspace(referenceModels: refModels);
+            var meshService = new MeshSnapshotService(new GreedyMesher());
+            var paletteService = new PaletteSnapshotService();
+            var service = new RenderSceneSnapshotService(meshService, paletteService);
+
+            var snapshot = service.BuildSnapshot(workspace, hostId: "bridge");
+
+            // Non-MCP host should still use texture:// scheme
+            var texture = Assert.Single(snapshot.Textures);
+            Assert.StartsWith("texture://bridge/", texture.Uri);
+            Assert.DoesNotContain("/tmp/", texture.Uri);
+            Assert.DoesNotContain("test_bridge_texture.png", texture.Uri);
         }
         finally
         {

@@ -307,10 +307,12 @@ public sealed class RenderSceneSnapshotService
     {
         int textureCounter = 0;
 
-        foreach (var model in models)
+        for (int modelIndex = 0; modelIndex < models.Count; modelIndex++)
         {
-            foreach (var mesh in model.Meshes)
+            var model = models[modelIndex];
+            for (int meshIndex = 0; meshIndex < model.Meshes.Count; meshIndex++)
             {
+                var mesh = model.Meshes[meshIndex];
                 var matId = $"mat-{Guid.NewGuid():N}";
                 var baseColorFactor = GetMaterialBaseColor(mesh);
 
@@ -322,9 +324,11 @@ public sealed class RenderSceneSnapshotService
                     textures.Add(new RenderTexture
                     {
                         Id = texId,
-                        // Host-safe URI: use a transport-handle scheme instead of raw filesystem path.
-                        // The host (MCP/Bridge) must resolve "texture://host/{texId}" to actual pixel data.
-                        Uri = $"texture://{hostId}/{texId}",
+                        // Host-safe URI: for MCP host use HTTP URL for browser loading;
+                        // for other hosts (bridge, test) use transport-handle scheme.
+                        Uri = hostId == "mcp"
+                            ? $"/api/reference-texture?index={modelIndex}&mesh_index={meshIndex}&slot=diffuse"
+                            : $"texture://{hostId}/{texId}",
                         MimeType = GetMimeType(diffusePath),
                         ColorSpace = "srgb",
                         Width = null,
@@ -357,7 +361,9 @@ public sealed class RenderSceneSnapshotService
                     textures.Add(new RenderTexture
                     {
                         Id = texId,
-                        Uri = $"texture://{hostId}/{texId}",
+                        Uri = hostId == "mcp"
+                            ? $"/api/reference-texture?index={modelIndex}&mesh_index={meshIndex}&slot=normal"
+                            : $"texture://{hostId}/{texId}",
                         MimeType = GetMimeType(normalPath),
                         ColorSpace = "linear",
                         Width = null,
@@ -391,7 +397,9 @@ public sealed class RenderSceneSnapshotService
                     textures.Add(new RenderTexture
                     {
                         Id = texId,
-                        Uri = $"texture://{hostId}/{texId}",
+                        Uri = hostId == "mcp"
+                            ? $"/api/reference-texture?index={modelIndex}&mesh_index={meshIndex}&slot=emissive"
+                            : $"texture://{hostId}/{texId}",
                         MimeType = GetMimeType(emissivePath),
                         ColorSpace = "srgb",
                         Width = null,
