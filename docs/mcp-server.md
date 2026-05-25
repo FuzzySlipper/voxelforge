@@ -92,7 +92,7 @@ The viewer supports live updates via a Server-Sent Events endpoint (`/api/viewer
 2. The server sends an initial `connected` event with the current revision number.
 3. Whenever the model, palette, undo history, or reference models change, the MCP session's event dispatcher increments a revision counter and broadcasts it to all connected SSE subscribers.
 4. The browser receives a `revision` event and immediately fetches a new render snapshot.
-5. **Fallback:** If SSE is unavailable (network issue, proxy, or browser without `EventSource`), the viewer falls back to polling `/api/render/state` every 2 seconds and comparing revision numbers.
+5. **Fallback:** If SSE is unavailable (network issue, proxy, or browser without `EventSource`), the viewer falls back to polling `/api/render/state` every 3 seconds and comparing revision numbers.
 
 #### SSE Event Format
 

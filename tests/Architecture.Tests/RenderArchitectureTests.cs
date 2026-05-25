@@ -538,21 +538,23 @@ public sealed class RenderArchitectureTests
         var docPath = Path.Combine(root, "docs", "mcp-server.md");
         var text = File.ReadAllText(docPath);
 
-        // Must not describe the old 2-second /api/mesh-snapshot polling as current behavior
-        // SSE is primary; polling is a fallback.
+        // Must not describe any 2-second polling interval as current behavior,
+        // regardless of endpoint (old /api/mesh-snapshot or stale /api/render/state).
+        // SSE is primary; polling is a fallback with a 3-second interval.
         var lines = text.Split('\n');
-        bool hasOldPollingRef = false;
+        bool hasStalePollingClaim = false;
         foreach (var line in lines)
         {
-            // Check for lines about polling mesh-snapshot on a fixed interval
-            if (line.Contains("polls") && line.Contains("mesh-snapshot") && line.Contains("2 second"))
+            // Check for lines about polling any endpoint on a 2-second fixed interval
+            if (line.Contains("2 second") &&
+                (line.Contains("mesh-snapshot") || line.Contains("render/state") || line.Contains("render-state")))
             {
-                hasOldPollingRef = true;
+                hasStalePollingClaim = true;
                 break;
             }
         }
-        Assert.False(hasOldPollingRef,
-            "mcp-server.md still describes old 2-second /api/mesh-snapshot polling as current behavior.");
+        Assert.False(hasStalePollingClaim,
+            "mcp-server.md still describes a stale 2-second polling interval (old /api/mesh-snapshot or stale /api/render/state) as current behavior.");
     }
 
     [Fact]
