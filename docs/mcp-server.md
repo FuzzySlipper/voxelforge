@@ -57,18 +57,23 @@ Use MCP tools (e.g., `set_voxels`, `load_model`, `fill_box`) via any MCP client 
 | Endpoint | Response | Purpose |
 |----------|----------|---------|
 | `GET /viewer` | HTML page | Self-contained viewer page |
-| `GET /api/viewer-state` | JSON `{revision, model_name, voxel_count, palette_entries, bounds}` | Lightweight state summary (no mesh data) |
-| `GET /api/mesh-snapshot` | JSON `{model_id, mesh_id, vertex_count, triangle_count, positions, normals, colors, indices, bounds, palette_mapping}` | Full mesh snapshot for rendering |
-| `GET /api/palette` | JSON `{palette_id, entries[], entry_count}` | Current palette definition |
+| `GET /api/render/state` | JSON `{schema_version, revision, model_id, source, bounds, ...}` | **Canonical** lightweight render state summary (no mesh data) |
+| `GET /api/render/snapshot` | JSON `{schema_version, revision, model_id, source, voxel_meshes, reference_nodes, materials, textures, palette, diagnostics}` | **Canonical** full versioned render-scene snapshot |
 | `GET /api/viewer-events` | SSE `data: {type, revision}` | Server-Sent Events stream for live revision updates |
+| `GET /api/reference-texture` | Image file | Authorized reference model texture serving |
+
+> **Deprecated transitional endpoints** (kept for backward compatibility, removal planned):
+> - `GET /api/viewer-state` → use `/api/render/state`
+> - `GET /api/mesh-snapshot` → use `/api/render/snapshot`
+> - `GET /api/palette` → palette data included in `/api/render/state` and `/api/render/snapshot`
 
 ### How It Works
 
 1. The viewer page loads Three.js and OrbitControls from CDN.
-2. On load, it fetches initial state via `/api/viewer-state` and mesh data via `/api/mesh-snapshot`.
-3. Every 2 seconds, it polls `/api/viewer-state` and compares the `revision` counter.
-4. When the revision changes, it fetches a new mesh snapshot and rebuilds the Three.js scene.
-5. Revisions are auto-incremented by the MCP session's event dispatcher whenever `VoxelModelChangedEvent`, `PaletteChangedEvent`, `UndoHistoryChangedEvent`, or `ProjectLoadedEvent` fires.
+3. On load, it fetches initial state via `/api/render/state` and mesh data via `/api/render/snapshot`.
+4. Every 2 seconds, it polls `/api/render/state` and compares the `revision` counter.
+5. When the revision changes, it fetches a new render snapshot and rebuilds the Three.js scene.
+6. Revisions are auto-incremented by the MCP session's event dispatcher whenever `VoxelModelChangedEvent`, `PaletteChangedEvent`, `UndoHistoryChangedEvent`, `ProjectLoadedEvent`, or `ReferenceModelChangedEvent` fires.
 
 ### Architecture Notes
 
@@ -83,9 +88,9 @@ The viewer supports live updates via a Server-Sent Events endpoint (`/api/viewer
 
 1. The browser connects to `/api/viewer-events` via `EventSource` on page load.
 2. The server sends an initial `connected` event with the current revision number.
-3. Whenever the model, palette, or undo history changes, the MCP session's event dispatcher increments a revision counter and broadcasts it to all connected SSE subscribers.
-4. The browser receives a `revision` event and immediately fetches a new mesh snapshot.
-5. **Fallback:** If SSE is unavailable (network issue, proxy, or browser without `EventSource`), the viewer falls back to polling `/api/viewer-state` every 2 seconds and comparing revision numbers.
+3. Whenever the model, palette, undo history, or reference models change, the MCP session's event dispatcher increments a revision counter and broadcasts it to all connected SSE subscribers.
+4. The browser receives a `revision` event and immediately fetches a new render snapshot.
+5. **Fallback:** If SSE is unavailable (network issue, proxy, or browser without `EventSource`), the viewer falls back to polling `/api/render/state` every 2 seconds and comparing revision numbers.
 
 #### SSE Event Format
 
@@ -99,7 +104,7 @@ data: {"type":"revision","revision":2}
 
 #### Thread Safety
 
-Viewer API endpoints (`/api/viewer-state`, `/api/mesh-snapshot`, `/api/palette`) snapshot all model/palette data under the MCP session's `SyncRoot` lock. This ensures consistent reads even while MCP tool handlers are mutating the model concurrently.
+Viewer API endpoints (`/api/render/state`, `/api/render/snapshot`, and deprecated `/api/viewer-state`, `/api/mesh-snapshot`, `/api/palette`) snapshot all model/palette data under the MCP session's `SyncRoot` lock. This ensures consistent reads even while MCP tool handlers are mutating the model concurrently.
 
 ### Performance Overlay
 
@@ -118,7 +123,7 @@ The bottom status bar additionally shows connection state, revision, voxel count
 #### Using the Overlay for Performance Checks
 
 1. Open the viewer at `http://localhost:5201/viewer`.
-2. Use MCP tools to build a model — the overlay updates live via SSE or polling.
+2. Use MCP tools to build a model — the overlay updates live via SSE or polling based on `/api/render/state` revision comparison.
 3. Watch the **FPS** pill to assess render performance as the model grows:
    - **50+ FPS** — smooth real-time interaction.
    - **25–49 FPS** — noticeable lag, usable for orbit/pan but may feel sluggish.

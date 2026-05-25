@@ -2,6 +2,11 @@
 
 > Task: #1169 | Parent: #1168
 > Status: completed — JS renderer is now canonical (see #1632)
+>
+> **HISTORICAL DOCUMENT** — This describes the original Electron renderer experiment
+> architecture. The current renderer architecture uses the unified MCP/Electron renderer
+> architecture described in `unified-mcp-electron-renderer-architecture.md`. See
+> `renderer-cleanup-parity-ruleweaver.md` for the current green path.
 
 ## Overview
 

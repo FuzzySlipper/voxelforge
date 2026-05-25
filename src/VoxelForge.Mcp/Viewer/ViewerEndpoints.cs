@@ -42,7 +42,12 @@ public static class ViewerEndpoints
         });
 
         // ── Viewer API: lightweight state summary (no mesh data, thread-safe) ──
-        // TRANSITIONAL: alias for /api/render/state, will be removed in #1659
+        // @deprecated TRANSITIONAL alias for /api/render/state.
+        // Kept for backward compatibility with existing viewer-bundle.js builds.
+        // HttpSseRenderClient prefers the canonical /api/render/state and falls
+        // back here only when the canonical endpoint is unavailable.
+        // REMOVAL TARGET: remove when HttpSseRenderClient transitional fallback
+        // is removed and viewer-bundle.js has been rebuilt without fallback path.
         routes.MapGet("/api/viewer-state", (VoxelForgeMcpSession session) =>
         {
             int revision;
@@ -94,7 +99,12 @@ public static class ViewerEndpoints
         });
 
         // ── Viewer API: full mesh snapshot (thread-safe) ──
-        // TRANSITIONAL: alias for /api/render/snapshot, will be removed in #1659
+        // @deprecated TRANSITIONAL alias for /api/render/snapshot.
+        // Kept for backward compatibility with existing viewer-bundle.js builds.
+        // HttpSseRenderClient prefers the canonical /api/render/snapshot and falls
+        // back here only when the canonical endpoint is unavailable.
+        // REMOVAL TARGET: remove when HttpSseRenderClient transitional fallback
+        // is removed and viewer-bundle.js has been rebuilt without fallback path.
         routes.MapGet("/api/mesh-snapshot", (VoxelForgeMcpSession session, MeshSnapshotService meshService, PaletteSnapshotService paletteService) =>
         {
             MeshSnapshot mesh;
@@ -168,6 +178,9 @@ public static class ViewerEndpoints
         });
 
         // ── Viewer API: palette only (thread-safe) ──
+        // @deprecated Palette data is now included in /api/render/state and
+        // /api/render/snapshot. This endpoint is kept for backward compatibility
+        // and removed in a future task.
         routes.MapGet("/api/palette", (VoxelForgeMcpSession session) =>
         {
             string modelName;

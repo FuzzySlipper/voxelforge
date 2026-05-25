@@ -1,9 +1,14 @@
 # Electron Renderer Experiment — Decision Checkpoint
 
-> Task: #1181 | Parent: #1168  
-> Status: decision record  
-> Branch: `task/1181-electron-decision-checkpoint`  
+> Task: #1181 | Parent: #1168
+> Status: decision record
+> Branch: `task/1181-electron-decision-checkpoint`
 > Base commit: `4dcff158469da5ec90f16a9602e044eda44a0c4d`
+>
+> **HISTORICAL DOCUMENT** — This records the original decision to adopt Electron/Three.js.
+> The current renderer architecture uses the unified MCP/Electron renderer architecture
+> described in `unified-mcp-electron-renderer-architecture.md`. See
+> `renderer-cleanup-parity-ruleweaver.md` for the current green path.
 
 ## Overview
 

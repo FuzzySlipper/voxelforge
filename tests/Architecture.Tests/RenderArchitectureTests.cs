@@ -337,4 +337,106 @@ public sealed class RenderArchitectureTests
         var mcpViewerEntry = Path.Combine(root, "electron", "src", "mcp-viewer", "main.ts");
         Assert.True(File.Exists(mcpViewerEntry), "MCP viewer entrypoint not found at electron/src/mcp-viewer/main.ts");
     }
+
+    // ── Cleanup/parity doc (#1659) ──
+
+    [Fact]
+    public void CleanupParityDoc_Exists()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "renderer-cleanup-parity-ruleweaver.md");
+        Assert.True(File.Exists(docPath), "Cleanup/parity doc not found at docs/architecture/renderer-cleanup-parity-ruleweaver.md");
+    }
+
+    [Fact]
+    public void CleanupDoc_DescribesGreenPath()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "renderer-cleanup-parity-ruleweaver.md");
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("api/render/state", text);
+        Assert.Contains("api/render/snapshot", text);
+        Assert.Contains("renderer-core", text);
+        Assert.Contains("VoxelForgeWorkspaceState", text);
+        Assert.Contains("RenderSceneSnapshotService", text);
+    }
+
+    [Fact]
+    public void CleanupDoc_DocumentsTransitionalEndpoints()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "renderer-cleanup-parity-ruleweaver.md");
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("/api/viewer-state", text);
+        Assert.Contains("/api/mesh-snapshot", text);
+        Assert.Contains("/api/palette", text);
+    }
+
+    [Fact]
+    public void CleanupDoc_ContainsRuleWeaverTransferPattern()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "renderer-cleanup-parity-ruleweaver.md");
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("RuleWeaver Transfer Pattern", text);
+        Assert.Contains("Green path:", text);
+        Assert.Contains("Known Integrity Constraints", text);
+    }
+
+    // ── Canonical endpoint documentation in mcp-server docs ──
+
+    [Fact]
+    public void McpServerDoc_ListsCanonicalEndpoints()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "mcp-server.md");
+        Assert.True(File.Exists(docPath), "MCP server doc not found at docs/mcp-server.md");
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("/api/render/state", text);
+        Assert.Contains("/api/render/snapshot", text);
+        Assert.Contains("Canonical", text);
+    }
+
+    [Fact]
+    public void McpServerDoc_DocumentsDeprecatedEndpoints()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "mcp-server.md");
+        var text = File.ReadAllText(docPath);
+        Assert.Contains("Deprecated transitional endpoints", text);
+        Assert.Contains("/api/viewer-state", text);
+        Assert.Contains("/api/mesh-snapshot", text);
+        Assert.Contains("/api/palette", text);
+    }
+
+    // ── Transitional endpoints have #1659 deprecation comments in source ──
+
+    [Fact]
+    public void TransitionalEndpoints_HaveDeprecationComments()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var viewerEndpoints = Path.Combine(root, "src", "VoxelForge.Mcp", "Viewer", "ViewerEndpoints.cs");
+        var text = File.ReadAllText(viewerEndpoints);
+
+        // The transitional endpoints should have explicit @deprecated comments
+        Assert.Contains("@deprecated TRANSITIONAL alias for /api/render/state", text);
+        Assert.Contains("@deprecated TRANSITIONAL alias for /api/render/snapshot", text);
+        Assert.Contains("@deprecated Palette data is now included in /api/render/state", text);
+    }
+
+    // ── Green path: canonical endpoints remain ──
+
+    [Fact]
+    public void CanonicalRenderEndpoints_Exist()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var viewerEndpoints = Path.Combine(root, "src", "VoxelForge.Mcp", "Viewer", "ViewerEndpoints.cs");
+        var text = File.ReadAllText(viewerEndpoints);
+
+        Assert.Contains("api/render/state", text);
+        Assert.Contains("api/render/snapshot", text);
+        Assert.Contains("api/viewer-events", text);
+        Assert.Contains("api/reference-texture", text);
+        Assert.Contains("viewer", text);
+    }
 }
