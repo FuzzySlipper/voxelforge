@@ -527,8 +527,22 @@ public sealed class RenderArchitectureTests
         var docPath = Path.Combine(root, "docs", "mcp-server.md");
         var text = File.ReadAllText(docPath);
 
-        // Must not describe CDN loading — Three.js is bundled in viewer-bundle.js
-        Assert.DoesNotContain("CDN", text, StringComparison.OrdinalIgnoreCase);
+        // Must not describe CDN-based loading of dependencies — Three.js and OrbitControls
+        // are bundled in viewer-bundle.js.  Allow truthful negations like "no CDN dependencies".
+        var lines = text.Split('\n');
+        bool hasCdnLoadingClaim = false;
+        foreach (var line in lines)
+        {
+            // Flag lines that mention CDN as a positive loading source, not negated claims
+            if (line.Contains("CDN", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("no CDN", StringComparison.OrdinalIgnoreCase))
+            {
+                hasCdnLoadingClaim = true;
+                break;
+            }
+        }
+        Assert.False(hasCdnLoadingClaim,
+            "mcp-server.md still describes loading dependencies from a CDN (Three.js/OrbitControls are bundled in viewer-bundle.js).");
     }
 
     [Fact]
