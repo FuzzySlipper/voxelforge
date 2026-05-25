@@ -13,6 +13,14 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
     private static readonly string[] ChromiumPaths =
         ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
 
+    // Budgets tuned for heavy textured reference models (e.g. GOLEM.FBX + PNG).
+    // SwiftShader software rasterisation and async texture loading can push
+    // first-frame render well past the old 8 s / 30 s limits.
+    // See task #1649 smoke findings.
+    internal const int VirtualTimeBudgetMilliseconds = 20000;
+    internal const int ChromiumTimeoutMilliseconds = 120000;
+    internal const int ProcessTimeoutSeconds = 130;
+
     private readonly string _viewerBaseUrl;
     private readonly string _capturesDir;
     private readonly ILogger<ChromiumViewerCaptureService> _logger;
@@ -113,20 +121,7 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
             // budget gives the viewer time to load CDN scripts, fetch the mesh
             // snapshot, apply camera params, and draw at least one frame before
             // Chromium writes the screenshot.
-            psi.ArgumentList.Add("--headless=new");
-            psi.ArgumentList.Add("--no-sandbox");
-            psi.ArgumentList.Add("--use-gl=swiftshader");
-            psi.ArgumentList.Add("--enable-unsafe-swiftshader");
-            psi.ArgumentList.Add("--ignore-gpu-blocklist");
-            psi.ArgumentList.Add("--disable-dev-shm-usage");
-            psi.ArgumentList.Add("--run-all-compositor-stages-before-draw");
-            psi.ArgumentList.Add("--virtual-time-budget=8000");
-            psi.ArgumentList.Add("--timeout=30000");
-            psi.ArgumentList.Add($"--window-size={request.Width},{request.Height}");
-            psi.ArgumentList.Add($"--screenshot={outputPath}");
-            psi.ArgumentList.Add("--disable-extensions");
-            psi.ArgumentList.Add("--mute-audio");
-            psi.ArgumentList.Add(viewerUrl);
+            BuildChromiumArgumentList(psi.ArgumentList, request, outputPath, viewerUrl);
 
             _logger.LogInformation(
                 "Launching Chromium capture: {Label} -> {OutputPath}",
@@ -137,7 +132,7 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
             process.Start();
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(ProcessTimeoutSeconds));
 
             // Read stdout/stderr in background to avoid deadlocks.
             var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
@@ -162,7 +157,7 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
                 return new ViewerCaptureResult
                 {
                     Success = false,
-                    ErrorMessage = "Chromium capture timed out after 30 seconds.",
+                    ErrorMessage = $"Chromium capture timed out after {ProcessTimeoutSeconds} seconds.",
                     ImagePath = outputPath,
                     Label = label,
                     Preset = request.Preset,
@@ -274,6 +269,33 @@ public sealed class ChromiumViewerCaptureService : IViewerCaptureService, IDispo
                 return path;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Populates the Chromium CLI argument list for a headless screenshot.
+    /// Exposed as internal so tests can verify argument generation without
+    /// launching a real browser.
+    /// </summary>
+    internal static void BuildChromiumArgumentList(
+        ICollection<string> args,
+        ViewerCaptureRequest request,
+        string outputPath,
+        string viewerUrl)
+    {
+        args.Add("--headless=new");
+        args.Add("--no-sandbox");
+        args.Add("--use-gl=swiftshader");
+        args.Add("--enable-unsafe-swiftshader");
+        args.Add("--ignore-gpu-blocklist");
+        args.Add("--disable-dev-shm-usage");
+        args.Add("--run-all-compositor-stages-before-draw");
+        args.Add($"--virtual-time-budget={VirtualTimeBudgetMilliseconds}");
+        args.Add($"--timeout={ChromiumTimeoutMilliseconds}");
+        args.Add($"--window-size={request.Width},{request.Height}");
+        args.Add($"--screenshot={outputPath}");
+        args.Add("--disable-extensions");
+        args.Add("--mute-audio");
+        args.Add(viewerUrl);
     }
 
     private static string SanitizeFileName(string name)
