@@ -120,25 +120,40 @@ async function main(): Promise<void> {
     );
   }
 
-  // Parse camera params
-  const cameraParams = parseCameraParams();
-  if (cameraParams && cameraParams.yaw !== null) {
-    // Store for later use after first mesh build
-    (scene as any).__cameraParams = cameraParams;
-  }
+    // Parse camera params
+    const cameraParams = parseCameraParams();
+    if (cameraParams && cameraParams.yaw !== null) {
+        // Store for later use after first mesh build
+        (scene as any).__cameraParams = cameraParams;
+    }
 
-  // Initial load
-  await fetchAndBuild();
+    // Initial load
+    await fetchAndBuild();
+    // Apply camera params after first mesh build if present
+    if (cameraParams && cameraParams.yaw !== null && scene) {
+        try {
+            scene.viewFromAngle(
+                cameraParams.yaw,
+                cameraParams.pitch ?? 0,
+                cameraParams.distance ?? undefined,
+            );
+            console.log(`[mcp-viewer] Applied camera params: yaw=${cameraParams.yaw}, pitch=${cameraParams.pitch}, distance=${cameraParams.distance}`);
+        } catch (err) {
+            console.warn('[mcp-viewer] Failed to apply camera params:', err);
+        }
+    }
 
-  // Start polling (will short-circuit if SSE is active)
-  if (!captureMode) {
-    pollTimer = window.setInterval(refreshDiagnostics, 3000);
-  }
+    // Start polling (will short-circuit if SSE is active)
+    if (!captureMode) {
+        pollTimer = window.setInterval(refreshDiagnostics, 3000);
+    }
 
-  // In capture mode, set ready after initial load
-  if (captureMode) {
-    captureReadyManager.forceReady();
-  }
+    // In capture mode, scene build and texture loading are tracked
+    // automatically via CaptureReadyManager integration in VoxelForgeScene.
+    // The onReady callback above renders a single frame when both are done.
+    if (captureMode) {
+        captureReadyManager.onSceneBuildComplete();
+    }
 
   ui.loading.classList.add("hidden");
 }

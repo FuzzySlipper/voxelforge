@@ -31,6 +31,7 @@ import {
   shouldFlipV,
   resolveTextureUrl,
 } from "./referenceModels";
+import { captureReadyManager } from "./captureReady";
 
 // Re-export for consumers
 export type { VoxelRaycastHit };
@@ -255,6 +256,7 @@ export class VoxelForgeScene {
     };
 
     this.notifyRenderComplete(metrics);
+    captureReadyManager.onSceneBuildComplete();
     return metrics;
   }
 
@@ -782,28 +784,55 @@ export class VoxelForgeScene {
     }
   }
 
-  snapCameraToView(view: "front" | "side" | "top"): void {
-    const distance = this.lastBounds
-      ? Math.max(
-          this.lastBounds.max_x - this.lastBounds.min_x,
-          this.lastBounds.max_y - this.lastBounds.min_y,
-          this.lastBounds.max_z - this.lastBounds.min_z,
-        ) * 2.5
-      : 20;
+  snapCameraToView(view: "front" | "side" | "right" | "top" | "isometric"): void {
+    const presets: Record<string, { yaw: number; pitch: number }> = {
+      front:     { yaw: 0,           pitch: 0 },
+      side:      { yaw: Math.PI / 2, pitch: 0 },
+      right:     { yaw: Math.PI / 2, pitch: 0 },
+      top:       { yaw: 0,           pitch: Math.PI / 2 },
+      isometric: { yaw: Math.PI / 4, pitch: 0.6155 },
+    };
+    const preset = presets[view] ?? presets.front;
+    this.viewFromAngle(preset.yaw, preset.pitch, undefined, undefined);
+  }
 
-    const center = this.controls?.target ?? new THREE.Vector3(0, 0, 0);
+  /**
+   * Position the camera using spherical (yaw/pitch/distance) coordinates
+   * relative to the scene center or controls target.
+   *
+   * Convention (matching MCP viewer camera params):
+   *   yaw=0, pitch=0  → camera on +Z axis looking at origin (front view)
+   *   yaw=PI/2        → camera on +X axis (right/side view)
+   *   pitch=PI/2      → camera above looking down (top view)
+   *
+   * @param yaw     Horizontal rotation in radians (0 = front).
+   * @param pitch   Vertical rotation in radians (0 = level, PI/2 = top-down).
+   * @param distance Radial distance from target. Auto-calculated from bounds when undefined.
+   * @param target  Optional target center. Uses controls target or origin when undefined.
+   */
+  viewFromAngle(
+    yaw: number,
+    pitch: number,
+    distance?: number,
+    target?: THREE.Vector3,
+  ): void {
+    const center = target ?? this.controls?.target ?? new THREE.Vector3(0, 0, 0);
+    const dist = distance ?? (
+      this.lastBounds
+        ? Math.max(
+            this.lastBounds.max_x - this.lastBounds.min_x,
+            this.lastBounds.max_y - this.lastBounds.min_y,
+            this.lastBounds.max_z - this.lastBounds.min_z,
+          ) * 2.5
+        : 20
+    );
 
-    switch (view) {
-      case "front":
-        this.camera.position.set(center.x, center.y, center.z + distance);
-        break;
-      case "side":
-        this.camera.position.set(center.x + distance, center.y, center.z);
-        break;
-      case "top":
-        this.camera.position.set(center.x, center.y + distance, center.z);
-        break;
-    }
+    // Spherical to Cartesian: yaw=0, pitch=0 puts camera on +Z
+    const [px, py, pz] = computeViewFromAnglePosition(
+      yaw, pitch, dist,
+      { x: center.x, y: center.y, z: center.z },
+    );
+    this.camera.position.set(px, py, pz);
     this.camera.lookAt(center);
     if (this.controls) {
       this.controls.target.copy(center);
@@ -969,6 +998,34 @@ export function detectVertexAlpha(
 }
 
 /**
+ * Pure-function spherical-to-Cartesian camera position.
+ * Computes the camera position for given yaw, pitch, distance and target center.
+ * This is the geometric core of viewFromAngle, extractable for testing.
+ *
+ * @param yaw     Horizontal rotation in radians (0 = +Z).
+ * @param pitch   Vertical rotation in radians (0 = level, PI/2 = top-down).
+ * @param distance Radial distance from target.
+ * @param target  Target center (default: origin).
+ * @returns [x, y, z] camera position.
+ */
+export function computeViewFromAnglePosition(
+  yaw: number,
+  pitch: number,
+  distance: number,
+  target?: { x: number; y: number; z: number },
+): [number, number, number] {
+  const cx = target?.x ?? 0;
+  const cy = target?.y ?? 0;
+  const cz = target?.z ?? 0;
+  const cosPitch = Math.cos(pitch);
+  return [
+    cx + distance * Math.sin(yaw) * cosPitch,
+    cy + distance * Math.sin(pitch),
+    cz + distance * Math.cos(yaw) * cosPitch,
+  ];
+}
+
+/**
  * Apply UV flip based on origin and flip_y metadata.
  * Returns a new Float32Array with flipped V coordinates if needed.
  * Matching convention from referenceModels.shouldFlipV:
@@ -1013,6 +1070,9 @@ export function loadTexture(
 ): void {
   const texLoader = new THREE.TextureLoader();
 
+  // Notify capture readiness manager of pending texture load
+  captureReadyManager.onTextureLoadStart();
+
   // Determine color space from source_label convention
   const isNormalOrLinear = (
     slot.source_label?.includes("normal") ||
@@ -1049,10 +1109,13 @@ export function loadTexture(
       material.map = texture;
       material.needsUpdate = true;
       material.color.setHex(0xffffff); // texture overrides base color factor
+
+      captureReadyManager.onTextureLoadEnd();
     },
     undefined,
     (err) => {
       console.warn(`[VoxelForgeScene] Failed to load texture ${uri}:`, err);
+      captureReadyManager.onTextureLoadEnd();
     },
   );
 }

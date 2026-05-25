@@ -12,7 +12,7 @@ describe("CaptureReadyManager", () => {
     expect(manager.pendingLoads).toBe(0);
   });
 
-  it("becomes ready after texture loads settle", () => {
+  it("becomes ready after scene build plus texture loads settle", () => {
     const manager = new CaptureReadyManager();
     manager.onTextureLoadStart();
     manager.onTextureLoadStart();
@@ -24,8 +24,18 @@ describe("CaptureReadyManager", () => {
     expect(manager.pendingLoads).toBe(1);
 
     manager.onTextureLoadEnd();
-    expect(manager.isReady).toBe(true);
+    expect(manager.isReady).toBe(false); // need scene build too
     expect(manager.pendingLoads).toBe(0);
+
+    manager.onSceneBuildComplete();
+    expect(manager.isReady).toBe(true);
+  });
+
+  it("becomes ready after scene build when no textures are pending", () => {
+    const manager = new CaptureReadyManager();
+    expect(manager.isReady).toBe(false);
+    manager.onSceneBuildComplete();
+    expect(manager.isReady).toBe(true);
   });
 
   it("fires onReady callback when ready", () => {

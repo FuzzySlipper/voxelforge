@@ -22,6 +22,7 @@ export {
   normalizeColorsRgba,
   hasVertexAlpha,
   maxVertexAlpha,
+  computeViewFromAnglePosition,
 } from "./scene/VoxelForgeScene";
 export type { RendererMetrics, VoxelForgeSceneOptions } from "./scene/VoxelForgeScene";
 

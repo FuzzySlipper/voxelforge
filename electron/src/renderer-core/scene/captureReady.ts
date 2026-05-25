@@ -1,15 +1,19 @@
 /**
  * Capture readiness signal management.
- * Tracks texture loading progress and sets a data attribute on the document body
+ * Tracks scene build completion and texture loading progress,
+ * and sets a data attribute on the document body
  * when the scene is ready for deterministic screenshot capture.
+ * Readiness requires both: scene built AND all async textures loaded.
  */
 
 /**
  * Manages capture readiness state.
- * Tracks pending texture loads and signals readiness via DOM data attribute.
+ * Tracks pending texture loads and scene build status,
+ * signals readiness via DOM data attribute and callbacks.
  */
 export class CaptureReadyManager {
   private _pendingLoads = 0;
+  private _sceneBuilt = false;
   private _ready = false;
   private _readySet = false;
   private _handlers: Array<() => void> = [];
@@ -34,6 +38,15 @@ export class CaptureReadyManager {
   }
 
   /**
+   * Called when the scene (voxel mesh + reference models) has been built.
+   * Scene build must complete before we consider capture readiness.
+   */
+  onSceneBuildComplete(): void {
+    this._sceneBuilt = true;
+    this.checkAndSignal();
+  }
+
+  /**
    * Get the number of pending texture loads.
    */
   get pendingLoads(): number {
@@ -42,6 +55,7 @@ export class CaptureReadyManager {
 
   /**
    * Check if the scene is ready for capture.
+   * Requires both: scene built AND all textures loaded.
    */
   get isReady(): boolean {
     return this._ready;
@@ -64,6 +78,7 @@ export class CaptureReadyManager {
    */
   reset(): void {
     this._pendingLoads = 0;
+    this._sceneBuilt = false;
     this._ready = false;
     this._readySet = false;
     this._handlers = [];
@@ -74,6 +89,7 @@ export class CaptureReadyManager {
    */
   forceReady(): void {
     this._pendingLoads = 0;
+    this._sceneBuilt = true;
     this.checkAndSignal();
   }
 
@@ -90,6 +106,8 @@ export class CaptureReadyManager {
   }
 
   private checkAndSignal(): void {
+    // Require BOTH scene build AND no pending loads
+    if (!this._sceneBuilt) return;
     if (this._pendingLoads > 0) return;
     if (this._ready) return;
 
