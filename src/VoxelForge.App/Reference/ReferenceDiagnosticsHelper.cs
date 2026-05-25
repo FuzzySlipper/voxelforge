@@ -221,6 +221,26 @@ public static class ReferenceDiagnosticsHelper
             });
         }
 
+        // Meshes with textures but no UVs
+        bool anyTextureWithoutUvs = false;
+        bool anyMeshHasUvs = false;
+        foreach (var mesh in model.Meshes)
+        {
+            if (mesh.HasUvs)
+                anyMeshHasUvs = true;
+            if (mesh.EffectiveDiffuseTexturePath is not null && !mesh.HasUvs)
+                anyTextureWithoutUvs = true;
+        }
+        if (anyTextureWithoutUvs)
+        {
+            warnings.Add(new DiagnosticWarning
+            {
+                Code = "texture_without_uvs",
+                Message = "One or more meshes have a diffuse texture but no UV coordinates. The viewer will fall back to vertex colors and the texture will not be visible. Apply UVs in the source asset or use set_reference_model_texture only on UV-bearing meshes.",
+                Severity = "warning",
+            });
+        }
+
         // Texture present — viewer now supports texture loading via THREE.TextureLoader
         // (task #1648). Textures are served via /api/reference-texture and applied
         // to MeshStandardMaterial map. The texture load is async; the vertex color
@@ -236,10 +256,11 @@ public static class ReferenceDiagnosticsHelper
         }
         if (anyTexturePresent)
         {
+            var uvStatus = anyMeshHasUvs ? "UVs present" : "no UVs detected";
             warnings.Add(new DiagnosticWarning
             {
                 Code = "texture_available",
-                Message = "One or more meshes have a diffuse texture. The viewer will attempt to load and " +
+                Message = "One or more meshes have a diffuse texture (" + uvStatus + "). The viewer will attempt to load and " +
                           "display it via the THREE.TextureLoader (async). Overrides labelled manual_override " +
                           "are session-only and will not persist across restarts.",
                 Severity = "info",

@@ -68,6 +68,13 @@ public sealed class ReferenceMeshData
     public string? EffectiveEmissiveTexturePath => ManualEmissiveOverridePath ?? EmissiveTexturePath;
 
     /// <summary>
+    /// Whether this mesh has non-zero UV coordinates from the source asset.
+    /// Meshes without UVs cannot display textures correctly.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasUvs => Vertices.Length > 0 && Vertices.Any(v => v.U != 0f || v.V != 0f);
+
+    /// <summary>
     /// Source label for diffuse texture diagnostics.
     /// "manual_override" when a manual override is active,
     /// "unity_sidecar" when resolved from Unity .mat,

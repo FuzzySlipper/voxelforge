@@ -133,6 +133,8 @@
       let webglAvailable = true;
       let lastError = null;
       let lastMeshBuildInfo = null;
+      let pendingTextureLoads = 0;
+      let captureReadySet = false;
 
       // ── FPS tracking ──
       let frameTimestamps = [];
@@ -560,6 +562,14 @@
                 geo.setIndex(new THREE.BufferAttribute(indices, 1));
               }
 
+              // UVs — required for texture mapping. If the mesh has no UVs but a
+              // texture is assigned, the viewer falls back to vertex colors and
+              // logs a warning so operators can diagnose the mismatch.
+              if (meshData.uvs && meshData.uvs.length > 0) {
+                const uvs = new Float32Array(meshData.uvs);
+                geo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+              }
+
               if (!meshData.normals || meshData.normals.length === 0) {
                 geo.computeVertexNormals();
               }
@@ -587,6 +597,16 @@
                 useTexture = true;
               }
 
+              // If the mesh has no UVs but a texture is present, warn and
+              // fall back to vertex colors to avoid rendering black.
+              if (useTexture && !meshData.has_uvs) {
+                console.warn("[viewer] Mesh " + mi + " (" + (meshData.material_name || "default") + ") has a diffuse texture but no UV coordinates. " +
+                             "Texture mapping disabled; using vertex colors. " +
+                             "Apply UVs in the source asset or use a mesh that has texture coordinates.");
+                useTexture = false;
+                texturePath = null;
+              }
+
               const mat = new THREE.MeshStandardMaterial({
                 vertexColors: useTexture ? false : (meshData.colors && meshData.colors.length > 0),
                 side: THREE.DoubleSide,
@@ -600,11 +620,16 @@
 
               // Load texture if available
               if (useTexture && texturePath) {
+                pendingTextureLoads++;
                 textureLoader.load(texturePath, function(texture) {
                   mat.map = texture;
                   mat.needsUpdate = true;
+                  pendingTextureLoads--;
+                  maybeSetCaptureReady();
                 }, undefined, function(err) {
                   console.warn("[viewer] Failed to load texture:", texturePath, err);
+                  pendingTextureLoads--;
+                  maybeSetCaptureReady();
                 });
               }
 
@@ -652,6 +677,12 @@
               geo.setIndex(new THREE.BufferAttribute(indices, 1));
             }
 
+            // UVs — model-level fallback when per-mesh UVs are flattened
+            if (rm.uvs && rm.uvs.length > 0) {
+              const uvs = new Float32Array(rm.uvs);
+              geo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+            }
+
             if (!rm.normals || rm.normals.length === 0) {
               geo.computeVertexNormals();
             }
@@ -669,12 +700,22 @@
             // Check if any mesh has a diffuse texture for this model (fallback path)
             let useTexture = false;
             let texturePath = null;
+            let hasUvs = false;
             if (rm.mesh_textures && rm.mesh_textures.length > 0) {
               const firstTex = rm.mesh_textures[0];
               if (firstTex.diffuse_texture_path) {
                 texturePath = "/api/reference-texture?index=" + rm.index + "&mesh_index=" + firstTex.mesh_index + "&slot=diffuse";
                 useTexture = true;
               }
+            }
+            if (rm.meshes && rm.meshes.length > 0) {
+              hasUvs = rm.meshes.some(function(m) { return m.has_uvs; });
+            }
+            if (useTexture && !hasUvs) {
+              console.warn("[viewer] Model " + ri + " (" + (rm.file_name || "unknown") + ") has a diffuse texture but no UV coordinates. " +
+                           "Texture mapping disabled; using vertex colors.");
+              useTexture = false;
+              texturePath = null;
             }
 
             const mat = new THREE.MeshStandardMaterial({
@@ -690,11 +731,16 @@
 
             // Load texture if available
             if (useTexture && texturePath) {
+              pendingTextureLoads++;
               textureLoader.load(texturePath, function(texture) {
                 mat.map = texture;
                 mat.needsUpdate = true;
+                pendingTextureLoads--;
+                maybeSetCaptureReady();
               }, undefined, function(err) {
                 console.warn("[viewer] Failed to load texture:", texturePath, err);
+                pendingTextureLoads--;
+                maybeSetCaptureReady();
               });
             }
 
@@ -944,7 +990,7 @@
             pollTimer = setInterval(updateViewer, SSE_FALLBACK_POLL_MS);
           } else if (renderer) {
             renderer.render(scene, camera);
-            document.body.dataset.captureReady = "true";
+            maybeSetCaptureReady();
           }
 
           loadingEl.classList.add("hidden");
@@ -954,6 +1000,15 @@
           statusText.textContent = "Error: " + (err.message || String(err));
           statusText.className = "status-err";
         }
+      }
+
+      // ── Capture readiness signal ──
+      function maybeSetCaptureReady() {
+        if (!CAPTURE_MODE || captureReadySet || !renderer) return;
+        if (pendingTextureLoads > 0) return;
+        captureReadySet = true;
+        document.body.dataset.captureReady = "true";
+        console.log("[viewer] captureReady set (textures settled)");
       }
 
       // ── Cleanup ──

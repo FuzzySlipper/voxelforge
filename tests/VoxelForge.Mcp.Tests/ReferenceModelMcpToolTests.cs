@@ -17,6 +17,7 @@ namespace VoxelForge.Mcp.Tests;
 public sealed class ReferenceModelMcpToolTests : IDisposable
 {
     private readonly string _objPath;
+    private readonly string _objWithUvsPath;
 
     public ReferenceModelMcpToolTests()
     {
@@ -39,6 +40,29 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
             f 2 3 7 6
             f 3 4 8 7
             f 4 1 5 8
+            """);
+
+        _objWithUvsPath = Path.Combine(tempDir, "cube_uv.obj");
+        File.WriteAllText(_objWithUvsPath, """
+            o Cube
+            v 0 0 0
+            v 1 0 0
+            v 1 1 0
+            v 0 1 0
+            v 0 0 1
+            v 1 0 1
+            v 1 1 1
+            v 0 1 1
+            vt 0 0
+            vt 1 0
+            vt 1 1
+            vt 0 1
+            f 1/1 2/2 3/3 4/4
+            f 5/1 6/2 7/3 8/4
+            f 1/1 2/2 6/4 5/3
+            f 2/1 3/2 7/4 6/3
+            f 3/1 4/2 8/4 7/3
+            f 4/1 1/2 5/4 8/3
             """);
     }
 
@@ -317,6 +341,96 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
     }
 
     [Fact]
+    public void SetReferenceModelTexture_NoUvsFails()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-nouv-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "test-diffuse.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+
+            // Verify the loaded mesh has no UVs (our simple OBJ has no vt lines)
+            var model = session.ReferenceModels.Get(0);
+            Assert.NotNull(model);
+            Assert.False(model.Meshes[0].HasUvs);
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Contains("no UV coordinates", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(model.Meshes[0].ManualDiffuseOverridePath);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_WithUvsSucceeds()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-uv-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "test-diffuse.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+            // Build an OBJ with explicit vt (texture coordinate) lines
+            var uvObjPath = Path.Combine(Path.GetDirectoryName(_objPath)!, "cube_uv.obj");
+            File.WriteAllText(uvObjPath, """
+                o Cube
+                v 0 0 0
+                v 1 0 0
+                v 1 1 0
+                v 0 1 0
+                v 0 0 1
+                v 1 0 1
+                v 1 1 1
+                v 0 1 1
+                vt 0 0
+                vt 1 0
+                vt 1 1
+                vt 0 1
+                f 1/1 2/2 3/3 4/4
+                f 5/1 6/2 7/3 8/4
+                f 1/1 2/2 6/4 5/3
+                f 2/1 3/2 7/4 6/3
+                f 3/1 4/2 8/4 7/3
+                f 4/1 1/2 5/4 8/3
+                """);
+
+            var session = CreateSession();
+            var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+            var loadTool = new LoadReferenceModelMcpTool(session, service);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{uvObjPath}\" }}"), CancellationToken.None).Success);
+
+            var model = session.ReferenceModels.Get(0);
+            Assert.NotNull(model);
+            Assert.True(model.Meshes[0].HasUvs);
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "mesh_index": 0, "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(texturePath, model.Meshes[0].ManualDiffuseOverridePath);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void SetReferenceModelTexture_Success()
     {
         var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-override-");
@@ -328,7 +442,7 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
             var session = CreateSession();
             var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
             var loadTool = new LoadReferenceModelMcpTool(session, service);
-            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objWithUvsPath}\" }}"), CancellationToken.None).Success);
 
             var tool = new SetReferenceModelTextureMcpTool(session);
             var result = tool.Invoke(JsonArguments($$"""
@@ -426,7 +540,7 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
             var session = CreateSession();
             var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
             var loadTool = new LoadReferenceModelMcpTool(session, service);
-            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objWithUvsPath}\" }}"), CancellationToken.None).Success);
 
             int preOverrideRevision = session.ViewerRevision;
 
@@ -463,7 +577,7 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
             var session = CreateSession();
             var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
             var loadTool = new LoadReferenceModelMcpTool(session, service);
-            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objWithUvsPath}\" }}"), CancellationToken.None).Success);
 
             var setTool = new SetReferenceModelTextureMcpTool(session);
             Assert.True(setTool.Invoke(JsonArguments($$"""
@@ -506,7 +620,7 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
             var session = CreateSession();
             var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
             var loadTool = new LoadReferenceModelMcpTool(session, service);
-            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objPath}\" }}"), CancellationToken.None).Success);
+            Assert.True(loadTool.Invoke(JsonArguments($"{{ \"path\": \"{_objWithUvsPath}\" }}"), CancellationToken.None).Success);
 
             var setTool = new SetReferenceModelTextureMcpTool(session);
             Assert.True(setTool.Invoke(JsonArguments($$"""

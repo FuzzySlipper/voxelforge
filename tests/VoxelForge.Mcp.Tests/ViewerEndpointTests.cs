@@ -728,6 +728,81 @@ public sealed class ViewerEndpointTests
     }
 
     [Fact]
+    public void MeshSnapshot_PerMeshGeometry_IncludesUvs()
+    {
+        // UV-bearing mesh must expose UV coordinates; no-UV mesh must not claim has_uvs.
+        var meshWithUvs = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                new ReferenceVertex(0, 0, 0, 0, 0, -1, 200, 200, 200, 255, U: 0f, V: 0f),
+                new ReferenceVertex(1, 0, 0, 0, 0, -1, 200, 200, 200, 255, U: 1f, V: 0f),
+                new ReferenceVertex(1, 1, 0, 0, 0, -1, 200, 200, 200, 255, U: 1f, V: 1f),
+                new ReferenceVertex(0, 1, 0, 0, 0, -1, 200, 200, 200, 255, U: 0f, V: 1f),
+            ],
+            Indices = [0, 1, 2, 0, 2, 3],
+            MaterialName = "MatA",
+            DiffuseTexturePath = "/tmp/tex.png",
+            DiffuseTextureSource = "assimp",
+        };
+
+        var meshNoUvs = new ReferenceMeshData
+        {
+            Vertices =
+            [
+                // Default U=V=0 (no explicit UVs)
+                new ReferenceVertex(0, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(1, 0, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(1, 1, 1, 0, 0, 1, 180, 180, 180, 255),
+                new ReferenceVertex(0, 1, 1, 0, 0, 1, 180, 180, 180, 255),
+            ],
+            Indices = [0, 1, 2, 0, 2, 3],
+            MaterialName = "MatB",
+        };
+
+        var model = new ReferenceModelData
+        {
+            FilePath = "/tmp/uv-test.obj",
+            Format = "OBJ",
+            Meshes = [meshWithUvs, meshNoUvs],
+            IsVisible = true,
+        };
+
+        var state = new ReferenceModelState();
+        state.Add(model);
+        var viewerData = ViewerEndpointsTestAccessors.BuildReferenceModelDataListPublic(state.Models);
+
+        Assert.NotEmpty(viewerData);
+        var rm = viewerData[0];
+        Assert.NotNull(rm.Meshes);
+        Assert.Equal(2, rm.Meshes.Count);
+
+        var m0 = rm.Meshes[0];
+        Assert.True(m0.HasUvs);
+        Assert.NotNull(m0.Uvs);
+        Assert.Equal(4 * 2, m0.Uvs.Length);
+        Assert.Equal(0f, m0.Uvs[0]);
+        Assert.Equal(0f, m0.Uvs[1]);
+        Assert.Equal(1f, m0.Uvs[2]);
+        Assert.Equal(0f, m0.Uvs[3]);
+        Assert.Equal(1f, m0.Uvs[4]);
+        Assert.Equal(1f, m0.Uvs[5]);
+        Assert.Equal(0f, m0.Uvs[6]);
+        Assert.Equal(1f, m0.Uvs[7]);
+
+        // Flattened model-level UVs should also be present
+        Assert.NotNull(rm.Uvs);
+        Assert.Equal(8 * 2, rm.Uvs.Length);
+
+        var m1 = rm.Meshes[1];
+        Assert.False(m1.HasUvs);
+        Assert.NotNull(m1.Uvs);
+        Assert.Equal(4 * 2, m1.Uvs.Length);
+        // All UVs should be zero for no-UV mesh
+        Assert.All(m1.Uvs, u => Assert.Equal(0f, u));
+    }
+
+    [Fact]
     public void MeshSnapshot_PerMeshGeometry_MultiMeshExposedDistinctly()
     {
         // Given a reference model with two meshes having different properties,
@@ -899,6 +974,30 @@ public sealed class ViewerEndpointTests
 
         // Backward compat fallback path must still exist
         Assert.Contains("flattened model-level geometry (backward compat)", html);
+    }
+
+    [Fact]
+    public void ViewerHtml_SetsUvAttribute()
+    {
+        // The viewer HTML must set the 'uv' BufferAttribute on reference mesh
+        // geometry before applying MeshStandardMaterial.map.
+        var viewerHtmlPath = FindViewerHtmlPath();
+        var html = File.ReadAllText(viewerHtmlPath);
+
+        // Per-mesh path must setAttribute('uv', ...)
+        Assert.Contains("geo.setAttribute(\"uv\", new THREE.BufferAttribute(uvs, 2))", html);
+
+        // Fallback path must also setAttribute('uv', ...)
+        Assert.Contains("geo.setAttribute(\"uv\", new THREE.BufferAttribute(uvs, 2))", html);
+
+        // Must check for has_uvs and warn when texture is present but no UVs
+        Assert.Contains("has_uvs", html);
+        Assert.Contains("no UV coordinates", html);
+
+        // Must track pending texture loads for capture readiness
+        Assert.Contains("pendingTextureLoads", html);
+        Assert.Contains("maybeSetCaptureReady", html);
+        Assert.Contains("captureReady set (textures settled)", html);
     }
 
     [Fact]

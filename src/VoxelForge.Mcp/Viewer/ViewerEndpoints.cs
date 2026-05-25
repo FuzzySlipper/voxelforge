@@ -296,6 +296,7 @@ public static class ViewerEndpoints
             var allPositions = new List<float>();
             var allNormals = new List<float>();
             var allColors = new List<int>();
+            var allUvs = new List<float>();
             var allIndices = new List<int>();
             int indexOffset = 0;
             var perMeshGeometries = new List<ViewerReferenceMeshGeometry>(refModel.Meshes.Count);
@@ -308,6 +309,8 @@ public static class ViewerEndpoints
                 var meshPositions = new List<float>(verts.Length * 3);
                 var meshNormals = new List<float>(verts.Length * 3);
                 var meshColors = new List<int>(verts.Length * 4);
+                var meshUvs = new List<float>(verts.Length * 2);
+                bool meshHasUvs = false;
 
                 for (int v = 0; v < verts.Length; v++)
                 {
@@ -318,6 +321,9 @@ public static class ViewerEndpoints
                     meshNormals.Add(vert.NormX);
                     meshNormals.Add(vert.NormY);
                     meshNormals.Add(vert.NormZ);
+                    meshUvs.Add(vert.U);
+                    meshUvs.Add(vert.V);
+                    if (vert.U != 0f || vert.V != 0f) meshHasUvs = true;
                     // Use vertex color if available, otherwise medium gray fallback.
                     if (vert.R > 0 || vert.G > 0 || vert.B > 0 || vert.A > 0)
                     {
@@ -345,6 +351,8 @@ public static class ViewerEndpoints
                     Positions = [..meshPositions],
                     Normals = [..meshNormals],
                     Colors = [..meshColors],
+                    Uvs = [..meshUvs],
+                    HasUvs = meshHasUvs,
                     Indices = [..mesh.Indices],
                     DiffuseTexturePath = mesh.EffectiveDiffuseTexturePath,
                     NormalTexturePath = mesh.EffectiveNormalTexturePath,
@@ -356,6 +364,7 @@ public static class ViewerEndpoints
                 allPositions.AddRange(meshPositions);
                 allNormals.AddRange(meshNormals);
                 allColors.AddRange(meshColors);
+                allUvs.AddRange(meshUvs);
                 for (int idx = 0; idx < mesh.Indices.Length; idx++)
                 {
                     allIndices.Add(mesh.Indices[idx] + indexOffset);
@@ -400,6 +409,7 @@ public static class ViewerEndpoints
                 Positions = [..allPositions],
                 Normals = [..allNormals],
                 Colors = [..allColors],
+                Uvs = [..allUvs],
                 Indices = [..allIndices],
                 Bounds = bounds,
                 MeshTextures = refModel.Meshes.Select((mesh, mi) => new ViewerMeshTextureInfo
@@ -605,6 +615,8 @@ public sealed class ViewerReferenceModelData
     public float[] Normals { get; set; } = [];
     /// <summary>Flat RGBA color bytes as int array. Fallback to medium gray (128,128,128,255) when absent.</summary>
     public int[] Colors { get; set; } = [];
+    /// <summary>Flat interleaved UV coordinates (u,v pairs) when the source mesh has texture coordinates.</summary>
+    public float[] Uvs { get; set; } = [];
     /// <summary>Triangle index data.</summary>
     public int[] Indices { get; set; } = [];
     /// <summary>Bounds of the local (untransformed) reference geometry.</summary>
@@ -639,6 +651,10 @@ public sealed class ViewerReferenceMeshGeometry
     public float[] Normals { get; set; } = [];
     /// <summary>Flat RGBA color bytes as int array. Fallback to medium gray (128,128,128,255) when absent.</summary>
     public int[] Colors { get; set; } = [];
+    /// <summary>Flat interleaved UV coordinates (u,v pairs) when the source mesh has texture coordinates.</summary>
+    public float[] Uvs { get; set; } = [];
+    /// <summary>Whether this mesh has non-zero UV coordinates from the source asset.</summary>
+    public bool HasUvs { get; set; }
     /// <summary>Triangle index data.</summary>
     public int[] Indices { get; set; } = [];
     /// <summary>Effective diffuse texture path (manual override wins, then import path). Null if none.</summary>

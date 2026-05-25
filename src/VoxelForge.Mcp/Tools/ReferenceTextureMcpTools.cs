@@ -58,7 +58,29 @@ public sealed class InspectReferenceMaterialsMcpTool : ModelLifecycleMcpToolBase
                     ["diffuse_source_label"] = mesh.DiffuseSourceLabel,
                     ["has_manual_override"] = mesh.ManualDiffuseOverridePath is not null,
                     ["has_assimp_texture"] = mesh.DiffuseTexturePath is not null,
+                    ["has_uvs"] = mesh.HasUvs,
+                    ["uv_count"] = mesh.Vertices.Length,
                 };
+
+                // UV range summary
+                if (mesh.HasUvs && mesh.Vertices.Length > 0)
+                {
+                    float minU = mesh.Vertices[0].U, maxU = mesh.Vertices[0].U;
+                    float minV = mesh.Vertices[0].V, maxV = mesh.Vertices[0].V;
+                    for (int vi = 1; vi < mesh.Vertices.Length; vi++)
+                    {
+                        var v = mesh.Vertices[vi];
+                        if (v.U < minU) minU = v.U;
+                        if (v.U > maxU) maxU = v.U;
+                        if (v.V < minV) minV = v.V;
+                        if (v.V > maxV) maxV = v.V;
+                    }
+                    entry["uv_range"] = $"U[{minU:G3},{maxU:G3}] V[{minV:G3},{maxV:G3}]";
+                }
+                else
+                {
+                    entry["uv_range"] = "none";
+                }
 
                 // Normal texture info
                 if (mesh.ManualNormalOverridePath is not null)
@@ -216,6 +238,9 @@ public sealed class SetReferenceModelTextureMcpTool : ModelLifecycleMcpToolBase
                 if (meshIndex < 0 || meshIndex >= model.Meshes.Count)
                     return Fail($"Mesh index {meshIndex} out of range. Model has {model.Meshes.Count} meshes (0-{model.Meshes.Count - 1}).");
 
+                if (!model.Meshes[meshIndex].HasUvs)
+                    return Fail($"Mesh {meshIndex} has no UV coordinates. Textures cannot be applied to meshes without UVs.");
+
                 ApplyOverride(model.Meshes[meshIndex], slot, path);
                 meshesAffected = 1;
             }
@@ -225,6 +250,9 @@ public sealed class SetReferenceModelTextureMcpTool : ModelLifecycleMcpToolBase
                 {
                     if (string.Equals(mesh.MaterialName, materialName, StringComparison.OrdinalIgnoreCase))
                     {
+                        if (!mesh.HasUvs)
+                            return Fail($"Mesh with material '{materialName}' has no UV coordinates. Textures cannot be applied to meshes without UVs.");
+
                         ApplyOverride(mesh, slot, path);
                         meshesAffected++;
                     }
@@ -234,6 +262,9 @@ public sealed class SetReferenceModelTextureMcpTool : ModelLifecycleMcpToolBase
             }
             else
             {
+                if (!model.Meshes[0].HasUvs)
+                    return Fail("Mesh 0 has no UV coordinates. Textures cannot be applied to meshes without UVs.");
+
                 // Default: apply to first mesh
                 ApplyOverride(model.Meshes[0], slot, path);
                 meshesAffected = 1;
