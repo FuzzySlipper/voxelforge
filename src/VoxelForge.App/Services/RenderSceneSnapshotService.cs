@@ -1,3 +1,4 @@
+using System.Numerics;
 using VoxelForge.App.Render;
 using VoxelForge.App.Reference;
 using VoxelForge.App.Services;
@@ -53,15 +54,18 @@ public sealed class RenderSceneSnapshotService
             }
             : null;
 
-        // Reference bounds and nodes
-        var referenceNodes = BuildReferenceNodes(workspace.ReferenceModels.Models);
-        BoundsDto? referenceBounds = ComputeBounds(referenceNodes, useWorld: false);
-        BoundsDto? combinedBounds = CombineBounds(voxelBounds, referenceBounds);
-
         // Materials and textures from reference models
+        // BuildMaterialsAndTextures must run BEFORE BuildReferenceNodes so that
+        // the material indices in primitives correctly index into snapshot.Materials.
         var materials = new List<RenderMaterial>();
         var textures = new List<RenderTexture>();
-        BuildMaterialsAndTextures(workspace.ReferenceModels.Models, materials, textures);
+        BuildMaterialsAndTextures(workspace.ReferenceModels.Models, materials, textures, hostId);
+
+        // Reference bounds and nodes (materials/textures passed for correct indexing)
+        var referenceNodes = BuildReferenceNodes(workspace.ReferenceModels.Models, materials, textures, hostId);
+        BoundsDto? referenceBounds = ComputeBounds(referenceNodes, useWorld: false);
+        BoundsDto? referenceBoundsWorld = ComputeBounds(referenceNodes, useWorld: true);
+        BoundsDto? combinedBounds = CombineBounds(voxelBounds, referenceBounds);
 
         // Palette entries
         var paletteEntries = palette.Entries
@@ -106,7 +110,7 @@ public sealed class RenderSceneSnapshotService
                 Capabilities = capabilities ?? [],
             },
             Bounds = voxelBounds,
-            ReferenceBounds = referenceBounds,
+            ReferenceBounds = referenceBoundsWorld,
             CombinedBounds = combinedBounds,
             VoxelMeshes = voxelMeshes,
             ReferenceNodes = referenceNodes,
@@ -161,14 +165,19 @@ public sealed class RenderSceneSnapshotService
         };
     }
 
-    private List<RenderReferenceNode> BuildReferenceNodes(IReadOnlyList<ReferenceModelData> models)
+    private List<RenderReferenceNode> BuildReferenceNodes(
+        IReadOnlyList<ReferenceModelData> models,
+        List<RenderMaterial> materials,
+        List<RenderTexture> textures,
+        string hostId)
     {
         var nodes = new List<RenderReferenceNode>(models.Count);
+        int cumulativeMaterialCount = 0;
+
         for (int i = 0; i < models.Count; i++)
         {
             var model = models[i];
-            var primitives = new List<RenderPrimitive>();
-            int materialIndexBase = nodes.Count; // placeholder; real material indexing happens upstream
+            var primitives = new List<RenderPrimitive>(model.Meshes.Count);
 
             for (int m = 0; m < model.Meshes.Count; m++)
             {
@@ -187,10 +196,12 @@ public sealed class RenderSceneSnapshotService
                     normals[v * 3 + 2] = verts[v].NormZ;
                 }
 
+                int materialIndex = cumulativeMaterialCount + m;
+
                 primitives.Add(new RenderPrimitive
                 {
                     Id = $"{model.FilePath}-mesh{m}",
-                    MaterialIndex = materialIndexBase + m,
+                    MaterialIndex = materialIndex,
                     Position = positions,
                     Normal = normals,
                     ColorRgba = null,
@@ -219,10 +230,12 @@ public sealed class RenderSceneSnapshotService
                     Scale = model.Scale,
                 },
                 BoundsLocal = ComputeNodeBounds(primitives),
-                BoundsWorld = null,
+                BoundsWorld = ComputeWorldBounds(primitives, model),
                 Primitives = primitives,
                 Diagnostics = [],
             });
+
+            cumulativeMaterialCount += model.Meshes.Count;
         }
         return nodes;
     }
@@ -257,7 +270,13 @@ public sealed class RenderSceneSnapshotService
     private static List<RenderUvSet> BuildUvSets(ReferenceMeshData mesh)
     {
         var verts = mesh.Vertices;
-        bool hasUvs = verts.Length > 0 && (verts[0].U != 0f || verts[0].V != 0f);
+        if (verts.Length == 0)
+            return [];
+
+        // Scan ALL vertices for UV presence, not just the first vertex.
+        // A mesh where every vertex has (U=0, V=0) is genuinely UV-less;
+        // a mesh where only some vertices have zero UVs is not.
+        bool hasUvs = verts.Any(v => v.U != 0f || v.V != 0f);
         if (!hasUvs)
             return [];
 
@@ -283,7 +302,8 @@ public sealed class RenderSceneSnapshotService
     private void BuildMaterialsAndTextures(
         IReadOnlyList<ReferenceModelData> models,
         List<RenderMaterial> materials,
-        List<RenderTexture> textures)
+        List<RenderTexture> textures,
+        string hostId)
     {
         int textureCounter = 0;
 
@@ -294,6 +314,7 @@ public sealed class RenderSceneSnapshotService
                 var matId = $"mat-{Guid.NewGuid():N}";
                 var baseColorFactor = GetMaterialBaseColor(mesh);
 
+                // ── Base color / diffuse texture slot ──
                 RenderTextureSlot? baseColorSlot = null;
                 if (mesh.EffectiveDiffuseTexturePath is { } diffusePath && File.Exists(diffusePath))
                 {
@@ -301,7 +322,9 @@ public sealed class RenderSceneSnapshotService
                     textures.Add(new RenderTexture
                     {
                         Id = texId,
-                        Uri = diffusePath,
+                        // Host-safe URI: use a transport-handle scheme instead of raw filesystem path.
+                        // The host (MCP/Bridge) must resolve "texture://host/{texId}" to actual pixel data.
+                        Uri = $"texture://{hostId}/{texId}",
                         MimeType = GetMimeType(diffusePath),
                         ColorSpace = "srgb",
                         Width = null,
@@ -326,23 +349,146 @@ public sealed class RenderSceneSnapshotService
                     };
                 }
 
-                materials.Add(new RenderMaterial
+                // ── Normal texture slot ──
+                RenderTextureSlot? normalSlot = null;
+                if (mesh.EffectiveNormalTexturePath is { } normalPath && File.Exists(normalPath))
+                {
+                    var texId = $"tex-{textureCounter++}";
+                    textures.Add(new RenderTexture
+                    {
+                        Id = texId,
+                        Uri = $"texture://{hostId}/{texId}",
+                        MimeType = GetMimeType(normalPath),
+                        ColorSpace = "linear",
+                        Width = null,
+                        Height = null,
+                        Diagnostics = [],
+                    });
+                    normalSlot = new RenderTextureSlot
+                    {
+                        TextureId = texId,
+                        UvSet = 0,
+                        UvTransform = new RenderUvTransform
+                        {
+                            Offset = [0.0, 0.0],
+                            Scale = [1.0, 1.0],
+                            Rotation = 0.0,
+                        },
+                        UvOrigin = "top_left",
+                        FlipY = "asset_defined",
+                        WrapS = "repeat",
+                        WrapT = "repeat",
+                        SourceLabel = "manual_override",
+                    };
+                }
+
+                // ── Emissive texture slot ──
+                RenderTextureSlot? emissiveSlot = null;
+                double[]? emissiveFactor = null;
+                if (mesh.EffectiveEmissiveTexturePath is { } emissivePath && File.Exists(emissivePath))
+                {
+                    var texId = $"tex-{textureCounter++}";
+                    textures.Add(new RenderTexture
+                    {
+                        Id = texId,
+                        Uri = $"texture://{hostId}/{texId}",
+                        MimeType = GetMimeType(emissivePath),
+                        ColorSpace = "srgb",
+                        Width = null,
+                        Height = null,
+                        Diagnostics = [],
+                    });
+                    emissiveSlot = new RenderTextureSlot
+                    {
+                        TextureId = texId,
+                        UvSet = 0,
+                        UvTransform = new RenderUvTransform
+                        {
+                            Offset = [0.0, 0.0],
+                            Scale = [1.0, 1.0],
+                            Rotation = 0.0,
+                        },
+                        UvOrigin = "top_left",
+                        FlipY = "asset_defined",
+                        WrapS = "repeat",
+                        WrapT = "repeat",
+                        SourceLabel = mesh.EmissiveTextureSource is not null
+                            ? "unity_sidecar"
+                            : "manual_override",
+                    };
+                    emissiveFactor = [mesh.EmissiveBrightness, mesh.EmissiveBrightness, mesh.EmissiveBrightness];
+                }
+
+                // ── Diagnostics for missing or inferred material properties ──
+                var materialDiagnostics = new List<RenderDiagnostic>();
+                if (mesh.EffectiveNormalTexturePath is null)
+                {
+                    materialDiagnostics.Add(new RenderDiagnostic
+                    {
+                        Severity = "info",
+                        Category = "material.normal",
+                        Message = "Normal map not available for material. Flat shading used unless normal data present in mesh.",
+                    });
+                }
+                if (mesh.EffectiveEmissiveTexturePath is null)
+                {
+                    materialDiagnostics.Add(new RenderDiagnostic
+                    {
+                        Severity = "info",
+                        Category = "material.emissive",
+                        Message = "Emissive texture not available for material. EmissiveFactor set to zero.",
+                    });
+                }
+
+                // Alpha mode and double-sidedness: infer from vertex alpha when available,
+                // otherwise emit diagnostic noting default assumptions.
+                string alphaMode = "opaque";
+                double? alphaCutoff = null;
+                if (mesh.Vertices.Length > 0)
+                {
+                    bool hasAlpha = mesh.Vertices.Any(v => v.A < 255);
+                    if (hasAlpha)
+                    {
+                        alphaMode = "blend";
+                    }
+                }
+                bool doubleSided = false;
+
+                materialDiagnostics.Add(new RenderDiagnostic
+                {
+                    Severity = "info",
+                    Category = "material.alpha",
+                    Message = $"Alpha mode set to \"{alphaMode}\" (inferred from vertex alpha). Use model-source metadata for authoritative value.",
+                });
+                if (!doubleSided)
+                {
+                    materialDiagnostics.Add(new RenderDiagnostic
+                    {
+                        Severity = "info",
+                        Category = "material.double_sided",
+                        Message = "DoubleSided set to false by default. Set to true if the material uses back-face culling.",
+                    });
+                }
+
+                var material = new RenderMaterial
                 {
                     Id = matId,
                     Name = mesh.MaterialName ?? "default",
                     BaseColorFactor = baseColorFactor,
                     BaseColorTexture = baseColorSlot,
-                    NormalTexture = null,
-                    EmissiveTexture = null,
-                    EmissiveFactor = null,
+                    NormalTexture = normalSlot,
+                    EmissiveTexture = emissiveSlot,
+                    EmissiveFactor = emissiveFactor,
                     MetallicFactor = 0.0,
                     RoughnessFactor = 1.0,
-                    AlphaMode = "opaque",
-                    AlphaCutoff = null,
-                    DoubleSided = false,
+                    AlphaMode = alphaMode,
+                    AlphaCutoff = alphaCutoff,
+                    DoubleSided = doubleSided,
                     ColorSpace = "srgb",
-                    Diagnostics = [],
-                });
+                    Diagnostics = materialDiagnostics,
+                };
+
+                materials.Add(material);
             }
         }
     }
@@ -383,7 +529,10 @@ public sealed class RenderSceneSnapshotService
 
         foreach (var node in nodes)
         {
-            var bounds = node.BoundsLocal;
+            // Respect visibility: invisible nodes do not contribute to aggregate bounds.
+            if (!node.Visible) continue;
+
+            var bounds = useWorld ? node.BoundsWorld : node.BoundsLocal;
             if (bounds is null) continue;
 
             minX = Math.Min(minX, bounds.MinX);
@@ -398,6 +547,99 @@ public sealed class RenderSceneSnapshotService
         return hasAny
             ? new BoundsDto { MinX = minX, MinY = minY, MinZ = minZ, MaxX = maxX, MaxY = maxY, MaxZ = maxZ }
             : null;
+    }
+
+    /// <summary>
+    /// Compute world-space bounding box for a node by transforming all 8 corners
+    /// of the local primitive AABBs through the model's transform (scale, rotation, translation).
+    /// </summary>
+    private static BoundsDto? ComputeWorldBounds(IReadOnlyList<RenderPrimitive> primitives, ReferenceModelData model)
+    {
+        if (primitives.Count == 0) return null;
+
+        // Build combined local-space bounds first
+        BoundsDto? localBounds = ComputeNodeBounds(primitives);
+        if (localBounds is null) return null;
+
+        // Build transform matrix: T * R * S
+        float sx = model.Scale;
+        float sy = model.Scale;
+        float sz = model.Scale;
+        float tx = model.PositionX;
+        float ty = model.PositionY;
+        float tz = model.PositionZ;
+
+        // Euler angles in degrees -> radians
+        double radX = model.RotationX * Math.PI / 180.0;
+        double radY = model.RotationY * Math.PI / 180.0;
+        double radZ = model.RotationZ * Math.PI / 180.0;
+
+        double cosX = Math.Cos(radX), sinX = Math.Sin(radX);
+        double cosY = Math.Cos(radY), sinY = Math.Sin(radY);
+        double cosZ = Math.Cos(radZ), sinZ = Math.Sin(radZ);
+
+        // Rotation matrix R = Rz * Ry * Rx (standard Euler order for 3D scenes)
+        // Rx = [[1,0,0],[0,cx,-sx],[0,sx,cx]]
+        // Ry = [[cy,0,sy],[0,1,0],[-sy,0,cy]]
+        // Rz = [[cz,-sz,0],[sz,cz,0],[0,0,1]]
+        // Combined:
+        // m00 = cy*cz, m01 = sx*sy*cz - cx*sz, m02 = cx*sy*cz + sx*sz
+        // m10 = cy*sz, m11 = sx*sy*sz + cx*cz, m12 = cx*sy*sz - sx*cz
+        // m20 = -sy,   m21 = sx*cy,            m22 = cx*cy
+        double m00 = cosY * cosZ;
+        double m01 = sinX * sinY * cosZ - cosX * sinZ;
+        double m02 = cosX * sinY * cosZ + sinX * sinZ;
+        double m10 = cosY * sinZ;
+        double m11 = sinX * sinY * sinZ + cosX * cosZ;
+        double m12 = cosX * sinY * sinZ - sinX * cosZ;
+        double m20 = -sinY;
+        double m21 = sinX * cosY;
+        double m22 = cosX * cosY;
+
+        // Transform all 8 corners of the local AABB
+        double[] corners =
+        [
+            localBounds.MinX, localBounds.MinY, localBounds.MinZ,
+            localBounds.MaxX, localBounds.MinY, localBounds.MinZ,
+            localBounds.MinX, localBounds.MaxY, localBounds.MinZ,
+            localBounds.MinX, localBounds.MinY, localBounds.MaxZ,
+            localBounds.MaxX, localBounds.MaxY, localBounds.MinZ,
+            localBounds.MaxX, localBounds.MinY, localBounds.MaxZ,
+            localBounds.MinX, localBounds.MaxY, localBounds.MaxZ,
+            localBounds.MaxX, localBounds.MaxY, localBounds.MaxZ,
+        ];
+
+        double minWx = double.MaxValue, minWy = double.MaxValue, minWz = double.MaxValue;
+        double maxWx = double.MinValue, maxWy = double.MinValue, maxWz = double.MinValue;
+
+        for (int i = 0; i < 8; i++)
+        {
+            double lx = corners[i * 3];
+            double ly = corners[i * 3 + 1];
+            double lz = corners[i * 3 + 2];
+
+            // Scale
+            double sxL = lx * sx, syL = ly * sy, szL = lz * sz;
+
+            // Rotate (Rz * Ry * Rx)
+            double rx = m00 * sxL + m01 * syL + m02 * szL;
+            double ry = m10 * sxL + m11 * syL + m12 * szL;
+            double rz = m20 * sxL + m21 * syL + m22 * szL;
+
+            // Translate
+            double wx = rx + tx;
+            double wy = ry + ty;
+            double wz = rz + tz;
+
+            minWx = Math.Min(minWx, wx);
+            minWy = Math.Min(minWy, wy);
+            minWz = Math.Min(minWz, wz);
+            maxWx = Math.Max(maxWx, wx);
+            maxWy = Math.Max(maxWy, wy);
+            maxWz = Math.Max(maxWz, wz);
+        }
+
+        return new BoundsDto { MinX = minWx, MinY = minWy, MinZ = minWz, MaxX = maxWx, MaxY = maxWy, MaxZ = maxWz };
     }
 
     private static BoundsDto? CombineBounds(BoundsDto? a, BoundsDto? b)
