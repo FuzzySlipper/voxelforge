@@ -85,6 +85,7 @@ public sealed class McpToolTests
                 "set_grid_hint",
                 "set_palette_entry",
                 "set_reference_model_texture",
+                "set_reference_texture_sampling",
                 "set_voxels",
                 "set_voxels_runs",
                 "suggest_reference_transform",

@@ -47,6 +47,33 @@ public sealed class ReferenceMeshData
     /// <summary>Manual override for emissive texture. Null if not set.</summary>
     public string? ManualEmissiveOverridePath { get; set; }
 
+    // ── Texture sampling controls (mutable — overrideable without code changes) ──
+
+    /// <summary>
+    /// UV origin convention for this mesh's textures: "top_left", "bottom_left", "asset_defined".
+    /// Default is "top_left" (OpenGL/standard convention); Unity-origin assets typically need "bottom_left".
+    /// </summary>
+    public string UvOrigin { get; set; } = "top_left";
+
+    /// <summary>
+    /// Whether to flip the V coordinate: "true", "false", "asset_defined".
+    /// </summary>
+    public string FlipY { get; set; } = "asset_defined";
+
+    /// <summary>Horizontal wrapping mode: "clamp", "repeat", "mirror".</summary>
+    public string WrapS { get; set; } = "repeat";
+
+    /// <summary>Vertical wrapping mode: "clamp", "repeat", "mirror".</summary>
+    public string WrapT { get; set; } = "repeat";
+
+    /// <summary>
+    /// Provenance label for the sampling control values:
+    /// "assimp" — default from AssimpNet import,
+    /// "unity_sidecar" — inferred from Unity .mat sidecar presence,
+    /// "manual_sampling_override" — explicitly overridden via MCP/tool.
+    /// </summary>
+    public string SamplingControlsSource { get; set; } = "assimp";
+
     // ── Computed helpers ──
 
     /// <summary>

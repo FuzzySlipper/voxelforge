@@ -442,6 +442,8 @@ public sealed class ReferenceModelLoader
             EmissiveBrightness = unityEmissionBrightness,
             DiffuseTextureSource = unitySidecarApplied ? "unity_sidecar" : (diffuseTexturePath is not null ? "assimp" : null),
             EmissiveTextureSource = unityEmissionTexturePath is not null ? "unity_sidecar" : null,
+            UvOrigin = unitySidecarApplied ? "bottom_left" : "top_left",
+            SamplingControlsSource = unitySidecarApplied ? "unity_sidecar" : "assimp",
         };
     }
 

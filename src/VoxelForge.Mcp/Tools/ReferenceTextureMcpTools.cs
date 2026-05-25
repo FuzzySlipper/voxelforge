@@ -60,6 +60,13 @@ public sealed class InspectReferenceMaterialsMcpTool : ModelLifecycleMcpToolBase
                     ["has_assimp_texture"] = mesh.DiffuseTexturePath is not null,
                     ["has_uvs"] = mesh.HasUvs,
                     ["uv_count"] = mesh.Vertices.Length,
+
+                    // Texture sampling controls and provenance
+                    ["uv_origin"] = mesh.UvOrigin,
+                    ["flip_y"] = mesh.FlipY,
+                    ["wrap_s"] = mesh.WrapS,
+                    ["wrap_t"] = mesh.WrapT,
+                    ["sampling_controls_source"] = mesh.SamplingControlsSource,
                 };
 
                 // UV range summary
@@ -314,6 +321,216 @@ public sealed class SetReferenceModelTextureMcpTool : ModelLifecycleMcpToolBase
 public sealed class SetReferenceModelTextureServerTool : VoxelForgeMcpServerTool
 {
     public SetReferenceModelTextureServerTool(SetReferenceModelTextureMcpTool tool)
+        : base(tool)
+    {
+    }
+}
+
+/// <summary>
+/// MCP tool: set_reference_texture_sampling — override per-mesh texture sampling controls
+/// (uv_origin, flip_y, wrap_s, wrap_t) at runtime without code changes.
+/// Targeting: use mesh_index (integer) or material_name (string).
+/// Only explicitly provided properties are changed; omitted properties retain current values.
+/// Provenance is recorded as "manual_sampling_override" and visible via inspect_reference_materials.
+/// Triggers ReferenceModelChangedEvent so viewer/SSE updates immediately.
+/// </summary>
+public sealed class SetReferenceTextureSamplingMcpTool : ModelLifecycleMcpToolBase
+{
+    private static readonly HashSet<string> ValidUvOrigins = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "top_left", "bottom_left", "asset_defined",
+    };
+
+    private static readonly HashSet<string> ValidFlipYValues = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "true", "false", "asset_defined",
+    };
+
+    private static readonly HashSet<string> ValidWrapModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "clamp", "repeat", "mirror",
+    };
+
+    public SetReferenceTextureSamplingMcpTool(VoxelForgeMcpSession session)
+        : base(
+            session,
+            "set_reference_texture_sampling",
+            "Override per-mesh texture sampling controls (uv_origin, flip_y, wrap_s, wrap_t) at runtime. " +
+            "Target by mesh_index (integer) or material_name (string). " +
+            "Only explicitly provided properties are changed; omitted properties retain current values. " +
+            "Provenance is recorded as \"manual_sampling_override\" and visible via inspect_reference_materials. " +
+            "Immediately affects viewer rendering and diagnostics (triggers ReferenceModelChangedEvent via TextureChanged kind).",
+            McpJsonSchemas.Parse("""
+            {
+                "type": "object",
+                "properties": {
+                    "index": { "type": "integer", "description": "Reference model index." },
+                    "mesh_index": { "type": "integer", "description": "Target mesh index. Mutually exclusive with material_name." },
+                    "material_name": { "type": "string", "description": "Target material name (applies to all meshes with matching name). Mutually exclusive with mesh_index." },
+                    "uv_origin": { "type": "string", "enum": ["top_left", "bottom_left", "asset_defined"], "description": "UV origin convention." },
+                    "flip_y": { "type": "string", "enum": ["true", "false", "asset_defined"], "description": "Whether to flip the V coordinate." },
+                    "wrap_s": { "type": "string", "enum": ["clamp", "repeat", "mirror"], "description": "Horizontal wrapping mode." },
+                    "wrap_t": { "type": "string", "enum": ["clamp", "repeat", "mirror"], "description": "Vertical wrapping mode." }
+                },
+                "required": ["index"]
+            }
+            """),
+            isReadOnly: false)
+    {
+    }
+
+    public override McpToolInvocationResult Invoke(JsonElement arguments, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryReadRequiredInt(arguments, "index", out int index, out var errorMessage))
+            return Fail(errorMessage);
+
+        // Determine targeting
+        bool hasMeshIndex = arguments.TryGetProperty("mesh_index", out var meshIndexEl) && meshIndexEl.ValueKind == JsonValueKind.Number;
+        bool hasMaterialName = arguments.TryGetProperty("material_name", out var matNameEl) && matNameEl.ValueKind == JsonValueKind.String;
+        string? materialName = hasMaterialName ? matNameEl.GetString() : null;
+
+        if (hasMeshIndex && hasMaterialName)
+            return Fail("Specify either 'mesh_index' or 'material_name', not both.");
+
+        // Collect the values to apply (only the ones explicitly provided)
+        string? uvOrigin = null;
+        string? flipY = null;
+        string? wrapS = null;
+        string? wrapT = null;
+
+        if (TryReadOptionalString(arguments, "uv_origin", out var uvOriginVal, out errorMessage))
+        {
+            if (uvOriginVal is not null)
+            {
+                if (!ValidUvOrigins.Contains(uvOriginVal))
+                    return Fail($"Invalid uv_origin '{uvOriginVal}'. Valid values: {string.Join(", ", ValidUvOrigins)}");
+                uvOrigin = uvOriginVal;
+            }
+        }
+        else
+        {
+            return Fail(errorMessage);
+        }
+
+        if (TryReadOptionalString(arguments, "flip_y", out var flipYVal, out errorMessage))
+        {
+            if (flipYVal is not null)
+            {
+                if (!ValidFlipYValues.Contains(flipYVal))
+                    return Fail($"Invalid flip_y '{flipYVal}'. Valid values: {string.Join(", ", ValidFlipYValues)}");
+                flipY = flipYVal;
+            }
+        }
+        else
+        {
+            return Fail(errorMessage);
+        }
+
+        if (TryReadOptionalString(arguments, "wrap_s", out var wrapSVal, out errorMessage))
+        {
+            if (wrapSVal is not null)
+            {
+                if (!ValidWrapModes.Contains(wrapSVal))
+                    return Fail($"Invalid wrap_s '{wrapSVal}'. Valid values: {string.Join(", ", ValidWrapModes)}");
+                wrapS = wrapSVal;
+            }
+        }
+        else
+        {
+            return Fail(errorMessage);
+        }
+
+        if (TryReadOptionalString(arguments, "wrap_t", out var wrapTVal, out errorMessage))
+        {
+            if (wrapTVal is not null)
+            {
+                if (!ValidWrapModes.Contains(wrapTVal))
+                    return Fail($"Invalid wrap_t '{wrapTVal}'. Valid values: {string.Join(", ", ValidWrapModes)}");
+                wrapT = wrapTVal;
+            }
+        }
+        else
+        {
+            return Fail(errorMessage);
+        }
+
+        // Check that at least one sampling property was provided
+        if (uvOrigin is null && flipY is null && wrapS is null && wrapT is null)
+            return Fail("At least one of 'uv_origin', 'flip_y', 'wrap_s', 'wrap_t' must be provided.");
+
+        lock (Session.SyncRoot)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var model = Session.ReferenceModels.Get(index);
+            if (model is null)
+                return Fail($"No reference model at index {index}.");
+
+            int meshesAffected = 0;
+
+            void ApplySampling(ReferenceMeshData mesh)
+            {
+                if (uvOrigin is not null) mesh.UvOrigin = uvOrigin;
+                if (flipY is not null) mesh.FlipY = flipY;
+                if (wrapS is not null) mesh.WrapS = wrapS;
+                if (wrapT is not null) mesh.WrapT = wrapT;
+                mesh.SamplingControlsSource = "manual_sampling_override";
+                meshesAffected++;
+            }
+
+            if (hasMeshIndex)
+            {
+                if (!meshIndexEl.TryGetInt32(out int meshIndex))
+                    return Fail("Property 'mesh_index' must be an integer.");
+                if (meshIndex < 0 || meshIndex >= model.Meshes.Count)
+                    return Fail($"Mesh index {meshIndex} out of range. Model has {model.Meshes.Count} meshes (0-{model.Meshes.Count - 1}).");
+
+                ApplySampling(model.Meshes[meshIndex]);
+            }
+            else if (hasMaterialName && !string.IsNullOrWhiteSpace(materialName))
+            {
+                bool found = false;
+                foreach (var mesh in model.Meshes)
+                {
+                    if (string.Equals(mesh.MaterialName, materialName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ApplySampling(mesh);
+                        found = true;
+                    }
+                }
+
+                if (!found)
+                    return Fail($"No mesh found with material name matching '{materialName}'.");
+            }
+            else
+            {
+                // Default: apply to all meshes in the model
+                foreach (var mesh in model.Meshes)
+                    ApplySampling(mesh);
+            }
+
+            // Build a description of what changed
+            var changedParts = new List<string>();
+            if (uvOrigin is not null) changedParts.Add($"uv_origin={uvOrigin}");
+            if (flipY is not null) changedParts.Add($"flip_y={flipY}");
+            if (wrapS is not null) changedParts.Add($"wrap_s={wrapS}");
+            if (wrapT is not null) changedParts.Add($"wrap_t={wrapT}");
+
+            Session.Events.Publish(new ReferenceModelChangedEvent(
+                ReferenceModelChangeKind.TextureChanged,
+                $"Texture sampling overrides: {string.Join(", ", changedParts)} ({meshesAffected} mesh(es))",
+                index));
+
+            return Ok($"Set texture sampling controls ({string.Join(", ", changedParts)}) on {meshesAffected} mesh(es) for model [{index}]. " +
+                      "Provenance recorded as 'manual_sampling_override'. Use inspect_reference_materials to verify.");
+        }
+    }
+}
+
+public sealed class SetReferenceTextureSamplingServerTool : VoxelForgeMcpServerTool
+{
+    public SetReferenceTextureSamplingServerTool(SetReferenceTextureSamplingMcpTool tool)
         : base(tool)
     {
     }

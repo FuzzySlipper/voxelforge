@@ -293,8 +293,9 @@ public sealed class RenderSceneSnapshotService
             {
                 SetIndex = 0,
                 Uvs = uvs,
-                Origin = "top_left",
-                FlipY = "asset_defined",
+                // Read sampling controls from the per-mesh overrideable state
+                Origin = mesh.UvOrigin,
+                FlipY = mesh.FlipY,
             }
         ];
     }
@@ -345,10 +346,11 @@ public sealed class RenderSceneSnapshotService
                             Scale = [1.0, 1.0],
                             Rotation = 0.0,
                         },
-                        UvOrigin = "top_left",
-                        FlipY = "asset_defined",
-                        WrapS = "repeat",
-                        WrapT = "repeat",
+                        // Read sampling controls from per-mesh overrideable state
+                        UvOrigin = mesh.UvOrigin,
+                        FlipY = mesh.FlipY,
+                        WrapS = mesh.WrapS,
+                        WrapT = mesh.WrapT,
                         SourceLabel = mesh.DiffuseSourceLabel ?? "assimp",
                     };
                 }
@@ -380,10 +382,11 @@ public sealed class RenderSceneSnapshotService
                             Scale = [1.0, 1.0],
                             Rotation = 0.0,
                         },
-                        UvOrigin = "top_left",
-                        FlipY = "asset_defined",
-                        WrapS = "repeat",
-                        WrapT = "repeat",
+                        // Read sampling controls from per-mesh overrideable state
+                        UvOrigin = mesh.UvOrigin,
+                        FlipY = mesh.FlipY,
+                        WrapS = mesh.WrapS,
+                        WrapT = mesh.WrapT,
                         SourceLabel = "manual_override",
                     };
                 }
@@ -416,10 +419,11 @@ public sealed class RenderSceneSnapshotService
                             Scale = [1.0, 1.0],
                             Rotation = 0.0,
                         },
-                        UvOrigin = "top_left",
-                        FlipY = "asset_defined",
-                        WrapS = "repeat",
-                        WrapT = "repeat",
+                        // Read sampling controls from per-mesh overrideable state
+                        UvOrigin = mesh.UvOrigin,
+                        FlipY = mesh.FlipY,
+                        WrapS = mesh.WrapS,
+                        WrapT = mesh.WrapT,
                         SourceLabel = mesh.EmissiveTextureSource is not null
                             ? "unity_sidecar"
                             : "manual_override",

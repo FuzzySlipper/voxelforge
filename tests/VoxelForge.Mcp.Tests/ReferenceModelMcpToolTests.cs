@@ -95,6 +95,65 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
     }
 
     [Fact]
+    public void LoadReferenceModel_UnityMatSidecarSetsBottomLeftSamplingDefaults()
+    {
+        var tempDir = Path.GetDirectoryName(_objPath)!;
+        var unityObjPath = Path.Combine(tempDir, "unity_sidecar_quad.obj");
+        var mtlPath = Path.Combine(tempDir, "unity_sidecar_quad.mtl");
+        var matPath = Path.Combine(tempDir, "Golem.mat");
+
+        File.WriteAllText(unityObjPath, """
+            mtllib unity_sidecar_quad.mtl
+            o Quad
+            v 0 0 0
+            v 1 0 0
+            v 1 1 0
+            v 0 1 0
+            vt 0 0
+            vt 1 0
+            vt 1 1
+            vt 0 1
+            usemtl Golem
+            f 1/1 2/2 3/3 4/4
+            """);
+        File.WriteAllText(mtlPath, """
+            newmtl Golem
+            Kd 1 1 1
+            """);
+        File.WriteAllText(matPath, """
+            %YAML 1.1
+            --- !u!21 &2100000
+            Material:
+              m_Name: Golem
+              m_SavedProperties:
+                m_TexEnvs: []
+                m_Floats: []
+                m_Colors:
+                - _Color: {r: 1, g: 1, b: 1, a: 1}
+            """);
+
+        var session = CreateSession();
+        var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+        var loadTool = new LoadReferenceModelMcpTool(session, service);
+
+        var result = loadTool.Invoke(JsonArguments($"{{ \"path\": \"{unityObjPath}\" }}"), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        var model = session.ReferenceModels.Get(0);
+        Assert.NotNull(model);
+        Assert.Equal("bottom_left", model.Meshes[0].UvOrigin);
+        Assert.Equal("unity_sidecar", model.Meshes[0].SamplingControlsSource);
+
+        var inspectTool = new InspectReferenceMaterialsMcpTool(session);
+        var inspectResult = inspectTool.Invoke(JsonArguments("""{ "index": 0 }"""), CancellationToken.None);
+        Assert.True(inspectResult.Success, inspectResult.Message);
+        using var doc = JsonDocument.Parse(inspectResult.Message);
+        var mesh = doc.RootElement.GetProperty("meshes")[0];
+        Assert.Equal("bottom_left", mesh.GetProperty("uv_origin").GetString());
+        Assert.Equal("unity_sidecar", mesh.GetProperty("sampling_controls_source").GetString());
+    }
+
+    [Fact]
     public void LoadReferenceModel_MissingPathFails()
     {
         var session = CreateSession();
@@ -823,6 +882,223 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
         {
             try { tempDir.Delete(recursive: true); } catch { }
         }
+    }
+
+    // ── Texture sampling control tests ──
+
+    [Fact]
+    public void SetReferenceTextureSampling_InvalidUvOriginFails()
+    {
+        var session = CreateSession();
+        var model = new ReferenceModelData
+        {
+            FilePath = "/fake/path/test.obj",
+            Format = "OBJ",
+            Meshes = new List<ReferenceMeshData>
+            {
+                new()
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "Mat",
+                },
+            },
+        };
+        session.ReferenceModels.Add(model);
+
+        var tool = new SetReferenceTextureSamplingMcpTool(session);
+        var result = tool.Invoke(JsonArguments("""{ "index": 0, "uv_origin": "invalid_value" }"""), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("Invalid uv_origin", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SetReferenceTextureSampling_NoPropertiesFails()
+    {
+        var session = CreateSession();
+        var model = new ReferenceModelData
+        {
+            FilePath = "/fake/path/test.obj",
+            Format = "OBJ",
+            Meshes = new List<ReferenceMeshData>
+            {
+                new()
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "Mat",
+                },
+            },
+        };
+        session.ReferenceModels.Add(model);
+
+        var tool = new SetReferenceTextureSamplingMcpTool(session);
+        var result = tool.Invoke(JsonArguments("""{ "index": 0 }"""), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("At least one of", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SetReferenceTextureSampling_SetsUvOriginOnMeshAndRecordsProvenance()
+    {
+        var session = CreateSession();
+        var model = new ReferenceModelData
+        {
+            FilePath = "/fake/path/test.obj",
+            Format = "OBJ",
+            Meshes = new List<ReferenceMeshData>
+            {
+                new()
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "Mat",
+                },
+            },
+        };
+        session.ReferenceModels.Add(model);
+
+        Assert.Equal("top_left", model.Meshes[0].UvOrigin);
+        Assert.Equal("assimp", model.Meshes[0].SamplingControlsSource);
+
+        var tool = new SetReferenceTextureSamplingMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0, "mesh_index": 0, "uv_origin": "bottom_left", "flip_y": "true", "wrap_s": "clamp", "wrap_t": "mirror" }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal("bottom_left", model.Meshes[0].UvOrigin);
+        Assert.Equal("true", model.Meshes[0].FlipY);
+        Assert.Equal("clamp", model.Meshes[0].WrapS);
+        Assert.Equal("mirror", model.Meshes[0].WrapT);
+        Assert.Equal("manual_sampling_override", model.Meshes[0].SamplingControlsSource);
+    }
+
+    [Fact]
+    public void SetReferenceTextureSampling_ByMaterialNameAppliesToAllMatchingMeshes()
+    {
+        var session = CreateSession();
+        var model = new ReferenceModelData
+        {
+            FilePath = "/fake/path/test.obj",
+            Format = "OBJ",
+            Meshes = new List<ReferenceMeshData>
+            {
+                new()
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "MyMat",
+                },
+                new()
+                {
+                    Vertices = [new ReferenceVertex(1, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "MyMat",
+                },
+                new()
+                {
+                    Vertices = [new ReferenceVertex(2, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "OtherMat",
+                },
+            },
+        };
+        session.ReferenceModels.Add(model);
+
+        var preRevision = session.ViewerRevision;
+
+        var tool = new SetReferenceTextureSamplingMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0, "material_name": "MyMat", "uv_origin": "bottom_left" }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal("bottom_left", model.Meshes[0].UvOrigin);
+        Assert.Equal("bottom_left", model.Meshes[1].UvOrigin);
+        Assert.Equal("top_left", model.Meshes[2].UvOrigin); // unaffected
+        Assert.Equal("manual_sampling_override", model.Meshes[0].SamplingControlsSource);
+        Assert.True(session.ViewerRevision > preRevision); // event published
+    }
+
+    [Fact]
+    public void SetReferenceTextureSampling_DefaultTargetsAllMeshes()
+    {
+        var session = CreateSession();
+        var model = new ReferenceModelData
+        {
+            FilePath = "/fake/path/test.obj",
+            Format = "OBJ",
+            Meshes = new List<ReferenceMeshData>
+            {
+                new()
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "A",
+                },
+                new()
+                {
+                    Vertices = [new ReferenceVertex(1, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "B",
+                },
+            },
+        };
+        session.ReferenceModels.Add(model);
+
+        var tool = new SetReferenceTextureSamplingMcpTool(session);
+        var result = tool.Invoke(
+            JsonArguments("""{ "index": 0, "wrap_s": "clamp" }"""),
+            CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal("clamp", model.Meshes[0].WrapS);
+        Assert.Equal("clamp", model.Meshes[1].WrapS);
+    }
+
+    [Fact]
+    public void InspectReferenceMaterials_ReportsSamplingControls()
+    {
+        var session = CreateSession();
+        var model = new ReferenceModelData
+        {
+            FilePath = "/fake/path/test.obj",
+            Format = "OBJ",
+            Meshes = new List<ReferenceMeshData>
+            {
+                new()
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                    Indices = [0],
+                    MaterialName = "Mat",
+                },
+            },
+        };
+        session.ReferenceModels.Add(model);
+
+        // Set sampling override
+        model.Meshes[0].UvOrigin = "bottom_left";
+        model.Meshes[0].FlipY = "true";
+        model.Meshes[0].WrapS = "clamp";
+        model.Meshes[0].WrapT = "mirror";
+        model.Meshes[0].SamplingControlsSource = "manual_sampling_override";
+
+        var inspectTool = new InspectReferenceMaterialsMcpTool(session);
+        var result = inspectTool.Invoke(JsonArguments("""{ "index": 0 }"""), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        using var doc = JsonDocument.Parse(result.Message);
+        var meshes = doc.RootElement.GetProperty("meshes");
+        Assert.True(meshes.GetArrayLength() > 0);
+        var firstMesh = meshes[0];
+        Assert.Equal("bottom_left", firstMesh.GetProperty("uv_origin").GetString());
+        Assert.Equal("true", firstMesh.GetProperty("flip_y").GetString());
+        Assert.Equal("clamp", firstMesh.GetProperty("wrap_s").GetString());
+        Assert.Equal("mirror", firstMesh.GetProperty("wrap_t").GetString());
+        Assert.Equal("manual_sampling_override", firstMesh.GetProperty("sampling_controls_source").GetString());
     }
 
     private static VoxelForgeMcpSession CreateSession()

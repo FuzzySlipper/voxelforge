@@ -134,6 +134,7 @@ public static class VoxelForgeMcpToolRegistry
         // Manual texture override tools
         services.AddSingleton<InspectReferenceMaterialsMcpTool>();
         services.AddSingleton<SetReferenceModelTextureMcpTool>();
+        services.AddSingleton<SetReferenceTextureSamplingMcpTool>();
 
         services.AddSingleton<GetRegionNeighborsMcpTool>();
         services.AddSingleton<GetInterfaceVoxelsMcpTool>();
@@ -183,6 +184,7 @@ public static class VoxelForgeMcpToolRegistry
         // Manual texture override server tools
         services.AddSingleton<McpServerTool, InspectReferenceMaterialsServerTool>();
         services.AddSingleton<McpServerTool, SetReferenceModelTextureServerTool>();
+        services.AddSingleton<McpServerTool, SetReferenceTextureSamplingServerTool>();
 
         services.AddSingleton<McpServerTool, GetRegionNeighborsServerTool>();
         services.AddSingleton<McpServerTool, GetInterfaceVoxelsServerTool>();

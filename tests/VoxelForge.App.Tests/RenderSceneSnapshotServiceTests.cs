@@ -513,6 +513,76 @@ public sealed class RenderSceneSnapshotServiceTests
     }
 
     [Fact]
+    public void BuildSnapshot_ReferenceTextureSamplingControlsFlowToUvSetAndTextureSlot()
+    {
+        var texturePath = "/tmp/test_sampling_texture.png";
+        try
+        {
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47]);
+
+            var mesh = new ReferenceMeshData
+            {
+                Vertices =
+                [
+                    new(0, 0, 0, 0, 0, 1, 255, 255, 255, 255, 0.25f, 0.75f),
+                    new(1, 0, 0, 0, 0, 1, 255, 255, 255, 255, 0.50f, 0.50f),
+                    new(0, 1, 0, 0, 0, 1, 255, 255, 255, 255, 0.75f, 0.25f),
+                ],
+                Indices = [0, 1, 2],
+                ManualDiffuseOverridePath = texturePath,
+                DiffuseTextureSource = "assimp",
+                MaterialName = "sampling_mat",
+                UvOrigin = "bottom_left",
+                FlipY = "true",
+                WrapS = "clamp",
+                WrapT = "mirror",
+                SamplingControlsSource = "manual_sampling_override",
+            };
+
+            var model = new ReferenceModelData
+            {
+                FilePath = "/fake/sampling.obj",
+                Format = "obj",
+                Meshes = [mesh],
+                IsVisible = true,
+                Scale = 1f,
+            };
+
+            var refModels = new ReferenceModelState();
+            refModels.Add(model);
+
+            var workspace = CreateWorkspace(referenceModels: refModels);
+            var meshService = new MeshSnapshotService(new GreedyMesher());
+            var paletteService = new PaletteSnapshotService();
+            var service = new RenderSceneSnapshotService(meshService, paletteService);
+
+            var snapshot = service.BuildSnapshot(workspace, hostId: "mcp");
+
+            var node = Assert.Single(snapshot.ReferenceNodes);
+            var primitive = Assert.Single(node.Primitives);
+            var uvSet = Assert.Single(primitive.UvSets);
+            Assert.Equal(0, uvSet.SetIndex);
+            Assert.Equal("bottom_left", uvSet.Origin);
+            Assert.Equal("true", uvSet.FlipY);
+            Assert.Equal([0.25f, 0.75f, 0.50f, 0.50f, 0.75f, 0.25f], uvSet.Uvs);
+
+            var material = Assert.Single(snapshot.Materials);
+            Assert.NotNull(material.BaseColorTexture);
+            var slot = material.BaseColorTexture;
+            Assert.Equal("bottom_left", slot.UvOrigin);
+            Assert.Equal("true", slot.FlipY);
+            Assert.Equal("clamp", slot.WrapS);
+            Assert.Equal("mirror", slot.WrapT);
+            Assert.Equal("manual_override", slot.SourceLabel);
+        }
+        finally
+        {
+            if (File.Exists(texturePath))
+                File.Delete(texturePath);
+        }
+    }
+
+    [Fact]
     public void BuildSnapshot_TextureUris_NonMcpHostUsesTextureScheme()
     {
         // For non-MCP hosts (bridge, test), texture URIs should use
