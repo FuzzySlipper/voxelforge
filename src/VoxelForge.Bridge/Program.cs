@@ -44,6 +44,7 @@ public sealed class Program
         services.AddSingleton<IVoxelMesher, GreedyMesher>();
         services.AddSingleton<MeshSnapshotService>();
         services.AddSingleton<PaletteSnapshotService>();
+        services.AddSingleton<RenderSceneSnapshotService>();
         services.AddSingleton<EditorSnapshotService>();
 
         // Mesh region and subscription services

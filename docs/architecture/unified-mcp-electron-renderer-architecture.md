@@ -1,8 +1,8 @@
 # Unified MCP/Electron Renderer Architecture
 
-> Task: #1656 | Parent: #1655  
-> Status: ADR / implementation plan  
-> Prepared: 2026-05-24T21:49:21-07:00  
+> Task: #1656 | Parent: #1655
+> Status: ADR / implementation plan
+> Prepared: 2026-05-24T21:49:21-07:00
 > Den source: `voxelforge/unified-mcp-electron-renderer-architecture-1656`
 
 ## Decision summary

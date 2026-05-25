@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging;
 using VoxelForge.App;
 using VoxelForge.App.Commands;
 using VoxelForge.App.Events;
+using VoxelForge.App.Reference;
+using VoxelForge.App.Workspaces;
 using VoxelForge.Core;
 using VoxelForge.Core.Serialization;
 
@@ -9,44 +11,82 @@ namespace VoxelForge.Bridge.Handlers;
 
 /// <summary>
 /// Holds the currently loaded VoxelModel for the sidecar.
-/// The sidecar loads a sample model on startup for the static
-/// renderer vertical slice. Future tasks will add
-/// <c>voxelforge.project.load</c> commands for dynamic model loading.
+/// Hosts a <see cref="VoxelForgeWorkspaceState"/> as the authoritative shared state.
+/// Existing properties delegate to <c>Workspace</c> for compatibility.
 /// </summary>
 public sealed class VoxelModelHolder
 {
     private readonly ILogger<VoxelModelHolder> _logger;
     private readonly ILoggerFactory _loggerFactory;
-    private readonly IEventPublisher _events;
-
-    public bool IsLoaded { get; private set; }
-    public EditorDocumentState Document { get; private set; } = null!;
-    public EditorSessionState Session { get; } = new();
-    public UndoHistoryState UndoHistory { get; } = new(100);
-    public UndoStack UndoStack { get; }
-    public VoxelModel Model => Document.Model;
-    public LabelIndex Labels => Document.Labels;
-    public string ModelId { get; private set; } = "";
-    public string? ProjectPath { get; private set; }
-    public bool IsDirty { get; private set; }
-    public string StatusMessage { get; private set; } = "Starting VoxelForge bridge.";
+    private readonly IEventDispatcher _events;
 
     public VoxelModelHolder(
         ILogger<VoxelModelHolder> logger,
         ILoggerFactory loggerFactory,
-        IEventPublisher? events = null)
+        IEventDispatcher? events = null)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
-        _events = events ?? new NoopEventPublisher();
-        UndoStack = new UndoStack(
-            UndoHistory,
-            loggerFactory.CreateLogger<UndoStack>(),
-            _events);
+        _events = events ?? new ApplicationEventDispatcher();
+
+        var model = new VoxelModel(loggerFactory.CreateLogger<VoxelModel>());
+        var labels = new LabelIndex(loggerFactory.CreateLogger<LabelIndex>());
+        var document = new EditorDocumentState(model, labels);
+        var session = new EditorSessionState();
+        var undoHistory = new UndoHistoryState(100);
+        var undoStack = new UndoStack(undoHistory, loggerFactory.CreateLogger<UndoStack>(), _events);
+        var referenceModels = new ReferenceModelState();
+        var referenceImages = new ReferenceImageState();
+
+        Workspace = new VoxelForgeWorkspaceState(
+            document,
+            session,
+            undoHistory,
+            undoStack,
+            _events,
+            referenceModels,
+            referenceImages)
+        {
+            ModelId = "",
+            CurrentModelName = "untitled",
+        };
     }
 
     /// <summary>
-    /// Load a .vforge model file. Replaces any previously loaded model.
+    /// Shared App-layer workspace state — authoritative mutable truth.
+    /// </summary>
+    public VoxelForgeWorkspaceState Workspace { get; }
+
+    public bool IsLoaded => Workspace.IsLoaded;
+    public EditorDocumentState Document => Workspace.Document;
+    public EditorSessionState Session => Workspace.Session;
+    public UndoHistoryState UndoHistory => Workspace.UndoHistory;
+    public UndoStack UndoStack => Workspace.UndoStack;
+    public VoxelModel Model => Workspace.Document.Model;
+    public LabelIndex Labels => Workspace.Document.Labels;
+    public string ModelId
+    {
+        get => Workspace.ModelId;
+        private set => Workspace.ModelId = value;
+    }
+    public string? ProjectPath
+    {
+        get => Workspace.ProjectPath;
+        private set => Workspace.ProjectPath = value;
+    }
+    public bool IsDirty
+    {
+        get => Workspace.IsDirty;
+        private set => Workspace.IsDirty = value;
+    }
+    public string StatusMessage
+    {
+        get => Workspace.StatusMessage;
+        private set => Workspace.StatusMessage = value;
+    }
+
+    /// <summary>
+    /// Load a .vforge model file. Replaces the workspace document state.
     /// </summary>
     public void LoadFromPath(string path)
     {
@@ -63,16 +103,18 @@ public sealed class VoxelModelHolder
         var serializer = new ProjectSerializer(_loggerFactory);
         var (model, labels, clips, meta) = serializer.Deserialize(json);
 
-        Document = new EditorDocumentState(model, labels, clips);
-        ModelId = meta.Name ?? Path.GetFileNameWithoutExtension(path);
-        ProjectPath = path;
-        IsDirty = false;
-        IsLoaded = true;
-        StatusMessage = $"Loaded '{ModelId}' from {path}";
+        Workspace.Document = new EditorDocumentState(model, labels, clips);
+        Workspace.ModelId = meta.Name ?? Path.GetFileNameWithoutExtension(path);
+        Workspace.ProjectPath = path;
+        Workspace.IsDirty = false;
+        Workspace.StatusMessage = $"Loaded '{Workspace.CurrentModelName}' from {path}";
+        Workspace.CurrentModelName = meta.Name ?? Path.GetFileNameWithoutExtension(path);
+        Workspace.IsLoaded = true;
+        Workspace.IncrementRevision();
 
         _logger.LogInformation(
             "Loaded model '{ModelId}' with {VoxelCount} voxels, {PaletteCount} palette entries, {LabelCount} labels",
-            ModelId,
+            Workspace.ModelId,
             model.GetVoxelCount(),
             model.Palette.Count,
             labels.Regions.Count);
@@ -115,50 +157,37 @@ public sealed class VoxelModelHolder
         var labelLogger = _loggerFactory.CreateLogger<LabelIndex>();
         var labels = new LabelIndex(labelLogger);
 
-        Document = new EditorDocumentState(model, labels);
-        ModelId = "default-cube";
-        ProjectPath = null;
-        IsDirty = false;
-        IsLoaded = true;
-        StatusMessage = "Created default test cube.";
+        Workspace.Document = new EditorDocumentState(model, labels);
+        Workspace.ModelId = "default-cube";
+        Workspace.ProjectPath = null;
+        Workspace.IsDirty = false;
+        Workspace.StatusMessage = "Created default test cube.";
+        Workspace.CurrentModelName = "default-cube";
+        Workspace.IsLoaded = true;
+        Workspace.IncrementRevision();
 
         _logger.LogInformation("Created default test cube model with {VoxelCount} voxels", model.GetVoxelCount());
     }
 
     public void SetProjectPath(string? path)
     {
-        ProjectPath = path;
+        Workspace.ProjectPath = path;
     }
 
     public void SetModelId(string modelId)
     {
         ArgumentNullException.ThrowIfNull(modelId);
-        ModelId = modelId;
+        Workspace.ModelId = modelId;
     }
 
     public void MarkDirty(bool isDirty)
     {
-        IsDirty = isDirty;
+        Workspace.IsDirty = isDirty;
     }
 
     public void SetStatus(string message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        StatusMessage = message;
-    }
-
-    private sealed class NoopEventPublisher : IEventPublisher
-    {
-        public void Publish<TEvent>(TEvent applicationEvent) where TEvent : IApplicationEvent
-        {
-        }
-
-        public void Publish(IApplicationEvent applicationEvent)
-        {
-        }
-
-        public void PublishAll(IReadOnlyList<IApplicationEvent> applicationEvents)
-        {
-        }
+        Workspace.StatusMessage = message;
     }
 }

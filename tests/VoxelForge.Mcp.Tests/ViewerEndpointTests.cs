@@ -422,7 +422,7 @@ public sealed class ViewerEndpointTests
         session.IncrementViewerRevision(); // rev 3
 
         // Read from the channel (all should be available)
-        var revisions = new List<int>();
+        var revisions = new List<long>();
         var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
         try
         {
@@ -469,7 +469,7 @@ public sealed class ViewerEndpointTests
         session.IncrementViewerRevision();
 
         // The channel should be completed, so ReadAllAsync should end immediately
-        var remaining = new List<int>();
+        var remaining = new List<long>();
         await foreach (var rev in reader.ReadAllAsync())
         {
             remaining.Add(rev);
@@ -488,7 +488,7 @@ public sealed class ViewerEndpointTests
         session.IncrementViewerRevision(); // rev 1
 
         // Both subscribers should receive the revision
-        int? r1 = null, r2 = null;
+        long? r1 = null, r2 = null;
         var cts1 = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         var cts2 = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         try { await foreach (var rev in reader1.ReadAllAsync(cts1.Token)) { r1 = rev; break; } } catch (OperationCanceledException) { }
@@ -998,6 +998,71 @@ public sealed class ViewerEndpointTests
         Assert.Contains("pendingTextureLoads", html);
         Assert.Contains("maybeSetCaptureReady", html);
         Assert.Contains("captureReady set (textures settled)", html);
+    }
+
+    // ── RenderSceneSnapshotService / new render endpoint tests (#1657) ──
+
+    [Fact]
+    public void RenderState_UsingWorkspace_ProducesLightweightSnapshot()
+    {
+        var session = CreateSession();
+        var model = session.Document.Model;
+        model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(128, 128, 128, 255) });
+        model.Palette.Set(2, new MaterialDef { Name = "Red", Color = new RgbaColor(255, 0, 0, 255) });
+
+        var mesher = new GreedyMesher();
+        var meshService = new MeshSnapshotService(mesher);
+        var paletteService = new PaletteSnapshotService();
+        var renderService = new RenderSceneSnapshotService(meshService, paletteService);
+
+        var snapshot = renderService.BuildState(session.Workspace, hostId: "mcp");
+
+        Assert.Equal("voxelforge.render_scene@1", snapshot.SchemaVersion);
+        Assert.Equal(session.Workspace.Revision, snapshot.Revision);
+        Assert.Equal(session.Workspace.ModelId, snapshot.ModelId);
+        Assert.Equal("mcp", snapshot.Source.Host);
+        Assert.Empty(snapshot.VoxelMeshes);
+        Assert.Equal(2, snapshot.Palette.Count);
+        Assert.Contains(snapshot.Palette, e => e.Name == "Stone");
+        Assert.Contains(snapshot.Palette, e => e.Name == "Red");
+    }
+
+    [Fact]
+    public void RenderSnapshot_UsingWorkspace_IncludesVoxelMeshData()
+    {
+        var session = CreateSession();
+        var model = session.Document.Model;
+        model.SetVoxel(new Point3(0, 0, 0), 1);
+        model.Palette.Set(1, new MaterialDef { Name = "Stone", Color = new RgbaColor(128, 128, 128, 255) });
+
+        var mesher = new GreedyMesher();
+        var meshService = new MeshSnapshotService(mesher);
+        var paletteService = new PaletteSnapshotService();
+        var renderService = new RenderSceneSnapshotService(meshService, paletteService);
+
+        var snapshot = renderService.BuildSnapshot(session.Workspace, hostId: "mcp", capabilities: ["voxel_mesh"]);
+
+        Assert.Equal("voxelforge.render_scene@1", snapshot.SchemaVersion);
+        Assert.Equal("mcp", snapshot.Source.Host);
+        Assert.Contains("voxel_mesh", snapshot.Source.Capabilities);
+        Assert.NotEmpty(snapshot.VoxelMeshes);
+        Assert.NotNull(snapshot.Bounds);
+    }
+
+    [Fact]
+    public void WorkspaceRevision_Backs_ViewerRevision()
+    {
+        var session = CreateSession();
+
+        long wsRev0 = session.Workspace.Revision;
+        int viewerRev0 = session.ViewerRevision;
+        Assert.Equal((int)wsRev0, viewerRev0);
+
+        session.IncrementViewerRevision();
+        long wsRev1 = session.Workspace.Revision;
+        int viewerRev1 = session.ViewerRevision;
+        Assert.Equal((int)wsRev1, viewerRev1);
+        Assert.True(viewerRev1 > viewerRev0);
     }
 
     [Fact]

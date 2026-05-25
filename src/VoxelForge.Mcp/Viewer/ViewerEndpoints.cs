@@ -25,7 +25,24 @@ public static class ViewerEndpoints
             await context.Response.WriteAsync(ViewerHtml.Content);
         });
 
+        // ── New canonical render endpoints (Task #1657) ──
+
+        // GET /api/render/state — lightweight render state summary
+        routes.MapGet("/api/render/state", (VoxelForgeMcpSession session, RenderSceneSnapshotService renderService) =>
+        {
+            var snapshot = renderService.BuildState(session.Workspace, hostId: "mcp");
+            return Results.Ok(snapshot);
+        });
+
+        // GET /api/render/snapshot — full versioned render-scene snapshot
+        routes.MapGet("/api/render/snapshot", (VoxelForgeMcpSession session, RenderSceneSnapshotService renderService) =>
+        {
+            var snapshot = renderService.BuildSnapshot(session.Workspace, hostId: "mcp", capabilities: ["voxel_mesh", "palette", "reference"]);
+            return Results.Ok(snapshot);
+        });
+
         // ── Viewer API: lightweight state summary (no mesh data, thread-safe) ──
+        // TRANSITIONAL: alias for /api/render/state, will be removed in #1659
         routes.MapGet("/api/viewer-state", (VoxelForgeMcpSession session) =>
         {
             int revision;
@@ -77,6 +94,7 @@ public static class ViewerEndpoints
         });
 
         // ── Viewer API: full mesh snapshot (thread-safe) ──
+        // TRANSITIONAL: alias for /api/render/snapshot, will be removed in #1659
         routes.MapGet("/api/mesh-snapshot", (VoxelForgeMcpSession session, MeshSnapshotService meshService, PaletteSnapshotService paletteService) =>
         {
             MeshSnapshot mesh;

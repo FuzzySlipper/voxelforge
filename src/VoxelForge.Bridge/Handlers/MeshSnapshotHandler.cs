@@ -3,6 +3,7 @@ using Den.Bridge.Abstractions;
 using Den.Bridge.Protocol;
 using VoxelForge.App.Services;
 using VoxelForge.App.Snapshots;
+using VoxelForge.App.Workspaces;
 using VoxelForge.Bridge.Protocol;
 
 namespace VoxelForge.Bridge.Handlers;
@@ -10,7 +11,8 @@ namespace VoxelForge.Bridge.Handlers;
 /// <summary>
 /// Handles <c>voxelforge.mesh.request_snapshot</c> bridge commands.
 /// Produces a renderer-neutral mesh snapshot from the sidecar's current model
-/// using <see cref="MeshSnapshotService"/>.
+/// using <see cref="RenderSceneSnapshotService"/> as the authoritative semantic source,
+/// then maps to the existing <see cref="MeshSnapshotResponse"/> DTO.
 /// <para>
 /// This is a C#-owned, read-only command per the bridge protocol.
 /// TS requests mesh data; C# responds with authoritative geometry.
@@ -19,15 +21,18 @@ namespace VoxelForge.Bridge.Handlers;
 public sealed class MeshSnapshotHandler : IBridgeCommandHandler<MeshSnapshotRequest, MeshSnapshotResponse>
 {
     private readonly VoxelModelHolder _modelHolder;
+    private readonly RenderSceneSnapshotService _renderSceneService;
     private readonly MeshSnapshotService _meshService;
     private readonly PaletteSnapshotService _paletteService;
 
     public MeshSnapshotHandler(
         VoxelModelHolder modelHolder,
+        RenderSceneSnapshotService renderSceneService,
         MeshSnapshotService meshService,
         PaletteSnapshotService paletteService)
     {
         _modelHolder = modelHolder;
+        _renderSceneService = renderSceneService;
         _meshService = meshService;
         _paletteService = paletteService;
     }
@@ -50,15 +55,19 @@ public sealed class MeshSnapshotHandler : IBridgeCommandHandler<MeshSnapshotRequ
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var model = _modelHolder.Model;
+        var workspace = _modelHolder.Workspace;
+
+        // Use RenderSceneSnapshotService as the authoritative semantic source.
+        var renderScene = _renderSceneService.BuildSnapshot(workspace, hostId: "bridge");
+
         var meshStopwatch = Stopwatch.StartNew();
-        var mesh = _meshService.BuildSnapshot(model);
+        var mesh = _meshService.BuildSnapshot(workspace.Document.Model);
         meshStopwatch.Stop();
 
         cancellationToken.ThrowIfCancellationRequested();
 
         var serializeStopwatch = Stopwatch.StartNew();
-        var response = MapToResponse(mesh, model, request, _modelHolder.ModelId);
+        var response = MapToResponse(mesh, workspace.Document.Model, request, workspace.ModelId, renderScene);
         serializeStopwatch.Stop();
 
         totalStopwatch.Stop();
@@ -77,7 +86,8 @@ public sealed class MeshSnapshotHandler : IBridgeCommandHandler<MeshSnapshotRequ
         MeshSnapshot mesh,
         Core.VoxelModel model,
         MeshSnapshotRequest request,
-        string modelId)
+        string modelId,
+        App.Render.RenderSceneSnapshot? renderScene = null)
     {
         var bounds = mesh.Bounds is not null
             ? new BoundsDto

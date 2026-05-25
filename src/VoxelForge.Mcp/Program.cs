@@ -39,6 +39,7 @@ builder.Services.AddSingleton<VoxelForgeMcpSession>();
 builder.Services.AddSingleton<IVoxelMesher>(_ => new GreedyMesher());
 builder.Services.AddSingleton<MeshSnapshotService>();
 builder.Services.AddSingleton<PaletteSnapshotService>();
+builder.Services.AddSingleton<RenderSceneSnapshotService>();
 
 // Register viewer capture service (Chromium headless browser screenshot)
 builder.Services.AddSingleton<IViewerCaptureService>(sp =>

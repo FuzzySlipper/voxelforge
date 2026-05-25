@@ -60,7 +60,8 @@ public sealed class MeshSnapshotHandlerTests
         var mesher = new GreedyMesher();
         var meshService = new MeshSnapshotService(mesher);
         var paletteService = new PaletteSnapshotService();
-        var handler = new MeshSnapshotHandler(holder, meshService, paletteService);
+        var renderSceneService = new RenderSceneSnapshotService(meshService, paletteService);
+        var handler = new MeshSnapshotHandler(holder, renderSceneService, meshService, paletteService);
 
         return (handler, holder);
     }
@@ -101,7 +102,8 @@ public sealed class MeshSnapshotHandlerTests
         var mesher = new GreedyMesher();
         var meshService = new MeshSnapshotService(mesher);
         var paletteService = new PaletteSnapshotService();
-        handler = new MeshSnapshotHandler(holderWithModel, meshService, paletteService);
+        var renderSceneService2 = new RenderSceneSnapshotService(meshService, paletteService);
+        handler = new MeshSnapshotHandler(holderWithModel, renderSceneService2, meshService, paletteService);
 
         var context = new BridgeRequestContext("req-mesh-2", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
 
@@ -137,7 +139,8 @@ public sealed class MeshSnapshotHandlerTests
         var mesher = new GreedyMesher();
         var meshService = new MeshSnapshotService(mesher);
         var paletteService = new PaletteSnapshotService();
-        var handler = new MeshSnapshotHandler(holder, meshService, paletteService);
+        var renderSceneService = new RenderSceneSnapshotService(meshService, paletteService);
+        var handler = new MeshSnapshotHandler(holder, renderSceneService, meshService, paletteService);
 
         var context = new BridgeRequestContext("req-mesh-palette", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
 
@@ -168,7 +171,8 @@ public sealed class MeshSnapshotHandlerTests
         var mesher = new GreedyMesher();
         var meshService = new MeshSnapshotService(mesher);
         var paletteService = new PaletteSnapshotService();
-        var handler = new MeshSnapshotHandler(holder, meshService, paletteService);
+        var renderSceneService = new RenderSceneSnapshotService(meshService, paletteService);
+        var handler = new MeshSnapshotHandler(holder, renderSceneService, meshService, paletteService);
 
         var context = new BridgeRequestContext("req-mesh-no-palette", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
 
@@ -193,7 +197,8 @@ public sealed class MeshSnapshotHandlerTests
         var mesher = new GreedyMesher();
         var meshService = new MeshSnapshotService(mesher);
         var paletteService = new PaletteSnapshotService();
-        var handler = new MeshSnapshotHandler(holder, meshService, paletteService);
+        var renderSceneService = new RenderSceneSnapshotService(meshService, paletteService);
+        var handler = new MeshSnapshotHandler(holder, renderSceneService, meshService, paletteService);
 
         var context = new BridgeRequestContext("req-mesh-bounds", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask);
 
@@ -211,6 +216,66 @@ public sealed class MeshSnapshotHandlerTests
         Assert.True(response.Bounds.MaxX >= 2);
         Assert.True(response.Bounds.MaxY >= 2);
         Assert.True(response.Bounds.MaxZ >= 2);
+    }
+
+    // ── Workspace backing tests (#1657) ──
+
+    [Fact]
+    public void VoxelModelHolder_Workspace_BacksDocumentAndUndoStack()
+    {
+        var holder = new VoxelModelHolder(
+            NullLogger<VoxelModelHolder>.Instance,
+            NullLoggerFactory.Instance);
+        holder.LoadDefaultCube();
+
+        Assert.NotNull(holder.Workspace);
+        Assert.Same(holder.Workspace.Document, holder.Document);
+        Assert.Same(holder.Workspace.UndoStack, holder.UndoStack);
+        Assert.Same(holder.Workspace.Session, holder.Session);
+        Assert.Same(holder.Workspace.UndoHistory, holder.UndoHistory);
+        Assert.Equal(holder.Workspace.ModelId, holder.ModelId);
+        Assert.Equal(holder.Workspace.IsDirty, holder.IsDirty);
+        Assert.Equal(holder.Workspace.StatusMessage, holder.StatusMessage);
+    }
+
+    [Fact]
+    public void VoxelModelHolder_LoadDefaultCube_UpdatesWorkspaceRevision()
+    {
+        var holder = new VoxelModelHolder(
+            NullLogger<VoxelModelHolder>.Instance,
+            NullLoggerFactory.Instance);
+
+        long revBefore = holder.Workspace.Revision;
+        holder.LoadDefaultCube();
+        long revAfter = holder.Workspace.Revision;
+
+        Assert.True(revAfter > revBefore, "LoadDefaultCube should increment workspace revision");
+        Assert.True(holder.Workspace.IsLoaded);
+    }
+
+    [Fact]
+    public void MeshSnapshotHandler_UsesRenderSceneSnapshotService_ThroughWorkspace()
+    {
+        var loggerFactory = NullLoggerFactory.Instance;
+        var holder = new VoxelModelHolder(
+            NullLogger<VoxelModelHolder>.Instance,
+            loggerFactory);
+        holder.LoadDefaultCube();
+
+        var mesher = new GreedyMesher();
+        var meshService = new MeshSnapshotService(mesher);
+        var paletteService = new PaletteSnapshotService();
+        var renderSceneService = new RenderSceneSnapshotService(meshService, paletteService);
+
+        // Verify that RenderSceneSnapshotService can build a snapshot from the holder's workspace
+        var renderSnapshot = renderSceneService.BuildSnapshot(holder.Workspace, hostId: "bridge-test");
+
+        Assert.Equal("voxelforge.render_scene@1", renderSnapshot.SchemaVersion);
+        Assert.Equal(holder.Workspace.Revision, renderSnapshot.Revision);
+        Assert.Equal(holder.ModelId, renderSnapshot.ModelId);
+        Assert.Equal("bridge-test", renderSnapshot.Source.Host);
+        Assert.NotEmpty(renderSnapshot.Palette);
+        Assert.NotEmpty(renderSnapshot.VoxelMeshes);
     }
 }
 

@@ -8,6 +8,7 @@ namespace VoxelForge.Bridge.Handlers;
 
 /// <summary>
 /// Builds and publishes authoritative editor UI state snapshots for Electron.
+/// Reads state from <c>_modelHolder.Workspace</c> as the shared semantic source.
 /// The snapshots are renderer-neutral and deliberately exclude mesh buffers.
 /// </summary>
 public sealed class EditorUiStateBridgeService
@@ -31,7 +32,8 @@ public sealed class EditorUiStateBridgeService
     {
         EnsureLoaded();
 
-        var document = _modelHolder.Document;
+        var workspace = _modelHolder.Workspace;
+        var document = workspace.Document;
         var bounds = document.Model.GetBounds();
         BoundsDto? boundsDto = null;
         if (bounds is { } b)
@@ -62,18 +64,18 @@ public sealed class EditorUiStateBridgeService
             };
         }
 
-        var historySnapshot = EditorSnapshotService.BuildUndoHistorySnapshot(_modelHolder.UndoHistory);
+        var historySnapshot = EditorSnapshotService.BuildUndoHistorySnapshot(workspace.UndoHistory);
 
         return new EditorUiStateSnapshot
         {
-            ModelId = _modelHolder.ModelId,
-            ProjectPath = _modelHolder.ProjectPath,
-            IsDirty = _modelHolder.IsDirty,
+            ModelId = workspace.ModelId,
+            ProjectPath = workspace.ProjectPath,
+            IsDirty = workspace.IsDirty,
             VoxelCount = document.Model.GetVoxelCount(),
             Bounds = boundsDto,
             GridHint = document.Model.GridHint,
-            ActiveTool = _modelHolder.Session.ActiveTool.ToString().ToLowerInvariant(),
-            ActivePaletteIndex = _modelHolder.Session.ActivePaletteIndex,
+            ActiveTool = workspace.Session.ActiveTool.ToString().ToLowerInvariant(),
+            ActivePaletteIndex = workspace.Session.ActivePaletteIndex,
             AvailableTools = GetAvailableTools(),
             PaletteEntries = entries,
             PaletteEntryCount = entries.Length,
@@ -82,9 +84,9 @@ public sealed class EditorUiStateBridgeService
             UndoDepth = historySnapshot.UndoDepth,
             RedoDepth = historySnapshot.RedoDepth,
             LastCommandDescription = historySnapshot.LastCommandDescription,
-            SelectedVoxelCount = _modelHolder.Session.SelectedVoxels.Count,
-            ActiveFrameIndex = _modelHolder.Session.ActiveFrameIndex,
-            StatusMessage = _modelHolder.StatusMessage,
+            SelectedVoxelCount = workspace.Session.SelectedVoxels.Count,
+            ActiveFrameIndex = workspace.Session.ActiveFrameIndex,
+            StatusMessage = workspace.StatusMessage,
             Timestamp = DateTimeOffset.UtcNow,
         };
     }
