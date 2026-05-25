@@ -37,7 +37,7 @@
 <body>
   <div id="viewport-wrap">
     <div id="renderer-container"></div>
-    <div id="loading">Loading VoxelForge Viewer\u2026</div>
+    <div id="loading">Loading VoxelForge Viewer…</div>
     <div id="fallback-msg" class="fallback-msg hidden">
       <div style="max-width: 480px;">
         <p style="margin-bottom: 12px;">WebGL is not available in this browser.</p>
@@ -48,15 +48,16 @@
       </div>
     </div>
     <div class="diag-overlay" id="diag-overlay">
-      <div class="diag-pill" id="diag-model">Model: \u2014</div>
-      <div class="diag-pill" id="diag-mesh">Mesh: \u2014</div>
-      <div class="diag-pill perf" id="diag-fps">FPS: \u2014</div>
-      <div class="diag-pill" id="diag-connection">Connecting\u2026</div>
+      <div class="diag-pill" id="diag-model">Model: —</div>
+      <div class="diag-pill" id="diag-mesh">Mesh: —</div>
+      <div class="diag-pill" id="diag-mesh-detail" style="display:none;">Build: —</div>
+      <div class="diag-pill perf" id="diag-fps">FPS: —</div>
+      <div class="diag-pill" id="diag-connection">Connecting…</div>
     </div>
     <div class="status-bar">
-      <span><span class="dot" id="conn-dot"></span><span id="status-text">Loading\u2026</span></span>
+      <span><span class="dot" id="conn-dot"></span><span id="status-text">Loading…</span></span>
       <span class="spacer"></span>
-      <span id="status-revision">rev \u2014</span>
+      <span id="status-revision">rev —</span>
       <span id="status-voxels">0 voxels</span>
       <span id="status-tris">0 tris</span>
     </div>

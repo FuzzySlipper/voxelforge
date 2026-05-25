@@ -966,6 +966,8 @@ public sealed class ViewerEndpointTests
         // Only a module script tag pointing to /viewer-bundle.js is allowed.
         Assert.Contains("<script type=\"module\"", html);
         Assert.Contains("/viewer-bundle.js", html);
+        // Shell must include every DOM element required by mcp-viewer/main.ts startup.
+        Assert.Contains("id=\"diag-mesh-detail\"", html);
 
         // The old per-mesh rendering inline strings must NOT be in viewer.html
         Assert.DoesNotContain("Per-mesh rendering: build one Three.js Mesh per source mesh", html);
