@@ -649,6 +649,182 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
         }
     }
 
+    [Fact]
+    public void SetReferenceModelTexture_MaterialName_NoUvsOnOneMeshFailsWithoutMutation()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-matname-nouv-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "test-diffuse.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+            var session = CreateSession();
+
+            // Build a model with 3 meshes:
+            // - mesh 0: "SharedMat", has UVs
+            // - mesh 1: "SharedMat", no UVs
+            // - mesh 2: "OtherMat", has UVs
+            var model = new ReferenceModelData
+            {
+                FilePath = "/fake/path/test.obj",
+                Format = "OBJ",
+                Meshes = new List<ReferenceMeshData>
+                {
+                    new()
+                    {
+                        Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                        Indices = [0],
+                        MaterialName = "SharedMat",
+                    },
+                    new()
+                    {
+                        Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255)],
+                        Indices = [0],
+                        MaterialName = "SharedMat",
+                    },
+                    new()
+                    {
+                        Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.25f, 0.75f)],
+                        Indices = [0],
+                        MaterialName = "OtherMat",
+                    },
+                },
+            };
+            session.ReferenceModels.Add(model);
+
+            int preRevision = session.ViewerRevision;
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "material_name": "SharedMat", "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Contains("no UV coordinates", result.Message, StringComparison.OrdinalIgnoreCase);
+
+            // No mesh should be mutated
+            Assert.Null(model.Meshes[0].ManualDiffuseOverridePath);
+            Assert.Null(model.Meshes[1].ManualDiffuseOverridePath);
+            Assert.Null(model.Meshes[2].ManualDiffuseOverridePath);
+
+            // No event should have been published (revision unchanged)
+            Assert.Equal(preRevision, session.ViewerRevision);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_MaterialName_AllUvsSucceeds()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-matname-ok-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "test-diffuse.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+            var session = CreateSession();
+
+            var model = new ReferenceModelData
+            {
+                FilePath = "/fake/path/test.obj",
+                Format = "OBJ",
+                Meshes = new List<ReferenceMeshData>
+                {
+                    new()
+                    {
+                        Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                        Indices = [0],
+                        MaterialName = "SharedMat",
+                    },
+                    new()
+                    {
+                        Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.25f, 0.75f)],
+                        Indices = [0],
+                        MaterialName = "SharedMat",
+                    },
+                    new()
+                    {
+                        Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.1f, 0.2f)],
+                        Indices = [0],
+                        MaterialName = "OtherMat",
+                    },
+                },
+            };
+            session.ReferenceModels.Add(model);
+
+            int preRevision = session.ViewerRevision;
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "material_name": "SharedMat", "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.True(result.Success, result.Message);
+            Assert.Equal(texturePath, model.Meshes[0].ManualDiffuseOverridePath);
+            Assert.Equal(texturePath, model.Meshes[1].ManualDiffuseOverridePath);
+            Assert.Null(model.Meshes[2].ManualDiffuseOverridePath);
+
+            // Event should have been published (revision incremented)
+            Assert.True(session.ViewerRevision > preRevision);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SetReferenceModelTexture_MaterialName_NoMatchFailsWithoutMutation()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("voxelforge-texture-matname-nomatch-");
+        try
+        {
+            var texturePath = Path.Combine(tempDir.FullName, "test-diffuse.png");
+            File.WriteAllBytes(texturePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+            var session = CreateSession();
+
+            var model = new ReferenceModelData
+            {
+                FilePath = "/fake/path/test.obj",
+                Format = "OBJ",
+                Meshes = new List<ReferenceMeshData>
+                {
+                    new()
+                    {
+                        Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 255, 255, 255, 255, 0.5f, 0.5f)],
+                        Indices = [0],
+                        MaterialName = "ExistingMat",
+                    },
+                },
+            };
+            session.ReferenceModels.Add(model);
+
+            int preRevision = session.ViewerRevision;
+
+            var tool = new SetReferenceModelTextureMcpTool(session);
+            var result = tool.Invoke(JsonArguments($$"""
+                { "index": 0, "material_name": "NonExistentMat", "slot": "diffuse", "path": "{{texturePath}}" }
+                """), CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Contains("No mesh found with material name matching 'NonExistentMat'", result.Message, StringComparison.Ordinal);
+
+            // No mesh should be mutated
+            Assert.Null(model.Meshes[0].ManualDiffuseOverridePath);
+
+            // No event should have been published
+            Assert.Equal(preRevision, session.ViewerRevision);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
     private static VoxelForgeMcpSession CreateSession()
     {
         return new VoxelForgeMcpSession(new EditorConfigState(), NullLoggerFactory.Instance);

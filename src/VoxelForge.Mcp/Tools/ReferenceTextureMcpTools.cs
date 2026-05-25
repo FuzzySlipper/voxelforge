@@ -246,19 +246,31 @@ public sealed class SetReferenceModelTextureMcpTool : ModelLifecycleMcpToolBase
             }
             else if (hasMaterialName && !string.IsNullOrWhiteSpace(materialName))
             {
+                // First pass: collect matching meshes and validate all have UVs before mutating any mesh
+                var matchingMeshes = new List<ReferenceMeshData>();
                 foreach (var mesh in model.Meshes)
                 {
                     if (string.Equals(mesh.MaterialName, materialName, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (!mesh.HasUvs)
-                            return Fail($"Mesh with material '{materialName}' has no UV coordinates. Textures cannot be applied to meshes without UVs.");
-
-                        ApplyOverride(mesh, slot, path);
-                        meshesAffected++;
+                        matchingMeshes.Add(mesh);
                     }
                 }
-                if (meshesAffected == 0)
+
+                if (matchingMeshes.Count == 0)
                     return Fail($"No mesh found with material name matching '{materialName}'.");
+
+                foreach (var mesh in matchingMeshes)
+                {
+                    if (!mesh.HasUvs)
+                        return Fail($"Mesh with material '{materialName}' has no UV coordinates. Textures cannot be applied to meshes without UVs.");
+                }
+
+                // Second pass: apply overrides only after all validation succeeds
+                foreach (var mesh in matchingMeshes)
+                {
+                    ApplyOverride(mesh, slot, path);
+                    meshesAffected++;
+                }
             }
             else
             {
