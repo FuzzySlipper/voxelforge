@@ -60,15 +60,6 @@ async function main(): Promise<void> {
     captureMode,
   });
 
-  // If capture mode, set up capture-ready management via texture loading
-  if (captureMode) {
-    captureReadyManager.onReady(() => {
-      if (animFrameId === null && scene) {
-        renderOnce();
-      }
-    });
-  }
-
   // Create scene
   try {
     scene = new VoxelForgeScene(ui.container);
@@ -150,9 +141,18 @@ async function main(): Promise<void> {
 
     // In capture mode, scene build and texture loading are tracked
     // automatically via CaptureReadyManager integration in VoxelForgeScene.
-    // The onReady callback above renders a single frame when both are done.
+    // Register the onReady handler AFTER camera params are applied, so the
+    // final render uses the preset camera position, not the default framing.
+    // (buildFromSnapshot calls captureReadyManager.onSceneBuildComplete()
+    // internally, which could fire early. By deferring registration until
+    // after viewFromAngle, we ensure the capture frame has the correct view.)
     if (captureMode) {
         captureReadyManager.onSceneBuildComplete();
+        captureReadyManager.onReady(() => {
+            if (animFrameId === null && scene) {
+                renderOnce();
+            }
+        });
     }
 
   ui.loading.classList.add("hidden");

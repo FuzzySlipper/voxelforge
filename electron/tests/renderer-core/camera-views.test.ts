@@ -175,6 +175,38 @@ describe("computeViewFromAnglePosition", () => {
     expect(posDistanceSq(right, iso)).toBeGreaterThan(1);
     expect(posDistanceSq(top, iso)).toBeGreaterThan(1);
   });
+
+  /**
+   * Regression test for #1674: parseCameraParams uses approximate float
+   * literals (1.5708, 0.7854, 0.6155) rather than Math.PI/2 or Math.PI/4.
+   * These approximate values must still produce distinct camera positions
+   * for front/right/isometric views.
+   */
+  it("parseCameraParams approximate preset values produce distinct positions", () => {
+    // These are the exact float literals used in electron/src/mcp-viewer/main.ts
+    const front  = computeViewFromAnglePosition(0,      0,      10);
+    const right  = computeViewFromAnglePosition(1.5708, 0,      10);
+    const isometric = computeViewFromAnglePosition(0.7854, 0.6155, 10);
+
+    expect(posDistanceSq(front, right)).toBeGreaterThan(1);
+    expect(posDistanceSq(front, isometric)).toBeGreaterThan(1);
+    expect(posDistanceSq(right, isometric)).toBeGreaterThan(1);
+
+    // Sanity: right should be on +X axis (approximately)
+    expect(right[0]).toBeGreaterThan(9);
+    expect(Math.abs(right[1])).toBeLessThan(0.01);
+    expect(Math.abs(right[2])).toBeLessThan(0.01);
+
+    // Sanity: front should be on +Z axis
+    expect(front[2]).toBeGreaterThan(9);
+    expect(Math.abs(front[0])).toBeLessThan(0.01);
+    expect(Math.abs(front[1])).toBeLessThan(0.01);
+
+    // Sanity: isometric should have significant X, Y, and Z components
+    expect(Math.abs(isometric[0])).toBeGreaterThan(5);
+    expect(Math.abs(isometric[1])).toBeGreaterThan(5);
+    expect(Math.abs(isometric[2])).toBeGreaterThan(5);
+  });
 });
 
 // ── CaptureReadyManager scene build tracking tests ──

@@ -74,4 +74,108 @@ public sealed class ChromiumViewerCaptureServiceTests
 
         Assert.Contains("--window-size=1920,1080", args);
     }
+
+    // ── ViewerCaptureRequest.ToViewerQueryString tests ──
+
+    [Fact]
+    public void ToViewerQueryString_ProducesDistinctUrlsForDifferentPresets()
+    {
+        var baseUrl = "http://localhost:5000/viewer";
+
+        var front = new ViewerCaptureRequest { Preset = "front" };
+        var right = new ViewerCaptureRequest { Preset = "right" };
+        var iso = new ViewerCaptureRequest { Preset = "isometric" };
+
+        var frontUrl = front.ToViewerQueryString(baseUrl);
+        var rightUrl = right.ToViewerQueryString(baseUrl);
+        var isoUrl = iso.ToViewerQueryString(baseUrl);
+
+        // Each URL must be distinct
+        Assert.NotEqual(frontUrl, rightUrl);
+        Assert.NotEqual(frontUrl, isoUrl);
+        Assert.NotEqual(rightUrl, isoUrl);
+
+        // Each URL must contain the correct preset name
+        Assert.Contains("preset=front", frontUrl);
+        Assert.Contains("preset=right", rightUrl);
+        Assert.Contains("preset=isometric", isoUrl);
+
+        // All must have capture=1 mode
+        Assert.Contains("capture=1", frontUrl);
+        Assert.Contains("capture=1", rightUrl);
+        Assert.Contains("capture=1", isoUrl);
+    }
+
+    [Fact]
+    public void ToViewerQueryString_UsesYawPitchWhenPresetNotSet()
+    {
+        var baseUrl = "http://localhost:5000/viewer";
+
+        var request = new ViewerCaptureRequest
+        {
+            Yaw = 1.5708,
+            Pitch = 0.6155,
+        };
+
+        var url = request.ToViewerQueryString(baseUrl);
+
+        // Must include yaw/pitch params, not preset
+        Assert.Contains("yaw=1.5708", url);
+        Assert.Contains("pitch=0.6155", url);
+        Assert.DoesNotContain("preset=", url);
+        Assert.Contains("capture=1", url);
+    }
+
+    [Fact]
+    public void ToViewerQueryString_IncludesDistanceWhenSet()
+    {
+        var baseUrl = "http://localhost:5000/viewer";
+
+        var request = new ViewerCaptureRequest
+        {
+            Preset = "isometric",
+            Distance = 15.0,
+        };
+
+        var url = request.ToViewerQueryString(baseUrl);
+
+        Assert.Contains("preset=isometric", url);
+        Assert.Contains("distance=15", url);
+        Assert.Contains("capture=1", url);
+    }
+
+    [Fact]
+    public async Task CapturePresetsAsync_PassesPresetThroughCaptureResults()
+    {
+        // Integration-style test: verify FakeViewerCaptureService preserves
+        // preset names from requests through to results.
+        var capturesDir = Path.Combine(Path.GetTempPath(), "voxelforge-test-query-presets");
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
+
+        var service = new FakeViewerCaptureService(capturesDir);
+
+        var requests = new List<ViewerCaptureRequest>
+        {
+            new() { Preset = "front", Label = "front" },
+            new() { Preset = "right", Label = "right" },
+            new() { Preset = "isometric", Label = "isometric" },
+        };
+
+        var manifest = await service.CapturePresetsAsync(requests, CancellationToken.None);
+
+        Assert.Equal(3, manifest.Captures.Count);
+
+        var presets = manifest.Captures.Select(c => c.Preset).ToArray();
+        Assert.Contains("front", presets);
+        Assert.Contains("right", presets);
+        Assert.Contains("isometric", presets);
+
+        // Results must have distinct preset labels
+        var labels = manifest.Captures.Select(c => c.Label).Distinct().ToArray();
+        Assert.Equal(3, labels.Length);
+        Assert.All(labels, l => Assert.NotNull(l));
+
+        // Clean up
+        try { Directory.Delete(capturesDir, recursive: true); } catch { }
+    }
 }
