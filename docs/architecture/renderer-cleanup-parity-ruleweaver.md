@@ -111,16 +111,16 @@ The following transitional endpoints remain **functional** but are **quarantined
 | **Transport interface** | RenderProtocolClient interface | RenderProtocolClient interface | ✅ |
 | **Event subscription** | EventSource → /api/viewer-events | Bridge onEvent("voxelforge:state-delta") | ✅ (semantic) |
 | **Scene construction** | VoxelForgeScene.buildFromSnapshot() | VoxelForgeScene.buildFromSnapshot() | ✅ |
-| **Reference models** | RenderReferenceNode[] via /api/render/snapshot | RenderReferenceNode[] via bridge snapshot | ✅ |
-| **Materials/textures** | RenderMaterial[] + RenderTexture[] | Same types via bridge | ✅ |
+| **Reference models** | RenderReferenceNode[] via /api/render/snapshot | RenderReferenceNode[] via bridge snapshot | ⚠️ (legacy DTO) |
+| **Materials/textures** | RenderMaterial[] + RenderTexture[] | Same types via bridge | ⚠️ (legacy DTO) |
 | **Capture readiness** | CaptureReadyManager | CaptureReadyManager | ✅ |
 | **Camera controls** | OrbitControls | OrbitControls | ✅ |
 
 ### Known parity gaps:
 
-1. **Electron bridge snapshot missing reference texture data:** The `MeshSnapshotHandler` uses `RenderSceneSnapshotService` as authoritative source but maps back to legacy `MeshSnapshotResponse` DTO. The bridge `voxelforge.render.snapshot` channel is registered in `Program.cs` but the handler needs updating to pass through the full `RenderSceneSnapshot` including materials/textures. → Tracked as follow-up.
+1. **Electron bridge snapshot returns MeshSnapshotResponse, NOT RenderSceneSnapshot:** The `MeshSnapshotHandler` uses `RenderSceneSnapshotService` as the authoritative source but maps everything back to the legacy `MeshSnapshotResponse` DTO. The `DenBridgeRenderClient.getRenderSnapshot()` first tries `bridge:render-snapshot` (→ `voxelforge.mesh.request_snapshot` → `MeshSnapshotResponse`), but because the response has no `schema_version` field, the client always falls through to the transitional fallback path (`bridge:state-subscribe` + `bridge:mesh-snapshot`). This means the Electron renderer never actually receives a canonical `RenderSceneSnapshot` with materials, textures, and reference node primitives. **The canonical render-scene snapshot transport is wired at the IPC and bridge-command level but produces the wrong DTO.** → **Follow-up: #1666** (Wire canonical RenderSceneSnapshot through bridge channel)
 
-2. **Electron reference model transform/UV/material parity:** Bridge `MeshSnapshotHandler` uses `RenderSceneSnapshotService` but the mapped `MeshSnapshotResponse` DTO omits per-mesh geometry and texture info. → Tracked as follow-up.
+2. **Electron reference model transform/UV/material parity:** Even if the bridge returned a proper `RenderSceneSnapshot`, the `MeshSnapshotResponse` DTO omits per-mesh geometry and texture info needed for full material rendering. The bridge `MeshSnapshotHandler.MapToResponse()` only maps voxel mesh data (`positions`, `normals`, `colors`, `palette_indices`, `indices`) — reference node primitives, materials, and textures from the `RenderSceneSnapshotService` output are discarded. → **Follow-up: same as #1666**
 
 3. **Electron SSE vs bridge event granularity:** MCP SSE carries revision numbers; bridge events carry domain/sequence/snapshot. Both support the semantic event contract but at different granularity. Acceptable divergence per the ADR.
 
@@ -129,6 +129,8 @@ The following transitional endpoints remain **functional** but are **quarantined
    - `npm run build` (TypeScript compile + esbuild bundling) succeeds
    - `npm test` (vitest unit tests) runs headless and passes
    - MCP server smoke (`dotnet run --project src/VoxelForge.Mcp`) serves /health, /viewer, /api/render/state successfully
+
+5. **MCP viewer docs still described CDN-based loading and 2-second polling of `/api/mesh-snapshot`:** The `docs/mcp-server.md` was updated in #1665 to remove these stale descriptions. The `.md` file now correctly describes SSE-primary transport with bundled Three.js and polling fallback. Architecture tests in `RenderArchitectureTests` guard against regressions.
 
 ## RuleWeaver Transfer Pattern
 
@@ -180,6 +182,10 @@ Electron smoke: requires X server (Xvfb needed in headless)
 
 ```
 [From task thread, e.g. #1659 follow-ups]
+- #1666: Wire canonical RenderSceneSnapshot through bridge channel
+  (MeshSnapshotHandler produces MeshSnapshotResponse, not RenderSceneSnapshot;
+   DenBridgeRenderClient always falls back to transitional paths)
+- #1665: Doc and arch test truth audit (this task)
 ```
 
 ## Smoke Validation Artifacts

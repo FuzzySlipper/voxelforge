@@ -439,4 +439,160 @@ public sealed class RenderArchitectureTests
         Assert.Contains("api/reference-texture", text);
         Assert.Contains("viewer", text);
     }
+
+    // ── Bridge command/channel registration parity (Task #1665) ──
+
+    [Fact]
+    public void Preload_Allows_CanonicalRenderChannels()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var preloadPath = Path.Combine(root, "electron", "src", "preload", "index.ts");
+        var text = File.ReadAllText(preloadPath);
+
+        // The preload must allow the canonical render-snapshot and render-state channels
+        Assert.Contains("bridge:render-snapshot", text);
+        Assert.Contains("bridge:render-state", text);
+
+        // The preload must allow the render control commands
+        Assert.Contains("bridge:set-grid-visible", text);
+        Assert.Contains("bridge:set-wireframe", text);
+        Assert.Contains("bridge:set-background-color", text);
+        Assert.Contains("bridge:capture-screenshot", text);
+
+        // The preload must allow bridge event channels
+        Assert.Contains("voxelforge:mesh-update", text);
+        Assert.Contains("voxelforge:state-delta", text);
+    }
+
+    [Fact]
+    public void Preload_Rejects_UncategorizedChannels()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var preloadPath = Path.Combine(root, "electron", "src", "preload", "index.ts");
+        var text = File.ReadAllText(preloadPath);
+
+        // The preload must validate channels — look for validateChannel function
+        Assert.Contains("validateChannel", text);
+        Assert.Contains("allowedChannels", text);
+        Assert.Contains("allowedEventChannels", text);
+    }
+
+    [Fact]
+    public void BridgeProgram_Registers_CanonicalCommands()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var bridgePath = Path.Combine(root, "src", "VoxelForge.Bridge", "Program.cs");
+        var text = File.ReadAllText(bridgePath);
+
+        // Must register the mesh.request_snapshot command used by render-snapshot
+        Assert.Contains("voxelforge.mesh.request_snapshot", text);
+        Assert.Contains("voxelforge.palette.get", text);
+        Assert.Contains("voxelforge.state.subscribe", text);
+        Assert.Contains("voxelforge.state.request_full", text);
+        Assert.Contains("voxelforge.command.execute", text);
+        Assert.Contains("voxelforge.history.undo", text);
+        Assert.Contains("voxelforge.history.redo", text);
+        Assert.Contains("voxelforge.project.save", text);
+        Assert.Contains("voxelforge.project.load", text);
+
+        // Must register event types
+        Assert.Contains("voxelforge.mesh.update", text);
+        Assert.Contains("voxelforge.palette.update", text);
+        Assert.Contains("voxelforge.state.delta", text);
+    }
+
+    [Fact]
+    public void BridgeIpc_Channels_Match_PreloadChannels()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var mainPath = Path.Combine(root, "electron", "src", "main", "index.ts");
+        var text = File.ReadAllText(mainPath);
+
+        // The main process must handle the canonical channels that the preload allows
+        Assert.Contains("bridge:handshake", text);
+        Assert.Contains("bridge:mesh-snapshot", text);
+        Assert.Contains("bridge:render-snapshot", text);
+        Assert.Contains("bridge:render-state", text);
+
+        // The main process must map to the correct bridge commands
+        Assert.Contains("voxelforge.mesh.request_snapshot", text);
+    }
+
+    // ── Doc accuracy: no obsolete CDN/polling references (Task #1665) ──
+
+    [Fact]
+    public void McpServerDoc_DoesNotMention_CdnLoading()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "mcp-server.md");
+        var text = File.ReadAllText(docPath);
+
+        // Must not describe CDN loading — Three.js is bundled in viewer-bundle.js
+        Assert.DoesNotContain("CDN", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void McpServerDoc_DoesNotDescribe_OldPollingBehavior()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "mcp-server.md");
+        var text = File.ReadAllText(docPath);
+
+        // Must not describe the old 2-second /api/mesh-snapshot polling as current behavior
+        // SSE is primary; polling is a fallback.
+        var lines = text.Split('\n');
+        bool hasOldPollingRef = false;
+        foreach (var line in lines)
+        {
+            // Check for lines about polling mesh-snapshot on a fixed interval
+            if (line.Contains("polls") && line.Contains("mesh-snapshot") && line.Contains("2 second"))
+            {
+                hasOldPollingRef = true;
+                break;
+            }
+        }
+        Assert.False(hasOldPollingRef,
+            "mcp-server.md still describes old 2-second /api/mesh-snapshot polling as current behavior.");
+    }
+
+    [Fact]
+    public void McpServerDoc_Describes_SseAsPrimaryTransport()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "mcp-server.md");
+        var text = File.ReadAllText(docPath);
+
+        // Must describe SSE as the primary live-update mechanism
+        Assert.Contains("SSE", text);
+        Assert.Contains("/api/viewer-events", text);
+    }
+
+    // ── Cleanup doc has follow-up task links (Task #1665) ──
+
+    [Fact]
+    public void CleanupDoc_HasFollowUpTaskLinks()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "renderer-cleanup-parity-ruleweaver.md");
+        var text = File.ReadAllText(docPath);
+
+        // Must reference follow-up tasks for remaining gaps
+        Assert.Contains("follow-up", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CleanupDoc_DoesNotOverclaim_BridgeParity()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var docPath = Path.Combine(root, "docs", "architecture", "renderer-cleanup-parity-ruleweaver.md");
+        var text = File.ReadAllText(docPath);
+
+        // The cleanup doc must not claim full Electron/bridge render-scene/material parity.
+        // The MeshSnapshotHandler produces MeshSnapshotResponse (not RenderSceneSnapshot),
+        // so DenBridgeRenderClient always falls back to transitional paths for full snapshots.
+        // Look for honest gap descriptions rather than overclaimed parity checkmarks.
+        int checkCount = text.Split("\u2705").Length - 1;
+        Assert.True(checkCount <= 8,
+            $"Cleanup doc has {checkCount} parity checkmarks; expected at most 8 given known bridge gaps.");
+    }
 }

@@ -43,7 +43,7 @@ dotnet run --project src/VoxelForge.Mcp
 #   http://localhost:5201/viewer
 ```
 
-Use MCP tools (e.g., `set_voxels`, `load_model`, `fill_box`) via any MCP client to populate the model. The viewer polls `/api/mesh-snapshot` every 2 seconds and automatically updates when the model changes.
+Use MCP tools (e.g., `set_voxels`, `load_model`, `fill_box`) via any MCP client to populate the model. The viewer receives live revision updates via Server-Sent Events (SSE) at `/api/viewer-events` and fetches new snapshot data when the revision changes. If SSE is unavailable, it falls back to polling `/api/render/state` every 3 seconds for revision changes.
 
 ### Viewer Behavior
 
@@ -69,11 +69,13 @@ Use MCP tools (e.g., `set_voxels`, `load_model`, `fill_box`) via any MCP client 
 
 ### How It Works
 
-1. The viewer page loads Three.js and OrbitControls from CDN.
-3. On load, it fetches initial state via `/api/render/state` and mesh data via `/api/render/snapshot`.
-4. Every 2 seconds, it polls `/api/render/state` and compares the `revision` counter.
-5. When the revision changes, it fetches a new render snapshot and rebuilds the Three.js scene.
+1. The viewer page bundles Three.js and OrbitControls via esbuild in `viewer-bundle.js` — no CDN dependencies.
+2. On load, it connects to `/api/viewer-events` via `EventSource` for live SSE revision updates.
+3. It fetches initial state via `/api/render/state` and mesh data via `/api/render/snapshot`.
+4. The server broadcasts `revision` events via SSE whenever the model/palette/reference state changes.
+5. On receiving a new revision, the viewer fetches a fresh render snapshot and rebuilds the Three.js scene.
 6. Revisions are auto-incremented by the MCP session's event dispatcher whenever `VoxelModelChangedEvent`, `PaletteChangedEvent`, `UndoHistoryChangedEvent`, `ProjectLoadedEvent`, or `ReferenceModelChangedEvent` fires.
+7. **Fallback:** If SSE is unavailable (network issue, proxy, or browser without `EventSource`), the viewer polls `/api/render/state` every 3 seconds and compares revision numbers.
 
 ### Architecture Notes
 
@@ -539,7 +541,7 @@ The Electron renderer does **not** replace the MCP headless session. Both workfl
 
 | Path | Renderer | Launch | How previews load |
 |------|----------|--------|-------------------|
-| JS viewer (`/viewer`) | WebGL/Three.js | `dotnet run --project src/VoxelForge.Mcp` | Polls `/api/mesh-snapshot` for live mesh data |
+|| JS viewer (`/viewer`) | WebGL/Three.js | `dotnet run --project src/VoxelForge.Mcp` | SSE events + fetch `/api/render/snapshot` on revision change; polling fallback every 3s |
 | Electron Open button | Three.js/Electron | `cd electron && npm start` | User clicks Open in the renderer UI; sidecar sends `voxelforge.project.load` over bridge |
 | Electron `--preview` | Three.js/Electron | `cd electron && npm start -- --preview <path>` | Sidecar auto-loads the specified `.vforge` file at startup via bridge |
 
