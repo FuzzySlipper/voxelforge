@@ -4,7 +4,11 @@
  * route through Electron main -> den-bridge -> C# sidecar commands/state.
  */
 
-import { VoxelForgeScene, type MeshSnapshotData, type MeshUpdateEventData, type PaletteUpdateEventData, type RendererMetrics, type VoxelRaycastHit } from "./scene";
+import { VoxelForgeScene, type RendererMetrics } from "../renderer-core";
+import type { RenderSceneSnapshot, RenderStateSummary, TransitionalMeshSnapshot } from "../renderer-core/protocol/types";
+import { transitionalMeshToSnapshot } from "../renderer-core/protocol/normalizeSnapshot";
+// Backward-compat types from scene.ts shim
+import type { MeshSnapshotData, MeshUpdateEventData, PaletteUpdateEventData } from "./scene";
 import { titleCase, formatError, escapeHtml } from "../shared/string-utils";
 import { createCoalescer } from "../shared/refresh-coalescer";
 

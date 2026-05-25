@@ -6,7 +6,7 @@
   "license": "MIT",
   "main": "dist/main/index.js",
   "scripts": {
-    "build": "tsc && esbuild src/renderer/index.ts --bundle --outfile=dist/renderer/bundle.js --platform=browser --format=iife --external:none",
+    "build": "tsc && esbuild src/renderer/index.ts --bundle --outfile=dist/renderer/bundle.js --platform=browser --format=iife --external:none && esbuild src/mcp-viewer/main.ts --bundle --minify --legal-comments=none --outfile=../src/VoxelForge.Mcp/wwwroot/viewer-bundle.js --platform=browser --format=esm --external:none && node scripts/strip-trailing-whitespace.mjs ../src/VoxelForge.Mcp/wwwroot/viewer-bundle.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke-test": "npm run build && electron . --smoke-test",

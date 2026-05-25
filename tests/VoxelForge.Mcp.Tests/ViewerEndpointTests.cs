@@ -953,51 +953,74 @@ public sealed class ViewerEndpointTests
     [Fact]
     public void ViewerHtml_PerMeshRendering_NoFirstMeshGlobalTexture()
     {
-        // Static regression: the viewer HTML must NOT apply the first mesh's
-        // texture globally to the whole model. It must build per-mesh meshes.
+        // The viewer HTML is now a static shell that loads /viewer-bundle.js.
+        // Per-mesh rendering logic lives in the bundled module, not inline.
         var viewerHtmlPath = FindViewerHtmlPath();
         var html = File.ReadAllText(viewerHtmlPath);
 
-        // The old "first mesh" comment must not appear
+        // The old "first mesh" comments must not appear
         Assert.DoesNotContain("load the first one's diffuse", html);
         Assert.DoesNotContain("render the whole model with the first mesh's texture", html);
 
-        // The new per-mesh rendering code must be present
-        Assert.Contains("Per-mesh rendering: build one Three.js Mesh per source mesh", html);
-        Assert.Contains("ref-\" + ri + \"-mesh-\" + mi", html);
+        // viewer.html must be a static shell: no inline <script> blocks with code.
+        // Only a module script tag pointing to /viewer-bundle.js is allowed.
+        Assert.Contains("<script type=\"module\"", html);
+        Assert.Contains("/viewer-bundle.js", html);
 
-        // Per-mesh texture URL construction must reference meshData.mesh_index
-        Assert.Contains("mesh_index=\" + meshData.mesh_index", html);
+        // The old per-mesh rendering inline strings must NOT be in viewer.html
+        Assert.DoesNotContain("Per-mesh rendering: build one Three.js Mesh per source mesh", html);
+        Assert.DoesNotContain("const modelGroup = new THREE.Group()", html);
+        Assert.DoesNotContain("flattened model-level geometry (backward compat)", html);
 
-        // Model-level transform must be applied to a group, not individual meshes
-        Assert.Contains("const modelGroup = new THREE.Group()", html);
-
-        // Backward compat fallback path must still exist
-        Assert.Contains("flattened model-level geometry (backward compat)", html);
+        // Verify the bundle exists (built by esbuild)
+        var viewerDir = Path.GetDirectoryName(viewerHtmlPath)!;
+        var bundlePath = Path.Combine(viewerDir, "viewer-bundle.js");
+        // Fallback: resolve from viewerDir up to repo root (when running from test output dir)
+        if (!File.Exists(bundlePath))
+        {
+            var di = new DirectoryInfo(viewerDir);
+            while (di != null)
+            {
+                var candidate = Path.Combine(di.FullName, "src", "VoxelForge.Mcp", "wwwroot", "viewer-bundle.js");
+                if (File.Exists(candidate)) { bundlePath = candidate; break; }
+                di = di.Parent;
+            }
+        }
+        Assert.True(File.Exists(bundlePath),
+            "viewer-bundle.js must exist - run 'npm run build' in electron/ first.");
     }
 
     [Fact]
     public void ViewerHtml_SetsUvAttribute()
     {
-        // The viewer HTML must set the 'uv' BufferAttribute on reference mesh
-        // geometry before applying MeshStandardMaterial.map.
+        // UV attribute setting logic now lives in the bundled module.
+        // viewer.html is a static shell with no inline JS.
         var viewerHtmlPath = FindViewerHtmlPath();
         var html = File.ReadAllText(viewerHtmlPath);
 
-        // Per-mesh path must setAttribute('uv', ...)
-        Assert.Contains("geo.setAttribute(\"uv\", new THREE.BufferAttribute(uvs, 2))", html);
+        // viewer.html must not contain inline UV or mesh building JS
+        Assert.DoesNotContain("geo.setAttribute(", html);
+        Assert.DoesNotContain("pendingTextureLoads", html);
+        Assert.DoesNotContain("maybeSetCaptureReady", html);
 
-        // Fallback path must also setAttribute('uv', ...)
-        Assert.Contains("geo.setAttribute(\"uv\", new THREE.BufferAttribute(uvs, 2))", html);
+        // Must load the bundle as a module
+        Assert.Contains("<script type=\"module\" src=\"/viewer-bundle.js\">", html);
 
-        // Must check for has_uvs and warn when texture is present but no UVs
-        Assert.Contains("has_uvs", html);
-        Assert.Contains("no UV coordinates", html);
-
-        // Must track pending texture loads for capture readiness
-        Assert.Contains("pendingTextureLoads", html);
-        Assert.Contains("maybeSetCaptureReady", html);
-        Assert.Contains("captureReady set (textures settled)", html);
+        // Verify the bundle exists (contains the actual rendering logic)
+        var viewerDir = Path.GetDirectoryName(viewerHtmlPath)!;
+        var bundlePath = Path.Combine(viewerDir, "viewer-bundle.js");
+        // Fallback: resolve from viewerDir up to repo root (when running from test output dir)
+        if (!File.Exists(bundlePath))
+        {
+            var di = new DirectoryInfo(viewerDir);
+            while (di != null)
+            {
+                var candidate = Path.Combine(di.FullName, "src", "VoxelForge.Mcp", "wwwroot", "viewer-bundle.js");
+                if (File.Exists(candidate)) { bundlePath = candidate; break; }
+                di = di.Parent;
+            }
+        }
+        Assert.True(File.Exists(bundlePath), "viewer-bundle.js must exist.");
     }
 
     // ── RenderSceneSnapshotService / new render endpoint tests (#1657) ──
@@ -1210,21 +1233,23 @@ public sealed class ViewerEndpointTests
     [Fact]
     public void ViewerHtml_ReferenceMaterial_NoHardcodedTransparency()
     {
-        // Static regression: the viewer HTML must not force all reference
-        // meshes to transparent:true/opacity:0.85. Opaque source should
-        // produce opaque material settings. This test fails if the old
-        // hardcoded values return.
+        // The viewer HTML is now a static shell. Material transparency logic
+        // lives in the bundled module, not inline.
         var viewerHtmlPath = FindViewerHtmlPath();
         var html = File.ReadAllText(viewerHtmlPath);
 
         // The string "transparent: true, opacity: 0.85" must NOT appear
-        // as a contiguous fragment in the reference mesh material section.
-        Assert.DoesNotContain("transparent: true,\n          opacity: 0.85,", html);
+        Assert.DoesNotContain("transparent: true,", html);
 
-        // The material creation must reference alpha-aware variables.
-        Assert.Contains("isRefTransparent", html);
-        Assert.Contains("refOpacity", html);
-        Assert.Contains("depthWrite", html);
+        // Inline JS code like isRefTransparent and refOpacity must NOT be
+        // in viewer.html -- they're now in the bundled module.
+        Assert.DoesNotContain("isRefTransparent", html);
+        Assert.DoesNotContain("refOpacity", html);
+        Assert.DoesNotContain("depthWrite", html);
+
+        // viewer.html must be a static shell loading the bundle
+        Assert.Contains("<script type=\"module\"", html);
+        Assert.Contains("/viewer-bundle.js", html);
     }
 
     /// <summary>

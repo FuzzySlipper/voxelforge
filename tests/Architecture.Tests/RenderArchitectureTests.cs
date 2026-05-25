@@ -266,4 +266,75 @@ public sealed class RenderArchitectureTests
         Assert.True(inlineJsFiles.Count == 0,
             "New inline executable JavaScript detected:\n" + string.Join(Environment.NewLine, inlineJsFiles));
     }
+
+    // ── Viewer HTML must not have substantial inline executable JS ──
+
+    [Fact]
+    public void ViewerHtml_HasNoSubstantialInlineJavaScript()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var viewerPath = Path.Combine(root, "src", "VoxelForge.Mcp", "wwwroot", "viewer.html");
+
+        Assert.True(File.Exists(viewerPath), $"viewer.html not found at {viewerPath}");
+
+        var text = File.ReadAllText(viewerPath);
+        var lines = text.Split('\n');
+
+        var scriptTagCount = 0;
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("<script", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!trimmed.Contains("src=\"") && !trimmed.Contains("src='"))
+                {
+                    Assert.Fail($"viewer.html contains inline script tag without src attribute.");
+                }
+                scriptTagCount++;
+            }
+        }
+
+        Assert.True(scriptTagCount <= 1,
+            $"viewer.html has {scriptTagCount} <script> tags; expected at most 1 (module loader)");
+
+        Assert.DoesNotContain("<script>", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── renderer-core exists and exports expected modules ──
+
+    [Fact]
+    public void RendererCore_Modules_Exist()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var rendererCorePath = Path.Combine(root, "electron", "src", "renderer-core");
+
+        Assert.True(Directory.Exists(rendererCorePath), "renderer-core directory not found");
+
+        var expectedFiles = new[]
+        {
+            Path.Combine(rendererCorePath, "index.ts"),
+            Path.Combine(rendererCorePath, "protocol", "types.ts"),
+            Path.Combine(rendererCorePath, "protocol", "normalizeSnapshot.ts"),
+            Path.Combine(rendererCorePath, "scene", "VoxelForgeScene.ts"),
+            Path.Combine(rendererCorePath, "scene", "referenceModels.ts"),
+            Path.Combine(rendererCorePath, "scene", "materials.ts"),
+            Path.Combine(rendererCorePath, "scene", "captureReady.ts"),
+            Path.Combine(rendererCorePath, "transport", "RenderProtocolClient.ts"),
+            Path.Combine(rendererCorePath, "transport", "HttpSseRenderClient.ts"),
+            Path.Combine(rendererCorePath, "transport", "DenBridgeRenderClient.ts"),
+        };
+
+        foreach (var file in expectedFiles)
+        {
+            Assert.True(File.Exists(file), $"Missing renderer-core file: {file}");
+        }
+    }
+
+    [Fact]
+    public void McpViewerEntryPoint_Exists()
+    {
+        var root = FindRepoRoot(AppContext.BaseDirectory);
+        var mcpViewerEntry = Path.Combine(root, "electron", "src", "mcp-viewer", "main.ts");
+        Assert.True(File.Exists(mcpViewerEntry), "MCP viewer entrypoint not found at electron/src/mcp-viewer/main.ts");
+    }
 }
