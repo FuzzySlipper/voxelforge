@@ -586,23 +586,31 @@ async function refreshAll(): Promise<void> {
 }
 
 /**
- * Coalesced mesh refresh: at most one bridge:mesh-snapshot in-flight at a
- * time.  Calls made during an in-flight request are deferred and run once
- * after the current request completes, collapsing multiple overlapping
- * requests into a single final refresh.
- *
- * This prevents cascading timeouts during rapid edits while still keeping
- * the UI eventually current.
+ * Coalesced mesh refresh using the canonical render-scene snapshot channel.
+ * Uses `bridge:render-snapshot` which provides the full RenderSceneSnapshot
+ * contract (materials, textures, reference nodes, palette).
+ * Falls back to buildMeshFromSnapshot which is kept for backward compat.
  */
 const refreshMesh = createCoalescer(async (): Promise<void> => {
   try {
-    const meshData = await window.voxelforgeBridge.request("bridge:mesh-snapshot", {
-      model_id: "",
-      lod_level: 0,
-      payload_format: "json",
-      include_palette_mapping: true,
-    }) as MeshSnapshotData;
+    // Try the canonical render-scene snapshot first
+    const snapshotData = await window.voxelforgeBridge.request(
+      "bridge:render-snapshot",
+      {},
+    ) as Record<string, unknown>;
 
+    // Check if the response is a RenderSceneSnapshot (has schema_version)
+    if (snapshotData && (snapshotData as { schema_version?: string }).schema_version) {
+      const snapshot = snapshotData as unknown as RenderSceneSnapshot;
+      const metrics = scene.buildFromSnapshot(snapshot);
+      latestMetrics = metrics;
+      if (wireframeVisible) scene.setWireframeVisible(true);
+      renderViewportDiagnostics();
+      return;
+    }
+
+    // Fallback: convert transitional mesh data
+    const meshData = snapshotData as unknown as MeshSnapshotData;
     currentMesh = meshData;
     const metrics = scene.buildMeshFromSnapshot(meshData);
     latestMetrics = metrics;

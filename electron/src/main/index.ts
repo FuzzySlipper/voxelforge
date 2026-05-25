@@ -471,6 +471,48 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
     return response.result;
   });
 
+  ipcMain.handle("bridge:render-snapshot", async (_event, _payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    // Canonical render-scene snapshot channel (#1657/#1662).
+    // Uses the same C# mesh snapshot command; the response carries all material,
+    // texture, reference, and palette data needed for the contract.
+    // Uses longer timeout for large snapshots.
+    const response = await client.send(
+      {
+        requestId: `renderer-scene-${Date.now()}`,
+        command: "voxelforge.mesh.request_snapshot",
+        payload: {
+          model_id: "",
+          lod_level: 0,
+          payload_format: "json",
+          include_palette_mapping: true,
+        },
+      },
+      meshSnapshotTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Render snapshot error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
+  ipcMain.handle("bridge:render-state", async (_event, _payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    // Lightweight render state — just the editor state snapshot (no mesh data).
+    const response = await client.send(
+      {
+        requestId: `renderer-state-${Date.now()}`,
+        command: "voxelforge.state.request_full",
+        payload: { domains: ["document", "session", "palette", "diagnostics"] },
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Render state error: ${response.error.message}`);
+    }
+    return response.result;
+  });
+
   ipcMain.handle("bridge:palette-get", async (_event, payload: unknown) => {
     const client = await ensureBridgeClient(handshake);
     const response = await client.send(

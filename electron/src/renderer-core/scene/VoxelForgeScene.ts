@@ -10,9 +10,27 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { BoundsDto, RenderSceneSnapshot, RenderVoxelMesh, RenderPrimitive } from "../protocol/types";
+import type {
+  BoundsDto,
+  RenderSceneSnapshot,
+  RenderVoxelMesh,
+  RenderPrimitive,
+  RenderMaterial,
+  RenderTexture,
+  RenderTextureSlot,
+} from "../protocol/types";
 import { decodeByteArray } from "../../shared/byte-utils";
 import { VoxelRaycastHit, computePlacementPosition } from "../../shared/compute-placement";
+import {
+  createReferenceMaterial,
+  applyTextureToMaterial,
+  disposeMaterial,
+} from "./materials";
+import {
+  hasUvs,
+  shouldFlipV,
+  resolveTextureUrl,
+} from "./referenceModels";
 
 // Re-export for consumers
 export type { VoxelRaycastHit };
@@ -297,15 +315,21 @@ export class VoxelForgeScene {
    * Override to customize reference model rendering.
    */
   protected buildReferenceFromSnapshot(snapshot: RenderSceneSnapshot): void {
+    const materials = snapshot.materials ?? [];
+    const textures = snapshot.textures ?? [];
     for (const node of snapshot.reference_nodes) {
-      this.buildReferenceNode(node);
+      this.buildReferenceNode(node, materials, textures);
     }
   }
 
   /**
    * Build a single reference node: group + transform + primitives.
    */
-  protected buildReferenceNode(node: RenderSceneSnapshot["reference_nodes"][0]): void {
+  protected buildReferenceNode(
+    node: RenderSceneSnapshot["reference_nodes"][0],
+    materials: RenderMaterial[],
+    textures: RenderTexture[],
+  ): void {
     if (!node.visible) return;
 
     const modelGroup = new THREE.Group();
@@ -329,7 +353,7 @@ export class VoxelForgeScene {
 
     // Build primitives
     for (const prim of node.primitives) {
-      this.buildPrimitive(prim, modelGroup);
+      this.buildPrimitive(prim, materials, textures, modelGroup);
     }
 
     this.referenceGroup.add(modelGroup);
@@ -337,8 +361,15 @@ export class VoxelForgeScene {
 
   /**
    * Build a single render primitive as a Three.js Mesh.
+   * Uses the snapshot material/texture contract when available;
+   * falls back to vertex colors or defaults when material data is absent.
    */
-  protected buildPrimitive(prim: RenderPrimitive, parent?: THREE.Group): THREE.Mesh | null {
+  protected buildPrimitive(
+    prim: RenderPrimitive,
+    materials: RenderMaterial[],
+    textures: RenderTexture[],
+    parent?: THREE.Group,
+  ): THREE.Mesh | null {
     if (!prim.position || prim.position.length === 0) return null;
 
     const geometry = new THREE.BufferGeometry();
@@ -358,8 +389,8 @@ export class VoxelForgeScene {
     const decodedColors = prim.color_rgba
       ? normalizeColorsRgba(prim.color_rgba, prim.position.length / 3)
       : [];
-    if (decodedColors.length > 0) {
-      const colorCount = decodedColors.length / 3;
+    const hasVertexColors = decodedColors.length > 0;
+    if (hasVertexColors) {
       const colors = new Float32Array(decodedColors);
       geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     }
@@ -368,7 +399,7 @@ export class VoxelForgeScene {
     if (prim.uv_sets && prim.uv_sets.length > 0) {
       const uvSet = prim.uv_sets[0];
       if (uvSet.uvs && uvSet.uvs.length > 0) {
-        const uvs = new Float32Array(uvSet.uvs);
+        const uvs = applyUvFlip(uvSet.uvs, uvSet.origin, uvSet.flip_y);
         geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
       }
     }
@@ -384,17 +415,34 @@ export class VoxelForgeScene {
     }
     geometry.computeBoundingSphere();
 
-    // Check alpha transparency from vertex colors
-    const hasAlpha = decodedColors.length > 0 && hasVertexAlpha(decodedColors);
-    const material = new THREE.MeshStandardMaterial({
-      vertexColors: decodedColors.length > 0,
-      side: THREE.DoubleSide,
-      roughness: 0.6,
-      metalness: 0.05,
-      transparent: hasAlpha,
-      opacity: hasAlpha ? maxVertexAlpha(decodedColors) : 1.0,
-      depthWrite: !hasAlpha,
-    });
+    // ── Material construction ──
+    // Look up snapshot material contract via primitive.material_index
+    const matContract: RenderMaterial | null =
+      (prim.material_index >= 0 && prim.material_index < materials.length)
+        ? materials[prim.material_index]
+        : null;
+
+    // Detect vertex alpha (needed by createReferenceMaterial)
+    const vertexAlphaDetected = hasVertexColors
+      ? detectVertexAlpha(prim.color_rgba, prim.position.length / 3)
+      : false;
+
+    // Build the Three.js material from the contract
+    const material = createReferenceMaterial(
+      matContract,
+      hasVertexColors,
+      vertexAlphaDetected,
+    );
+
+    // ── Texture loading ──
+    // If the material has a base color texture, load it asynchronously
+    const textureSlot = matContract?.base_color_texture;
+    if (textureSlot && hasUvs(prim)) {
+      const texUri = resolveTextureUrl(textureSlot, textures);
+      if (texUri) {
+        loadTexture(texUri, textureSlot, material);
+      }
+    }
 
     const threeMesh = new THREE.Mesh(geometry, material);
     threeMesh.castShadow = true;
@@ -876,7 +924,7 @@ export class VoxelForgeScene {
   }
 }
 
-// ── Color helpers ──
+// ── Color and UV helpers ──
 
 /**
  * Normalize RGBA byte data to float RGB array.
@@ -902,18 +950,122 @@ export function normalizeColorsRgba(
 }
 
 /**
- * Check if any vertex has non-255 alpha (indicates transparency).
+ * Detect whether vertex alpha bytes contain any non-255 value.
+ * Examines the raw RGBA input (before normalization strips alpha).
  */
-export function hasVertexAlpha(floatColors: number[]): boolean {
-  // floatColors is [r,g,b, r,g,b, ...] — we need the original alpha
-  // This is called after normalizeColorsRgba drops alpha. We work around by
-  // checking decoded RGBA bytes passed separately. For now, always check the
-  // input before normalization if needed.
-  return false; // Override point: track alpha during normalization
+export function detectVertexAlpha(
+  colorsRgba: number[] | string | null | undefined,
+  vertexCount: number,
+): boolean {
+  if (!colorsRgba) return false;
+  const decoded = typeof colorsRgba === "string"
+    ? decodeByteArray(colorsRgba, vertexCount * 4)
+    : colorsRgba;
+  if (decoded.length < 4) return false;
+  for (let i = 3; i < decoded.length; i += 4) {
+    if (decoded[i] < 255) return true;
+  }
+  return false;
 }
 
 /**
- * Get the maximum alpha value from float RGB colors (fallback).
+ * Apply UV flip based on origin and flip_y metadata.
+ * Returns a new Float32Array with flipped V coordinates if needed.
+ * Matching convention from referenceModels.shouldFlipV:
+ * - flip_y="true" always flips
+ * - flip_y="false" never flips
+ * - flip_y="asset_defined" or unknown: flip unless origin is bottom_left
+ */
+export function applyUvFlip(
+  uvs: number[],
+  origin: string,
+  flipY: string,
+): Float32Array {
+  const result = new Float32Array(uvs);
+  let shouldFlip = false;
+
+  if (flipY === "true") {
+    shouldFlip = true;
+  } else if (flipY === "false") {
+    shouldFlip = false;
+  } else {
+    // asset_defined or unknown: flip unless origin is bottom_left
+    shouldFlip = origin !== "bottom_left";
+  }
+
+  if (shouldFlip) {
+    for (let i = 1; i < result.length; i += 2) {
+      result[i] = 1 - result[i];
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Load a texture from the transport URI and apply it to the given material.
+ * Handles srgb vs linear color space based on texture slot metadata.
+ */
+export function loadTexture(
+  uri: string,
+  slot: RenderTextureSlot,
+  material: THREE.MeshStandardMaterial,
+): void {
+  const texLoader = new THREE.TextureLoader();
+
+  // Determine color space from source_label convention
+  const isNormalOrLinear = (
+    slot.source_label?.includes("normal") ||
+    slot.source_label?.includes("roughness") ||
+    slot.source_label?.includes("metallic")
+  );
+
+  texLoader.load(
+    uri,
+    (texture) => {
+      texture.colorSpace = isNormalOrLinear
+        ? THREE.LinearSRGBColorSpace
+        : THREE.SRGBColorSpace;
+
+      // Apply wrapping mode
+      texture.wrapS = slot.wrap_s === "clamp" ? THREE.ClampToEdgeWrapping
+        : slot.wrap_s === "mirror" ? THREE.MirroredRepeatWrapping
+        : THREE.RepeatWrapping;
+      texture.wrapT = slot.wrap_t === "clamp" ? THREE.ClampToEdgeWrapping
+        : slot.wrap_t === "mirror" ? THREE.MirroredRepeatWrapping
+        : THREE.RepeatWrapping;
+
+      // Apply UV transform (offset, scale, rotation)
+      const uvTransform = slot.uv_transform;
+      if (uvTransform) {
+        texture.offset.set(uvTransform.offset[0], uvTransform.offset[1]);
+        texture.repeat.set(
+          uvTransform.scale[0] || 1,
+          uvTransform.scale[1] || 1,
+        );
+        texture.rotation = uvTransform.rotation || 0;
+      }
+
+      material.map = texture;
+      material.needsUpdate = true;
+      material.color.setHex(0xffffff); // texture overrides base color factor
+    },
+    undefined,
+    (err) => {
+      console.warn(`[VoxelForgeScene] Failed to load texture ${uri}:`, err);
+    },
+  );
+}
+
+/**
+ * @deprecated Use detectVertexAlpha instead. Kept for backward compat.
+ */
+export function hasVertexAlpha(floatColors: number[]): boolean {
+  return false;
+}
+
+/**
+ * @deprecated Use detectVertexAlpha instead. Kept for backward compat.
  */
 export function maxVertexAlpha(floatColors: number[]): number {
   return 1.0;

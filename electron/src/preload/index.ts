@@ -21,6 +21,14 @@ const allowedChannels = [
   "bridge:project-new",
   "bridge:ping",
   "bridge:version-handshake",
+  // Canonical render-scene channels (#1657/#1662)
+  "bridge:render-snapshot",
+  "bridge:render-state",
+  // Render control commands
+  "bridge:set-grid-visible",
+  "bridge:set-wireframe",
+  "bridge:set-background-color",
+  "bridge:capture-screenshot",
   "renderer:ready",
   "renderer:metrics",
 ] as const;
