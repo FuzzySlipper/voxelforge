@@ -11,6 +11,7 @@ import {
   resolveTextureHandle,
 } from "../../src/renderer-core/scene/VoxelForgeScene";
 import type { RenderPrimitive, RenderMaterial, RenderTexture, RenderTextureSlot } from "../../src/renderer-core/protocol/types";
+import { resolveTextureUrl } from "../../src/renderer-core/scene/referenceModels";
 
 // ── detectVertexAlpha tests ──
 
@@ -227,5 +228,79 @@ describe("resolveTextureHandle", () => {
 
   it("returns empty string as-is", () => {
     expect(resolveTextureHandle("")).toBe("");
+  });
+});
+
+// ── Emissive texture contract tests ──
+
+describe("emissive texture slot contract", () => {
+  it("RenderMaterial has emissive_texture and emissive_factor fields", () => {
+    const matWithEmissive: RenderMaterial = {
+      id: "mat-emissive", name: "Emissive", base_color_factor: [1,1,1,1],
+      base_color_texture: null, normal_texture: null,
+      emissive_texture: {
+        texture_id: "tex-emissive-0", uv_set: 0,
+        uv_transform: { offset: [0,0], scale: [1,1], rotation: 0 },
+        uv_origin: "bottom_left", flip_y: "asset_defined",
+        wrap_s: "clamp", wrap_t: "clamp", source_label: "unity_sidecar",
+      },
+      emissive_factor: [1.0, 1.0, 1.0],
+      metallic_factor: 0, roughness_factor: 1,
+      alpha_mode: "opaque", alpha_cutoff: null, double_sided: false,
+      color_space: "srgb", diagnostics: [],
+    };
+
+    expect(matWithEmissive.emissive_texture).not.toBeNull();
+    expect(matWithEmissive.emissive_texture!.texture_id).toBe("tex-emissive-0");
+    expect(matWithEmissive.emissive_texture!.uv_origin).toBe("bottom_left");
+    expect(matWithEmissive.emissive_texture!.flip_y).toBe("asset_defined");
+    expect(matWithEmissive.emissive_texture!.wrap_s).toBe("clamp");
+    expect(matWithEmissive.emissive_texture!.wrap_t).toBe("clamp");
+    expect(matWithEmissive.emissive_texture!.source_label).toBe("unity_sidecar");
+    expect(matWithEmissive.emissive_factor).toEqual([1.0, 1.0, 1.0]);
+  });
+
+  it("emissive texture can reference /api/reference-texture?...slot=emissive", () => {
+    const texture: RenderTexture = {
+      id: "tex-emissive-0",
+      uri: "/api/reference-texture?index=0&mesh_index=0&slot=emissive",
+      mime_type: "image/png", color_space: "srgb",
+      width: null, height: null, diagnostics: [],
+    };
+
+    // Verify the URI matches the expected pattern for emissive slot
+    expect(texture.uri).toContain("slot=emissive");
+    expect(texture.uri).toContain("/api/reference-texture");
+
+    // Verify the texture can be resolved via resolveTextureUrl
+    const slot: RenderTextureSlot = {
+      texture_id: "tex-emissive-0", uv_set: 0,
+      uv_transform: { offset: [0,0], scale: [1,1], rotation: 0 },
+      uv_origin: "top_left", flip_y: "asset_defined",
+      wrap_s: "repeat", wrap_t: "repeat", source_label: "unity_sidecar",
+    };
+    const resolvedUri = resolveTextureUrl(slot, [texture]);
+    expect(resolvedUri).toBe("/api/reference-texture?index=0&mesh_index=0&slot=emissive");
+  });
+
+  it("emissive texture sampling controls are independent from base color", () => {
+    // Emissive and diffuse can have different sampling controls
+    const emissiveSlot: RenderTextureSlot = {
+      texture_id: "tex-emissive-0", uv_set: 0,
+      uv_transform: { offset: [0,0], scale: [1,1], rotation: 0 },
+      uv_origin: "bottom_left", flip_y: "asset_defined",
+      wrap_s: "clamp", wrap_t: "clamp", source_label: "unity_sidecar",
+    };
+    const diffuseSlot: RenderTextureSlot = {
+      texture_id: "tex-diffuse-0", uv_set: 0,
+      uv_transform: { offset: [0,0], scale: [1,1], rotation: 0 },
+      uv_origin: "top_left", flip_y: "true",
+      wrap_s: "repeat", wrap_t: "repeat", source_label: "assimp",
+    };
+
+    // Verify they carry independent sampling metadata
+    expect(emissiveSlot.uv_origin).not.toBe(diffuseSlot.uv_origin);
+    expect(emissiveSlot.wrap_s).toBe("clamp");
+    expect(diffuseSlot.wrap_s).toBe("repeat");
   });
 });

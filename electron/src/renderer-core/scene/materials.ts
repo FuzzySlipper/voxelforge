@@ -111,8 +111,13 @@ export function applyWireframe(
  * Dispose of a material and its texture map.
  */
 export function disposeMaterial(material: THREE.Material): void {
-  if (material instanceof THREE.MeshStandardMaterial && material.map) {
-    material.map.dispose();
+  if (material instanceof THREE.MeshStandardMaterial) {
+    if (material.map) {
+      material.map.dispose();
+    }
+    if (material.emissiveMap) {
+      material.emissiveMap.dispose();
+    }
   }
   material.dispose();
 }

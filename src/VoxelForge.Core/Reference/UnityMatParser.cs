@@ -290,7 +290,7 @@ public static partial class UnityMatParser
         {
             data.BaseColorMap = texRef;
         }
-        else if (lower is "_emissionmap" or "_emission_map")
+        else if (lower is "_emissionmap" or "_emission_map" or "_emissive")
         {
             data.EmissionMap = texRef;
         }
@@ -403,7 +403,7 @@ public static partial class UnityMatParser
     private static readonly HashSet<string> knownProperties = new(StringComparer.OrdinalIgnoreCase)
     {
         "_maintex", "_basemap", "_basecolormap", "_base_color_map",
-        "_emissionmap", "_emission_map",
+        "_emissionmap", "_emission_map", "_emissive",
         "_color", "_basecolor", "_base_color",
         "_emissioncolor", "_emission_color",
         "_cutoff", "_glossiness", "_metallic", "_smoothness",

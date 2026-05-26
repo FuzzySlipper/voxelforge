@@ -116,9 +116,26 @@ public sealed class ReferenceMeshData
             if (ManualDiffuseOverridePath is not null)
                 return "manual_override";
             if (DiffuseTexturePath is not null)
-                return string.Equals(DiffuseTextureSource, "unity_sidecar", StringComparison.OrdinalIgnoreCase)
-                    ? "unity_sidecar"
-                    : "assimp";
+                return string.IsNullOrWhiteSpace(DiffuseTextureSource) ? "assimp" : DiffuseTextureSource;
+            return "none";
+        }
+    }
+
+    /// <summary>
+    /// Source label for emissive texture diagnostics.
+    /// "manual_override" when a manual override is active,
+    /// "unity_sidecar" when resolved from Unity .mat,
+    /// "none" when no emissive texture is available.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EmissiveSourceLabel
+    {
+        get
+        {
+            if (ManualEmissiveOverridePath is not null)
+                return "manual_override";
+            if (EmissiveTexturePath is not null)
+                return string.IsNullOrWhiteSpace(EmissiveTextureSource) ? "assimp" : EmissiveTextureSource;
             return "none";
         }
     }

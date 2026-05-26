@@ -330,6 +330,37 @@ public sealed class UnityMatSidecarResolver
                 [$"Multiple .mat files match material '{materialName}' by filename. Using '{Path.GetFileName(m.path)}' (also: {string.Join(", ", others)})."]);
         }
 
+        // Strategy 3: Substring/prefix match — handles cases where material name
+        // (e.g. "GOLEM_NORMAL_ROCK") contains or is contained by .mat m_Name (e.g. "Golem").
+        // This is a documented alias convention: if the .mat name is a prefix or significant
+        // substring of the material name, it's considered a match. Asset-level sidecars
+        // (.vf-reference-settings.json) can provide explicit alias maps for ambiguous cases.
+        var substringCandidates = parsedMats
+            .Where(m =>
+            {
+                var matName = m.name ?? Path.GetFileNameWithoutExtension(m.path);
+                if (string.IsNullOrWhiteSpace(matName)) return false;
+                return materialName.StartsWith(matName, StringComparison.OrdinalIgnoreCase) ||
+                       matName.StartsWith(materialName, StringComparison.OrdinalIgnoreCase) ||
+                       materialName.Contains(matName, StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+
+        if (substringCandidates.Count == 1)
+        {
+            var m = substringCandidates[0];
+            return (m.path, m.data, UnityMatMatchKind.FilenameStem,
+                [$"Matched '{Path.GetFileName(m.path)}' (m_Name='{m.name ?? "(unknown)"}') to material '{materialName}' by substring/prefix match."]);
+        }
+
+        if (substringCandidates.Count > 1)
+        {
+            var m = substringCandidates[0];
+            var others = substringCandidates.Skip(1).Select(x => Path.GetFileName(x.path));
+            return (m.path, m.data, UnityMatMatchKind.Ambiguous,
+                [$"Multiple .mat files match material '{materialName}' by substring. Using '{Path.GetFileName(m.path)}' (also: {string.Join(", ", others)})."]);
+        }
+
         // No match found
         return null;
     }

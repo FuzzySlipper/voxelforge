@@ -1,4 +1,6 @@
 using System.Numerics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Assimp;
 using Microsoft.Extensions.Logging;
 using StbImageSharp;
@@ -117,6 +119,7 @@ public sealed class ReferenceModelLoader
             throw new InvalidDataException($"No meshes found in {filePath}");
 
         var modelDir = Path.GetDirectoryName(Path.GetFullPath(filePath)) ?? ".";
+        var referenceSettings = LoadReferenceSettingsSidecar(filePath);
 
         // Build skeleton from node hierarchy if any mesh has bones
         bool hasBones = scene.Meshes.Any(m => m.HasBones);
@@ -169,7 +172,7 @@ public sealed class ReferenceModelLoader
                 matchForMesh = sidecarResult.Matches.FirstOrDefault(
                     m => string.Equals(m.MatchedMaterialName, matName, StringComparison.OrdinalIgnoreCase));
             }
-            meshes.Add(ConvertMesh(mesh, scene, modelDir, textureCache, boneNameToIndex, matchForMesh));
+            meshes.Add(ConvertMesh(mesh, scene, modelDir, textureCache, boneNameToIndex, matchForMesh, referenceSettings));
             meshIndex++;
         }
 
@@ -195,15 +198,45 @@ public sealed class ReferenceModelLoader
         };
     }
 
+    private ReferenceSettingsSidecar? LoadReferenceSettingsSidecar(string filePath)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        var modelDir = Path.GetDirectoryName(fullPath) ?? ".";
+        var stem = Path.GetFileNameWithoutExtension(fullPath);
+        var settingsPath = Path.Combine(modelDir, stem + ".vf-reference-settings.json");
+        if (!File.Exists(settingsPath))
+            return null;
+
+        try
+        {
+            var json = File.ReadAllText(settingsPath);
+            var settings = JsonSerializer.Deserialize<ReferenceSettingsSidecar>(json, ReferenceSettingsSidecar.JsonOptions);
+            if (settings is null)
+                return null;
+
+            settings.BaseDirectory = modelDir;
+            _logger.LogInformation("Loaded reference settings sidecar: {Path}", settingsPath);
+            return settings;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read reference settings sidecar {Path} (non-fatal): {Msg}",
+                settingsPath, ex.Message);
+            return null;
+        }
+    }
+
     private ReferenceMeshData ConvertMesh(Mesh mesh, Scene scene, string modelDir,
         Dictionary<string, ImageResult> textureCache,
         Dictionary<string, int>? boneNameToIndex = null,
-        UnityMatMatchResult? unityMatMatch = null)
+        UnityMatMatchResult? unityMatMatch = null,
+        ReferenceSettingsSidecar? referenceSettings = null)
     {
         // Resolve material color if available
         byte matR = 180, matG = 180, matB = 180, matA = 255;
         string materialName = "default";
         string? diffuseTexturePath = null;
+        string? diffuseTextureSource = null;
         ImageResult? diffuseImage = null;
 
         if (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < scene.MaterialCount)
@@ -224,6 +257,7 @@ public sealed class ReferenceModelLoader
             diffuseTexturePath = ResolveDiffuseTexture(material, materialName, modelDir);
             if (diffuseTexturePath is not null)
             {
+                diffuseTextureSource = "assimp";
                 if (!textureCache.TryGetValue(diffuseTexturePath, out diffuseImage))
                 {
                     diffuseImage = LoadImage(diffuseTexturePath);
@@ -236,6 +270,7 @@ public sealed class ReferenceModelLoader
         // --- Optional Unity .mat sidecar overrides ---
         UnityVector4? unityTint = null;
         string? unityEmissionTexturePath = null;
+        string? emissiveTextureSource = null;
         ImageResult? unityEmissionImage = null;
         float unityEmissionBrightness = 1f;
         bool unitySidecarApplied = false;
@@ -265,6 +300,7 @@ public sealed class ReferenceModelLoader
             if (resolvedDiffusePath is not null)
             {
                 diffuseTexturePath = resolvedDiffusePath;
+                diffuseTextureSource = "unity_sidecar";
                 if (!textureCache.TryGetValue(diffuseTexturePath, out diffuseImage))
                 {
                     diffuseImage = LoadImage(diffuseTexturePath);
@@ -290,6 +326,7 @@ public sealed class ReferenceModelLoader
                 File.Exists(unityEmTexPath))
             {
                 unityEmissionTexturePath = unityEmTexPath;
+                emissiveTextureSource = "unity_sidecar";
                 if (!textureCache.TryGetValue(unityEmissionTexturePath, out unityEmissionImage))
                 {
                     unityEmissionImage = LoadImage(unityEmissionTexturePath);
@@ -312,7 +349,61 @@ public sealed class ReferenceModelLoader
             }
         }
 
+        var settingsForMaterial = referenceSettings?.MatchesMaterial(materialName) == true ? referenceSettings : null;
+
         bool hasUvs = mesh.HasTextureCoords(0);
+
+        // Precompute sampling controls from sidecar provenance
+        // (these are later set on the ReferenceMeshData, but we need them now for sampling)
+        string useUvOrigin = unitySidecarApplied ? "bottom_left" : "top_left";
+        string useFlipY = "asset_defined";
+        string useWrapS = "repeat";
+        string useWrapT = "repeat";
+        string samplingControlsSource = unitySidecarApplied ? "unity_sidecar" : "assimp";
+
+        if (settingsForMaterial is not null)
+        {
+            if (settingsForMaterial.ResolveTexturePath(settingsForMaterial.Textures?.Diffuse) is { } settingsDiffuse)
+            {
+                diffuseTexturePath = settingsDiffuse;
+                diffuseTextureSource = "vf_reference_settings";
+                if (!textureCache.TryGetValue(diffuseTexturePath, out diffuseImage))
+                {
+                    diffuseImage = LoadImage(diffuseTexturePath);
+                    if (diffuseImage is not null)
+                        textureCache[diffuseTexturePath] = diffuseImage;
+                }
+                _logger.LogInformation("Reference settings sidecar overrode diffuse texture for '{Mat}': {Path}",
+                    materialName, diffuseTexturePath);
+            }
+
+            if (settingsForMaterial.ResolveTexturePath(settingsForMaterial.Textures?.Emissive) is { } settingsEmissive)
+            {
+                unityEmissionTexturePath = settingsEmissive;
+                emissiveTextureSource = "vf_reference_settings";
+                if (!textureCache.TryGetValue(unityEmissionTexturePath, out unityEmissionImage))
+                {
+                    unityEmissionImage = LoadImage(unityEmissionTexturePath);
+                    if (unityEmissionImage is not null)
+                        textureCache[unityEmissionTexturePath] = unityEmissionImage;
+                }
+                _logger.LogInformation("Reference settings sidecar set emissive texture for '{Mat}': {Path}",
+                    materialName, unityEmissionTexturePath);
+            }
+
+            if (settingsForMaterial.Emissive?.SuggestedBrightness is { } brightness && brightness > 0f)
+                unityEmissionBrightness = brightness;
+
+            if (!string.IsNullOrWhiteSpace(settingsForMaterial.Sampling?.UvOrigin))
+                useUvOrigin = settingsForMaterial.Sampling.UvOrigin!;
+            if (!string.IsNullOrWhiteSpace(settingsForMaterial.Sampling?.FlipY))
+                useFlipY = settingsForMaterial.Sampling.FlipY!;
+            if (!string.IsNullOrWhiteSpace(settingsForMaterial.Sampling?.WrapS))
+                useWrapS = settingsForMaterial.Sampling.WrapS!;
+            if (!string.IsNullOrWhiteSpace(settingsForMaterial.Sampling?.WrapT))
+                useWrapT = settingsForMaterial.Sampling.WrapT!;
+            samplingControlsSource = "vf_reference_settings";
+        }
 
         var vertices = new ReferenceVertex[mesh.VertexCount];
         for (int i = 0; i < mesh.VertexCount; i++)
@@ -339,7 +430,8 @@ public sealed class ReferenceModelLoader
             // If we have a diffuse texture and UVs, sample the texture to bake color
             if (diffuseImage is not null && hasUvs)
             {
-                SampleTexture(diffuseImage, u, v, out r, out g, out b, out a);
+                SampleTexture(diffuseImage, u, v, out r, out g, out b, out a,
+                    useUvOrigin, useFlipY, useWrapS, useWrapT);
             }
             else if (mesh.HasVertexColors(0))
             {
@@ -364,7 +456,8 @@ public sealed class ReferenceModelLoader
             // Apply Unity .mat sidecar emission blending
             if (unityEmissionImage is not null && hasUvs && unityEmissionBrightness > 0f)
             {
-                SampleTexture(unityEmissionImage, u, v, out byte er, out byte eg, out byte eb, out _);
+                SampleTexture(unityEmissionImage, u, v, out byte er, out byte eg, out byte eb, out _,
+                    useUvOrigin, useFlipY, useWrapS, useWrapT);
                 r = (byte)Math.Clamp(r + (int)(er * unityEmissionBrightness), 0, 255);
                 g = (byte)Math.Clamp(g + (int)(eg * unityEmissionBrightness), 0, 255);
                 b = (byte)Math.Clamp(b + (int)(eb * unityEmissionBrightness), 0, 255);
@@ -440,10 +533,13 @@ public sealed class ReferenceModelLoader
             DiffuseTexturePath = diffuseTexturePath,
             EmissiveTexturePath = unityEmissionTexturePath,
             EmissiveBrightness = unityEmissionBrightness,
-            DiffuseTextureSource = unitySidecarApplied ? "unity_sidecar" : (diffuseTexturePath is not null ? "assimp" : null),
-            EmissiveTextureSource = unityEmissionTexturePath is not null ? "unity_sidecar" : null,
-            UvOrigin = unitySidecarApplied ? "bottom_left" : "top_left",
-            SamplingControlsSource = unitySidecarApplied ? "unity_sidecar" : "assimp",
+            DiffuseTextureSource = diffuseTextureSource,
+            EmissiveTextureSource = emissiveTextureSource,
+            UvOrigin = useUvOrigin,
+            FlipY = useFlipY,
+            WrapS = useWrapS,
+            WrapT = useWrapT,
+            SamplingControlsSource = samplingControlsSource,
         };
     }
 
@@ -745,15 +841,34 @@ public sealed class ReferenceModelLoader
         m.M41, m.M42, m.M43, m.M44,
     ];
 
+    /// <summary>
+    /// Sample a texture at the given UV coordinates, applying wrapping and V-flip
+    /// according to the specified sampling controls.
+    /// </summary>
     private static void SampleTexture(ImageResult image, float u, float v,
-        out byte r, out byte g, out byte b, out byte a)
+        out byte r, out byte g, out byte b, out byte a,
+        string uvOrigin = "top_left", string flipY = "asset_defined",
+        string wrapS = "repeat", string wrapT = "repeat")
     {
-        // Wrap UVs to [0,1) range (handles tiling)
-        u = u - MathF.Floor(u);
-        v = v - MathF.Floor(v);
+        // Apply wrapping mode
+        u = WrapCoord(u, wrapS);
+        v = WrapCoord(v, wrapT);
 
-        // Flip V — most 3D formats use bottom-left origin, images use top-left
-        v = 1f - v;
+        // Apply V flip based on origin convention
+        // Three.js/HTML Canvas uses top-left origin; images are stored top-left.
+        // OpenGL uses bottom-left origin. Most 3D formats (FBX, OBJ) use bottom-left.
+        // flipY="true" means "flip V" (for top-left convention sources).
+        // flipY="false" means "don't flip V" (for bottom-left convention sources).
+        // flipY="asset_defined" means infer from origin: top_left => flip, bottom_left => don't flip.
+        bool shouldFlip = flipY switch
+        {
+            "true" => true,
+            "false" => false,
+            _ => uvOrigin != "bottom_left", // asset_defined or unknown: flip unless origin is bottom_left
+        };
+
+        if (shouldFlip)
+            v = 1f - v;
 
         int px = Math.Clamp((int)(u * image.Width), 0, image.Width - 1);
         int py = Math.Clamp((int)(v * image.Height), 0, image.Height - 1);
@@ -763,6 +878,28 @@ public sealed class ReferenceModelLoader
         g = image.Data[offset + 1];
         b = image.Data[offset + 2];
         a = image.Data[offset + 3];
+    }
+
+    /// <summary>
+    /// Wrap a texture coordinate according to the specified wrapping mode.
+    /// </summary>
+    private static float WrapCoord(float coord, string wrapMode)
+    {
+        switch (wrapMode)
+        {
+            case "clamp":
+                return Math.Clamp(coord, 0f, 1f);
+            case "mirror":
+                {
+                    float wrapped = coord - MathF.Floor(coord);
+                    int period = (int)MathF.Floor(coord) & 1;
+                    return period == 0 ? wrapped : 1f - wrapped;
+                }
+            case "repeat":
+            default:
+                // Standard repeat wrapping
+                return coord - MathF.Floor(coord);
+        }
     }
 
     /// <summary>
@@ -783,7 +920,8 @@ public sealed class ReferenceModelLoader
         if (mesh.EmissiveTexturePath is not null)
             emissiveImage = LoadImage(mesh.EmissiveTexturePath);
 
-        var newVerts = BakeVertexColors(mesh.Vertices, diffuseImage, emissiveImage, mesh.EmissiveBrightness);
+        var newVerts = BakeVertexColors(mesh.Vertices, diffuseImage, emissiveImage, mesh.EmissiveBrightness,
+            mesh.UvOrigin, mesh.FlipY, mesh.WrapS, mesh.WrapT);
 
         return new ReferenceMeshData
         {
@@ -793,6 +931,16 @@ public sealed class ReferenceModelLoader
             DiffuseTexturePath = texturePath,
             EmissiveTexturePath = mesh.EmissiveTexturePath,
             EmissiveBrightness = mesh.EmissiveBrightness,
+            DiffuseTextureSource = mesh.DiffuseTextureSource,
+            EmissiveTextureSource = mesh.EmissiveTextureSource,
+            ManualDiffuseOverridePath = mesh.ManualDiffuseOverridePath,
+            ManualNormalOverridePath = mesh.ManualNormalOverridePath,
+            ManualEmissiveOverridePath = mesh.ManualEmissiveOverridePath,
+            UvOrigin = mesh.UvOrigin,
+            FlipY = mesh.FlipY,
+            WrapS = mesh.WrapS,
+            WrapT = mesh.WrapT,
+            SamplingControlsSource = mesh.SamplingControlsSource,
         };
     }
 
@@ -818,12 +966,14 @@ public sealed class ReferenceModelLoader
         ReferenceVertex[] newVerts;
         if (diffuseImage is not null)
         {
-            newVerts = BakeVertexColors(mesh.Vertices, diffuseImage, emissiveImage, brightness);
+            newVerts = BakeVertexColors(mesh.Vertices, diffuseImage, emissiveImage, brightness,
+                mesh.UvOrigin, mesh.FlipY, mesh.WrapS, mesh.WrapT);
         }
         else
         {
             // No diffuse texture — blend emissive into existing vertex colors.
-            newVerts = BlendEmissive(mesh.Vertices, emissiveImage, brightness);
+            newVerts = BlendEmissive(mesh.Vertices, emissiveImage, brightness,
+                mesh.UvOrigin, mesh.FlipY, mesh.WrapS, mesh.WrapT);
         }
 
         return new ReferenceMeshData
@@ -834,21 +984,35 @@ public sealed class ReferenceModelLoader
             DiffuseTexturePath = mesh.DiffuseTexturePath,
             EmissiveTexturePath = emissivePath,
             EmissiveBrightness = brightness,
+            DiffuseTextureSource = mesh.DiffuseTextureSource,
+            EmissiveTextureSource = mesh.EmissiveTextureSource,
+            ManualDiffuseOverridePath = mesh.ManualDiffuseOverridePath,
+            ManualNormalOverridePath = mesh.ManualNormalOverridePath,
+            ManualEmissiveOverridePath = mesh.ManualEmissiveOverridePath,
+            UvOrigin = mesh.UvOrigin,
+            FlipY = mesh.FlipY,
+            WrapS = mesh.WrapS,
+            WrapT = mesh.WrapT,
+            SamplingControlsSource = mesh.SamplingControlsSource,
         };
     }
 
     private ReferenceVertex[] BakeVertexColors(
-        ReferenceVertex[] oldVerts, ImageResult diffuse, ImageResult? emissive, float emissiveBrightness)
+        ReferenceVertex[] oldVerts, ImageResult diffuse, ImageResult? emissive, float emissiveBrightness,
+        string uvOrigin = "top_left", string flipY = "asset_defined",
+        string wrapS = "repeat", string wrapT = "repeat")
     {
         var newVerts = new ReferenceVertex[oldVerts.Length];
         for (int i = 0; i < oldVerts.Length; i++)
         {
             var ov = oldVerts[i];
-            SampleTexture(diffuse, ov.U, ov.V, out byte r, out byte g, out byte b, out byte a);
+            SampleTexture(diffuse, ov.U, ov.V, out byte r, out byte g, out byte b, out byte a,
+                uvOrigin, flipY, wrapS, wrapT);
 
             if (emissive is not null && emissiveBrightness > 0f)
             {
-                SampleTexture(emissive, ov.U, ov.V, out byte er, out byte eg, out byte eb, out _);
+                SampleTexture(emissive, ov.U, ov.V, out byte er, out byte eg, out byte eb, out _,
+                    uvOrigin, flipY, wrapS, wrapT);
                 r = (byte)Math.Clamp(r + (int)(er * emissiveBrightness), 0, 255);
                 g = (byte)Math.Clamp(g + (int)(eg * emissiveBrightness), 0, 255);
                 b = (byte)Math.Clamp(b + (int)(eb * emissiveBrightness), 0, 255);
@@ -866,13 +1030,16 @@ public sealed class ReferenceModelLoader
     }
 
     private ReferenceVertex[] BlendEmissive(
-        ReferenceVertex[] oldVerts, ImageResult emissive, float brightness)
+        ReferenceVertex[] oldVerts, ImageResult emissive, float brightness,
+        string uvOrigin = "top_left", string flipY = "asset_defined",
+        string wrapS = "repeat", string wrapT = "repeat")
     {
         var newVerts = new ReferenceVertex[oldVerts.Length];
         for (int i = 0; i < oldVerts.Length; i++)
         {
             var ov = oldVerts[i];
-            SampleTexture(emissive, ov.U, ov.V, out byte er, out byte eg, out byte eb, out _);
+            SampleTexture(emissive, ov.U, ov.V, out byte er, out byte eg, out byte eb, out _,
+                uvOrigin, flipY, wrapS, wrapT);
             byte r = (byte)Math.Clamp(ov.R + (int)(er * brightness), 0, 255);
             byte g = (byte)Math.Clamp(ov.G + (int)(eg * brightness), 0, 255);
             byte b = (byte)Math.Clamp(ov.B + (int)(eb * brightness), 0, 255);
@@ -886,5 +1053,76 @@ public sealed class ReferenceModelLoader
                 ov.BoneWeight0, ov.BoneWeight1, ov.BoneWeight2, ov.BoneWeight3);
         }
         return newVerts;
+    }
+
+    private sealed class ReferenceSettingsSidecar
+    {
+        public static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+        };
+
+        [JsonIgnore]
+        public string BaseDirectory { get; set; } = ".";
+
+        [JsonPropertyName("material")]
+        public string? Material { get; set; }
+
+        [JsonPropertyName("sampling")]
+        public ReferenceSettingsSampling? Sampling { get; set; }
+
+        [JsonPropertyName("textures")]
+        public ReferenceSettingsTextures? Textures { get; set; }
+
+        [JsonPropertyName("emissive")]
+        public ReferenceSettingsEmissive? Emissive { get; set; }
+
+        public bool MatchesMaterial(string materialName)
+        {
+            if (string.IsNullOrWhiteSpace(Material))
+                return true;
+            return string.Equals(Material, materialName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public string? ResolveTexturePath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            var fullPath = Path.IsPathRooted(path)
+                ? path
+                : Path.GetFullPath(Path.Combine(BaseDirectory, path));
+            return File.Exists(fullPath) ? fullPath : null;
+        }
+    }
+
+    private sealed class ReferenceSettingsSampling
+    {
+        [JsonPropertyName("uv_origin")]
+        public string? UvOrigin { get; set; }
+
+        [JsonPropertyName("flip_y")]
+        public string? FlipY { get; set; }
+
+        [JsonPropertyName("wrap_s")]
+        public string? WrapS { get; set; }
+
+        [JsonPropertyName("wrap_t")]
+        public string? WrapT { get; set; }
+    }
+
+    private sealed class ReferenceSettingsTextures
+    {
+        [JsonPropertyName("diffuse")]
+        public string? Diffuse { get; set; }
+
+        [JsonPropertyName("emissive")]
+        public string? Emissive { get; set; }
+    }
+
+    private sealed class ReferenceSettingsEmissive
+    {
+        [JsonPropertyName("suggestedBrightness")]
+        public float? SuggestedBrightness { get; set; }
     }
 }

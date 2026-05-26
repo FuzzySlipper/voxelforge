@@ -849,15 +849,25 @@ public sealed class RefLoadMetaCommand : IConsoleCommand
                     continue;
                 }
 
+                // Sampling and manual override metadata must be applied before re-baking
+                // texture-derived vertex colors so saved .refmeta state uses the same
+                // sampling controls as the viewer.
+                ov.ApplyToMesh(model.Meshes[ov.MeshIndex]);
+
                 if (ov.DiffuseTexturePath is not null)
                 {
                     if (File.Exists(ov.DiffuseTexturePath))
                     {
                         var newMesh = _loader.Retexture(model.Meshes[ov.MeshIndex], ov.DiffuseTexturePath);
                         if (newMesh is not null)
+                        {
+                            ov.ApplyToMesh(newMesh);
                             model.Meshes[ov.MeshIndex] = newMesh;
+                        }
                         else
+                        {
                             warnings.Add($"Mesh {ov.MeshIndex}: failed to apply diffuse texture.");
+                        }
                     }
                     else
                     {
@@ -873,9 +883,14 @@ public sealed class RefLoadMetaCommand : IConsoleCommand
                         var newMesh = _loader.RetextureEmissive(
                             model.Meshes[ov.MeshIndex], ov.EmissiveTexturePath, brightness);
                         if (newMesh is not null)
+                        {
+                            ov.ApplyToMesh(newMesh);
                             model.Meshes[ov.MeshIndex] = newMesh;
+                        }
                         else
+                        {
                             warnings.Add($"Mesh {ov.MeshIndex}: failed to apply emissive texture.");
+                        }
                     }
                     else
                     {

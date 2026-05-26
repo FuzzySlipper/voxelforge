@@ -154,6 +154,75 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
     }
 
     [Fact]
+    public void LoadReferenceModel_VfReferenceSettingsSidecarOverridesTexturesAndSampling()
+    {
+        var tempDir = Path.GetDirectoryName(_objPath)!;
+        var objPath = Path.Combine(tempDir, "settings_quad.obj");
+        var mtlPath = Path.Combine(tempDir, "settings_quad.mtl");
+        var settingsPath = Path.Combine(tempDir, "settings_quad.vf-reference-settings.json");
+        var diffusePath = Path.Combine(tempDir, "settings_diffuse.png");
+        var emissivePath = Path.Combine(tempDir, "settings_emissive.png");
+
+        WriteTinyPng(diffusePath);
+        WriteTinyPng(emissivePath);
+        File.WriteAllText(objPath, """
+            mtllib settings_quad.mtl
+            o Quad
+            v 0 0 0
+            v 1 0 0
+            v 1 1 0
+            v 0 1 0
+            vt 0 0
+            vt 1 0
+            vt 1 1
+            vt 0 1
+            usemtl GOLEM_NORMAL_ROCK
+            f 1/1 2/2 3/3 4/4
+            """);
+        File.WriteAllText(mtlPath, """
+            newmtl GOLEM_NORMAL_ROCK
+            Kd 1 1 1
+            """);
+        File.WriteAllText(settingsPath, """
+            {
+              "material": "GOLEM_NORMAL_ROCK",
+              "sampling": {
+                "uv_origin": "bottom_left",
+                "flip_y": "asset_defined",
+                "wrap_s": "clamp",
+                "wrap_t": "clamp"
+              },
+              "textures": {
+                "diffuse": "settings_diffuse.png",
+                "emissive": "settings_emissive.png"
+              },
+              "emissive": { "suggestedBrightness": 0.75 }
+            }
+            """);
+
+        var session = CreateSession();
+        var service = new ReferenceAssetService(new ReferenceModelLoader(NullLogger<ReferenceModelLoader>.Instance));
+        var loadTool = new LoadReferenceModelMcpTool(session, service);
+
+        var result = loadTool.Invoke(JsonArguments($"{{ \"path\": \"{objPath}\" }}"), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        var model = session.ReferenceModels.Get(0);
+        Assert.NotNull(model);
+        var mesh = model.Meshes[0];
+        Assert.Equal(Path.GetFullPath(diffusePath), mesh.DiffuseTexturePath);
+        Assert.Equal(Path.GetFullPath(emissivePath), mesh.EmissiveTexturePath);
+        Assert.Equal("vf_reference_settings", mesh.DiffuseSourceLabel);
+        Assert.Equal("vf_reference_settings", mesh.EmissiveSourceLabel);
+        Assert.Equal("bottom_left", mesh.UvOrigin);
+        Assert.Equal("asset_defined", mesh.FlipY);
+        Assert.Equal("clamp", mesh.WrapS);
+        Assert.Equal("clamp", mesh.WrapT);
+        Assert.Equal("vf_reference_settings", mesh.SamplingControlsSource);
+        Assert.Equal(0.75f, mesh.EmissiveBrightness);
+    }
+
+    [Fact]
     public void LoadReferenceModel_MissingPathFails()
     {
         var session = CreateSession();
@@ -510,7 +579,7 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
 
             Assert.True(result.Success, result.Message);
             Assert.Contains("diffuse", result.Message, StringComparison.Ordinal);
-            Assert.Contains("session-only", result.Message, StringComparison.Ordinal);
+            Assert.Contains("refsave", result.Message, StringComparison.Ordinal);
 
             // Verify the override was applied
             var model = session.ReferenceModels.Get(0);
@@ -1115,5 +1184,11 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
     {
         using var document = JsonDocument.Parse(json);
         return document.RootElement.Clone();
+    }
+
+    private static void WriteTinyPng(string path)
+    {
+        File.WriteAllBytes(path, Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="));
     }
 }

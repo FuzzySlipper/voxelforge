@@ -446,6 +446,15 @@ export class VoxelForgeScene {
       }
     }
 
+    // Load emissive texture if available
+    const emissiveSlot = matContract?.emissive_texture;
+    if (emissiveSlot && hasUvs(prim)) {
+      const emissiveUri = resolveTextureUrl(emissiveSlot, textures);
+      if (emissiveUri) {
+        loadEmissiveTexture(emissiveUri, emissiveSlot, material, matContract?.emissive_factor);
+      }
+    }
+
     const threeMesh = new THREE.Mesh(geometry, material);
     threeMesh.castShadow = true;
     threeMesh.receiveShadow = true;
@@ -712,6 +721,9 @@ export class VoxelForgeScene {
       if (obj.material) {
         if ((obj.material as THREE.MeshStandardMaterial).map) {
           (obj.material as THREE.MeshStandardMaterial).map!.dispose();
+        }
+        if ((obj.material as THREE.MeshStandardMaterial).emissiveMap) {
+          (obj.material as THREE.MeshStandardMaterial).emissiveMap!.dispose();
         }
         obj.material.dispose();
       }
@@ -1174,6 +1186,76 @@ export function loadTexture(
     undefined,
     (err) => {
       console.warn(`[VoxelForgeScene] Failed to load texture ${resolvedUri}:`, err);
+      captureReadyManager.onTextureLoadEnd();
+    },
+  );
+}
+
+/**
+ * Load an emissive texture from the transport URI and apply it to the given material.
+ * Sets material.emissiveMap and material.emissiveIntensity.
+ * Emissive color space is always srgb (color data, not normal/roughness).
+ */
+export function loadEmissiveTexture(
+  uri: string,
+  slot: RenderTextureSlot,
+  material: THREE.MeshStandardMaterial,
+  emissiveFactor?: number[] | null,
+): void {
+  const resolvedUri = resolveTextureHandle(uri);
+  const texLoader = new THREE.TextureLoader();
+
+  // Notify capture readiness manager of pending texture load
+  captureReadyManager.onTextureLoadStart();
+
+  texLoader.load(
+    resolvedUri,
+    (texture) => {
+      // Emissive maps are color data — use srgb color space
+      texture.colorSpace = THREE.SRGBColorSpace;
+
+      // Apply wrapping mode from slot metadata
+      texture.wrapS = slot.wrap_s === "clamp" ? THREE.ClampToEdgeWrapping
+        : slot.wrap_s === "mirror" ? THREE.MirroredRepeatWrapping
+        : THREE.RepeatWrapping;
+      texture.wrapT = slot.wrap_t === "clamp" ? THREE.ClampToEdgeWrapping
+        : slot.wrap_t === "mirror" ? THREE.MirroredRepeatWrapping
+        : THREE.RepeatWrapping;
+
+      // Apply UV transform
+      const uvTransform = slot.uv_transform;
+      if (uvTransform) {
+        texture.offset.set(uvTransform.offset[0], uvTransform.offset[1]);
+        texture.repeat.set(
+          uvTransform.scale[0] || 1,
+          uvTransform.scale[1] || 1,
+        );
+        texture.rotation = uvTransform.rotation || 0;
+      }
+
+      // Set emissive map and intensity
+      material.emissiveMap = texture;
+      if (emissiveFactor && emissiveFactor.length >= 3) {
+        material.emissive = new THREE.Color(
+          emissiveFactor[0],
+          emissiveFactor[1],
+          emissiveFactor[2],
+        );
+        // Use max component as emissiveIntensity hint
+        material.emissiveIntensity = Math.max(emissiveFactor[0], emissiveFactor[1], emissiveFactor[2]);
+      } else {
+        material.emissive = new THREE.Color(1, 1, 1);
+        material.emissiveIntensity = 1.0;
+      }
+      material.needsUpdate = true;
+
+      console.log(`[VoxelForgeScene] Emissive texture loaded: ${resolvedUri}, factor=${emissiveFactor ? `[${emissiveFactor.join(",")}]` : "default"}`);
+
+      captureReadyManager.onTextureLoadEnd();
+    },
+    undefined,
+    (err) => {
+      console.warn(`[VoxelForgeScene] Failed to load emissive texture ${resolvedUri}:`, err);
       captureReadyManager.onTextureLoadEnd();
     },
   );

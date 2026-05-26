@@ -102,9 +102,7 @@ public sealed class InspectReferenceMaterialsMcpTool : ModelLifecycleMcpToolBase
 
                 // Emissive texture info
                 entry["emissive_texture_path"] = mesh.EffectiveEmissiveTexturePath;
-                entry["emissive_source_label"] = mesh.ManualEmissiveOverridePath is not null
-                    ? "manual_override"
-                    : (mesh.EmissiveTexturePath is not null ? "unity_sidecar" : "none");
+                entry["emissive_source_label"] = mesh.EmissiveSourceLabel;
 
                 // Vertex count and alpha status
                 bool hasAlpha = false;
@@ -296,7 +294,7 @@ public sealed class SetReferenceModelTextureMcpTool : ModelLifecycleMcpToolBase
                 index));
 
             return Ok($"Assigned {slot} texture '{Path.GetFileName(path)}' to {meshesAffected} mesh(es) in model [{index}]. " +
-                      "This is a session-only override and will not persist across restarts. " +
+                      "Use refsave to persist this override, then refloadmeta to restore it. " +
                       "Use inspect_reference_materials to verify.");
         }
     }
