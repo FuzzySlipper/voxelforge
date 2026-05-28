@@ -625,20 +625,17 @@ public sealed class ProjectNewHandler : IBridgeCommandHandler<ProjectNewRequest,
     private readonly EditorUiStateBridgeService _stateService;
     private readonly MeshSubscriptionManager _meshSubscriptionManager;
     private readonly MeshChangePushService _meshPushService;
-    private readonly VoxelForge.App.Events.IEventPublisher _events;
 
     public ProjectNewHandler(
         VoxelModelHolder modelHolder,
         EditorUiStateBridgeService stateService,
         MeshSubscriptionManager meshSubscriptionManager,
-        MeshChangePushService meshPushService,
-        VoxelForge.App.Events.IEventPublisher events)
+        MeshChangePushService meshPushService)
     {
         _modelHolder = modelHolder;
         _stateService = stateService;
         _meshSubscriptionManager = meshSubscriptionManager;
         _meshPushService = meshPushService;
-        _events = events;
     }
 
     public async ValueTask<ProjectCommandResponse?> HandleAsync(

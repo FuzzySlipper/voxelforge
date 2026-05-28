@@ -685,6 +685,43 @@ public sealed class EditorUiStateHandlerTests
         Assert.True(latencyPayload.MeshUpdateMs >= 0);
     }
 
+    [Fact]
+    public async Task ProjectNewHandler_ResetsModelAndReturnsSnapshot()
+    {
+        var loggerFactory = NullLoggerFactory.Instance;
+        var holder = new VoxelModelHolder(NullLogger<VoxelModelHolder>.Instance, loggerFactory);
+        holder.LoadDefaultCube();
+        var paletteService = new PaletteSnapshotService();
+        var publisher = new FakeBridgeEventPublisher();
+        var stateService = new EditorUiStateBridgeService(holder, paletteService, publisher);
+        var meshSubManager = new MeshSubscriptionManager();
+        var meshPushService = new MeshChangePushService(
+            holder,
+            meshSubManager,
+            new MeshRegionService(new VoxelForge.Core.Meshing.GreedyMesher()),
+            publisher,
+            NullLogger<MeshChangePushService>.Instance);
+
+        var handler = new ProjectNewHandler(
+            holder,
+            stateService,
+            meshSubManager,
+            meshPushService);
+
+        var response = await handler.HandleAsync(
+            new ProjectNewRequest { Name = "test-project" },
+            new BridgeRequestContext("req-project-new", BridgeCorrelation.Empty, (_, __) => ValueTask.CompletedTask),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.Equal("Created new project 'test-project'.", response.Message);
+        Assert.True(response.MeshChanged);
+        Assert.NotNull(response.State);
+        Assert.Equal(holder.Workspace.CurrentModelName, response.State.ModelId);
+        Assert.False(holder.IsDirty);
+    }
+
     private static (EditorUiStateBridgeService stateService, VoxelModelHolder holder, CommandExecuteHandler handler) CreateCommandHandler()
     {
         return CreateCommandHandler(out _);
