@@ -126,6 +126,14 @@ public sealed class MyraCommandExecuteHandler
             // Voxelize commands
             new VoxelizeCommand(_modelHolder.Workspace.ReferenceModels, _loggerFactory),
             new VoxelizeCompareCommand(_modelHolder.Workspace.ReferenceModels, _loggerFactory),
+
+            // Advanced baking and palette operations (task #1714)
+            new AoBakeConsoleCommand(),
+            new EdgeDarkenConsoleCommand(),
+            new LightBakeConsoleCommand(),
+            new PaletteMapConsoleCommand(),
+            new PaletteReduceConsoleCommand(),
+            new ListFilesCommand(),
         };
 
         _cachedRouter = new CommandRouter(commands, _loggerFactory.CreateLogger<CommandRouter>());

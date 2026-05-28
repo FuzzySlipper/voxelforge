@@ -301,8 +301,9 @@ function buildReferenceMenu(win: BrowserWindow): MenuItemConstructorOptions {
 }
 
 /**
- * Tools menu — most items remain disabled for advanced CLI/console workflows (#1714).
- * Voxelize and Voxelize Compare are enabled in this task (#1713).
+ * Tools menu — advanced baking, palette ops, and screenshot items open the
+ * command palette pre-filled with the specific command.
+ * Voxelize and Voxelize Compare remain as direct menu items.
  */
 function buildToolsMenu(win: BrowserWindow): MenuItemConstructorOptions {
   return {
@@ -318,35 +319,35 @@ function buildToolsMenu(win: BrowserWindow): MenuItemConstructorOptions {
       },
       { type: "separator" },
       {
-        label: "Bake AO",
-        enabled: false,
-        toolTip: "ao_bake — follow-up task #1714",
-      },
-      {
-        label: "Edge Darken",
-        enabled: false,
-        toolTip: "edge_darken — follow-up task #1714",
-      },
-      {
-        label: "Light Bake",
-        enabled: false,
-        toolTip: "light_bake — follow-up task #1714",
-      },
-      {
-        label: "Palette Map",
-        enabled: false,
-        toolTip: "palette_map — follow-up task #1714",
-      },
-      {
-        label: "Palette Reduce",
-        enabled: false,
-        toolTip: "palette_reduce — follow-up task #1714",
+        label: "Command Palette...",
+        accelerator: "CmdOrCtrl+Shift+P",
+        click: () => send(win, MenuChannels.COMMAND_PALETTE, { command: "" }),
       },
       { type: "separator" },
       {
-        label: "Screenshot",
-        enabled: false,
-        toolTip: "screenshot — follow-up task #1714",
+        label: "Bake AO",
+        click: () => send(win, MenuChannels.COMMAND_PALETTE_AO_BAKE),
+      },
+      {
+        label: "Edge Darken",
+        click: () => send(win, MenuChannels.COMMAND_PALETTE_EDGE_DARKEN),
+      },
+      {
+        label: "Light Bake",
+        click: () => send(win, MenuChannels.COMMAND_PALETTE_LIGHT_BAKE),
+      },
+      {
+        label: "Palette Map...",
+        click: () => send(win, MenuChannels.COMMAND_PALETTE_PALETTE_MAP),
+      },
+      {
+        label: "Palette Reduce...",
+        click: () => send(win, MenuChannels.COMMAND_PALETTE_PALETTE_REDUCE),
+      },
+      { type: "separator" },
+      {
+        label: "Screenshot...",
+        click: () => send(win, MenuChannels.COMMAND_PALETTE_SCREENSHOT),
       },
     ],
   };

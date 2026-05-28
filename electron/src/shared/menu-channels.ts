@@ -53,6 +53,15 @@ export const MenuChannels = {
   VOXELIZE_COMPARE: "menu:voxelize-compare",
 
   HELP_ABOUT: "menu:help-about",
+
+  // Command palette / console
+  COMMAND_PALETTE: "menu:command-palette",
+  COMMAND_PALETTE_AO_BAKE: "menu:cmd-ao-bake",
+  COMMAND_PALETTE_EDGE_DARKEN: "menu:cmd-edge-darken",
+  COMMAND_PALETTE_LIGHT_BAKE: "menu:cmd-light-bake",
+  COMMAND_PALETTE_PALETTE_MAP: "menu:cmd-palette-map",
+  COMMAND_PALETTE_PALETTE_REDUCE: "menu:cmd-palette-reduce",
+  COMMAND_PALETTE_SCREENSHOT: "menu:cmd-screenshot",
 } as const;
 
 export type MenuChannel = (typeof MenuChannels)[keyof typeof MenuChannels];

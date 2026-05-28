@@ -141,6 +141,14 @@ const SCENE_ONLY_MENU_CHANNELS = new Set<string>([
   "menu:view-bg-color",
   "menu:help-about",
   "menu:file-exit", // main process closes window; renderer just logs
+  // Command palette channels — handled by setupCommandPalette() not setupMenuEventListeners()
+  "menu:command-palette",
+  "menu:cmd-ao-bake",
+  "menu:cmd-edge-darken",
+  "menu:cmd-light-bake",
+  "menu:cmd-palette-map",
+  "menu:cmd-palette-reduce",
+  "menu:cmd-screenshot",
 ]);
 
 /**
@@ -506,6 +514,7 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
    * CommandRegistry entry to one of:
    *   - "registered"       → bridge command handler exists in Program.cs
    *   - "menu-exec"        → accessible via menu -> executeCommand (bridge:command-execute)
+   *   - "palette"          → accessible via the command palette/console (#1714)
    *   - "disabled-followup"→ visible disabled placeholder in menu; needs bridge handler
    *   - "uncovered"        → not yet wired anywhere in Electron
    */
@@ -524,11 +533,12 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     ["ListRegionsCommand", { coverage: "registered" }],
     ["LabelVoxelCommand", { coverage: "registered" }],
     ["PaletteCommand", { coverage: "registered" }],
-    ["PaletteMapConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
-    ["PaletteReduceConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
-    ["AoBakeConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
-    ["EdgeDarkenConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
-    ["LightBakeConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
+    // Advanced baking/palette — now reachable via command palette (#1714)
+    ["PaletteMapConsoleCommand", { coverage: "palette" }],
+    ["PaletteReduceConsoleCommand", { coverage: "palette" }],
+    ["AoBakeConsoleCommand", { coverage: "palette" }],
+    ["EdgeDarkenConsoleCommand", { coverage: "palette" }],
+    ["LightBakeConsoleCommand", { coverage: "palette" }],
     ["SaveCommand", { coverage: "registered" }],
     ["LoadCommand", { coverage: "registered" }],
     ["ListFilesCommand", { coverage: "registered" }],
@@ -536,7 +546,7 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     ["GridCommand", { coverage: "registered" }],
     ["ConfigCommand", { coverage: "registered" }],
     ["MeasureCommand", { coverage: "registered" }],
-    ["ScreenshotCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
+    ["ScreenshotCommand", { coverage: "palette" }],
 
     // ── Reference model — menu-exec (enabled via bridge:command-execute / bridge:myra-execute) ──
     ["RefLoadCommand", { coverage: "menu-exec" }],
@@ -599,34 +609,65 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     }
   });
 
-  it("disabled-with-followup commands have visible disabled menu entries", () => {
+  it("all previously disabled-followup commands are now enabled through the command palette", () => {
     const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
-    // Count all enabled: false entries across the menu
+    // All previously disabled baking/palette/screenshot menu items are now enabled
     const enabledFalseCount = (menuSource.match(/enabled:\s*false/g) ?? []).length;
-
-    // Remaining disabled-followup commands (#1714: advanced baking, palette ops, screenshot)
-    // should still have visible placeholder.
-    expect(enabledFalseCount).toBeGreaterThanOrEqual(5);
+    expect(enabledFalseCount).toBe(0);
   });
 
-  it("disabled-with-followup commands cite durable Den follow-up task IDs", () => {
-    const disabledEntries = [...expectedCoverage.entries()].filter(
-      ([, entry]) => entry.coverage === "disabled-followup",
+  it("commands with palette coverage have corresponding entries in the command catalog source", () => {
+    const paletteSource = fs.readFileSync(
+      path.resolve(REPO_ROOT, "src", "renderer", "command-palette.ts"),
+      "utf-8",
     );
+    const paletteEntries = [...expectedCoverage.entries()].filter(
+      ([, entry]) => entry.coverage === "palette",
+    );
+    // Every palette-covered command name (or alias) must exist in the catalog
+    for (const [cmdClass, _entry] of paletteEntries) {
+      // Convert class name to expected command name pattern
+      const cmdName = cmdClass
+        .replace(/ConsoleCommand$/, "")
+        .replace(/Command$/, "")
+        .replace(/([A-Z])/g, "-$1")
+        .toLowerCase()
+        .replace(/^-/, "")
+        .replace(/--/g, "-")
+        .replace(/-c-o-n-s-o-l-e/, "")
+        // Special cases
+        .replace("palette-map", "palette-map")
+        .replace("palette-reduce", "palette-reduce")
+        .replace("ao-bake", "ao-bake")
+        .replace("edge-darken", "edge-darken")
+        .replace("light-bake", "light-bake")
+        .replace("screenshot", "screenshot");
 
-    expect(disabledEntries.length).toBeGreaterThan(0);
-    for (const [cmdName, entry] of disabledEntries) {
-      expect(entry.followUpTaskId, `${cmdName} is missing a Den follow-up task id`).toBeGreaterThan(0);
-    }
-  });
+      // The catalog uses name: "...". Look for the name definition.
+      const catalogMatch = paletteSource.match(
+        new RegExp(`name:\\s*["']${cmdName}["']`),
+      );
+      if (catalogMatch) continue; // Found by name
 
-  it("visible disabled menu placeholders include follow-up task ids in tooltips", () => {
-    const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
-    const disabledMenuBlocks = menuSource.match(/enabled:\s*false,[\s\S]*?toolTip:\s*"[^"]+"/g) ?? [];
-
-    expect(disabledMenuBlocks.length).toBeGreaterThanOrEqual(5);
-    for (const block of disabledMenuBlocks) {
-      expect(block).toMatch(/follow-up task #(?:1713|1714)/);
+      // Try aliases — check if any alias matches the short form
+      const classLower = cmdClass.toLowerCase();
+      const aliasMatch = paletteSource.match(
+        new RegExp(`aliases:\\s*\\[[^\\]]*["']${classLower}["'\\]]`),
+      );
+      if (!aliasMatch) {
+        // Fallback: check by the original short name mapping
+        const shortNameMap: Record<string, string> = {
+          "PaletteMapConsoleCommand": "palette-map",
+          "PaletteReduceConsoleCommand": "palette-reduce",
+          "AoBakeConsoleCommand": "ao-bake",
+          "EdgeDarkenConsoleCommand": "edge-darken",
+          "LightBakeConsoleCommand": "light-bake",
+          "ScreenshotCommand": "screenshot",
+        };
+        const expectedName = shortNameMap[cmdClass];
+        const actualMatch = paletteSource.includes(`name: "${expectedName}"`);
+        expect(actualMatch).toBe(true);
+      }
     }
   });
 });
@@ -634,9 +675,10 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
 // ── Test: Extended workflow menu manifest ──
 
 describe("Extended workflow coverage", () => {
-  it("menu.ts contains Reference Model, Texture/Emissive, Animation, Image Ref, Voxelize sections", () => {
+  it("menu.ts contains command palette, Reference Model, Texture/Emissive, Animation, Image Ref, Voxelize sections", () => {
     const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
 
+    expect(menuSource).toContain("Command Palette");
     expect(menuSource).toContain("Reference");
     expect(menuSource).toContain("Texture");
     expect(menuSource).toContain("Animation");
@@ -644,9 +686,9 @@ describe("Extended workflow coverage", () => {
     expect(menuSource).toContain("Voxelize");
   });
 
-  it("menu.ts extended workflow items are visually distinguishable as disabled", () => {
+  it("menu.ts extended workflow items are now all enabled (no disabled entries)", () => {
     const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
     const enabledFalseCount = (menuSource.match(/enabled:\s*false/g) ?? []).length;
-    expect(enabledFalseCount).toBeGreaterThanOrEqual(2);
+    expect(enabledFalseCount).toBe(0);
   });
 });

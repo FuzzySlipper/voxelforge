@@ -82,6 +82,14 @@ const allowedEventChannels = [
   "menu:voxelize-execute",
   "menu:voxelize-compare",
   "menu:help-about",
+  // Command palette / console events (#1714)
+  "menu:command-palette",
+  "menu:cmd-ao-bake",
+  "menu:cmd-edge-darken",
+  "menu:cmd-light-bake",
+  "menu:cmd-palette-map",
+  "menu:cmd-palette-reduce",
+  "menu:cmd-screenshot",
 ] as const;
 
 function validateChannel(channel: string): void {

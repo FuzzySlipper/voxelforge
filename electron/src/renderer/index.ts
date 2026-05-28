@@ -11,6 +11,7 @@ import { transitionalMeshToSnapshot } from "../renderer-core/protocol/normalizeS
 import type { MeshSnapshotData, MeshUpdateEventData, PaletteUpdateEventData } from "./scene";
 import { titleCase, formatError, escapeHtml } from "../shared/string-utils";
 import { createCoalescer } from "../shared/refresh-coalescer";
+import { CommandPalette } from "./command-palette-ui";
 
 declare global {
   interface Window {
@@ -120,6 +121,9 @@ let lastHoverNormal: { x: number; y: number; z: number } | null = null;
 /** Loading placeholder element created during startup. */
 let loadingPlaceholder: HTMLDivElement | null = null;
 
+/** Command palette for CLI command execution. */
+let commandPalette: CommandPalette | null = null;
+
 async function main(): Promise<void> {
   // Create a loading placeholder as a separate element so we can remove it later
   // without affecting the canvas that VoxelForgeScene appends to the container.
@@ -154,6 +158,7 @@ async function main(): Promise<void> {
     await refreshMesh();
     setupBridgeEvents();
     setupMenuEventListeners();
+    setupCommandPalette();
     setBridgeStatus("Bridge connected. C# owns editor state; TS owns presentation.", true);
     clearLoadingPlaceholder();
   } catch (err) {
@@ -584,6 +589,57 @@ function setupMenuEventListeners(): void {
       return;
     }
     void myraExecuteCommand("Voxelize Compare", "voxcompare", [String(idx), resolutions, mode ?? "solid"]);
+  });
+}
+
+/**
+ * Initialize the command palette and wire keyboard/menu event handlers.
+ */
+function setupCommandPalette(): void {
+  commandPalette = new CommandPalette({
+    execute: (label, command, args) => myraExecuteCommand(label, command, args),
+    setStatus: (msg) => setStatus(msg),
+  });
+
+  // Keyboard shortcut: Ctrl+Shift+P or F6
+  document.addEventListener("keydown", (event: KeyboardEvent) => {
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === "P") {
+      event.preventDefault();
+      commandPalette?.show();
+    }
+    if (event.key === "F6" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      commandPalette?.show();
+    }
+  });
+
+  // Menu-triggered palette events
+  window.voxelforgeBridge.onEvent("menu:command-palette", () => {
+    commandPalette?.show();
+  });
+
+  window.voxelforgeBridge.onEvent("menu:cmd-ao-bake", () => {
+    commandPalette?.show("ao-bake");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:cmd-edge-darken", () => {
+    commandPalette?.show("edge-darken");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:cmd-light-bake", () => {
+    commandPalette?.show("light-bake");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:cmd-palette-map", () => {
+    commandPalette?.show("palette-map");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:cmd-palette-reduce", () => {
+    commandPalette?.show("palette-reduce");
+  });
+
+  window.voxelforgeBridge.onEvent("menu:cmd-screenshot", () => {
+    commandPalette?.show("screenshot");
   });
 }
 
