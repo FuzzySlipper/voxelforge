@@ -628,4 +628,256 @@ Material:
                 Directory.Delete(projectDir, recursive: true);
         }
     }
+
+    // ── Task #1686: Alias map and safer substring matching ──
+
+    [Fact]
+    public void ProcessModel_AliasMap_ExactMatchByName()
+    {
+        // Explicit alias map should match GOLEM_NORMAL_ROCK → Golem
+        // by m_Name, even though they are different strings.
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-aliastest-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var modelPath = Path.Combine(tempDir, "model.fbx");
+            File.WriteAllText(modelPath, "");
+
+            File.WriteAllText(Path.Combine(tempDir, "Golem.mat"), @"%YAML 1.1
+--- !u!21 &2100000
+Material:
+  m_Name: Golem
+  m_SavedProperties:
+    m_TexEnvs: []
+    m_Floats:
+    - _Cutoff: 0.5
+    m_Colors:
+    - _Color: {r: 0.5, g: 0.6, b: 0.7, a: 1}
+");
+
+            var aliasMap = new Dictionary<string, string>
+            {
+                { "GOLEM_NORMAL_ROCK", "Golem" },
+            };
+
+            var resolver = new UnityMatSidecarResolver(aliasMap: aliasMap);
+            var result = resolver.ProcessModel(modelPath, new List<string> { "GOLEM_NORMAL_ROCK" });
+
+            Assert.True(result.FoundAnyMatFiles);
+            Assert.Single(result.Matches);
+            var match = result.Matches[0];
+            Assert.NotNull(match.ParsedData);
+            Assert.Equal("GOLEM_NORMAL_ROCK", match.MatchedMaterialName);
+            Assert.Equal(UnityMatMatchKind.ExactName, match.MatchKind);
+            Assert.Equal(0.5f, match.ParsedData.Cutoff);
+            Assert.True(match.ParsedData.MainColor.HasValue);
+            Assert.Equal(0.5f, match.ParsedData.MainColor.Value.R);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProcessModel_AliasMap_PreservesLegacySubstringBehavior()
+    {
+        // Without alias map, the Golem-style substring match should still work
+        // with the new minimum length guard (Golem is 5 chars >= default 4).
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-legacysub-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var modelPath = Path.Combine(tempDir, "model.fbx");
+            File.WriteAllText(modelPath, "");
+
+            File.WriteAllText(Path.Combine(tempDir, "Golem.mat"), @"%YAML 1.1
+--- !u!21 &2100000
+Material:
+  m_Name: Golem
+  m_SavedProperties:
+    m_TexEnvs: []
+    m_Floats: []
+    m_Colors:
+    - _Color: {r: 0.5, g: 0.6, b: 0.7, a: 1}
+");
+
+            // No alias map — use default resolver
+            var resolver = new UnityMatSidecarResolver();
+            var result = resolver.ProcessModel(modelPath, new List<string> { "GOLEM_NORMAL_ROCK" });
+
+            Assert.True(result.FoundAnyMatFiles);
+            Assert.Single(result.Matches);
+            var match = result.Matches[0];
+            Assert.NotNull(match.ParsedData);
+            // Falls through to substring match (Strategy 3) since "Golem" (5 chars)
+            // meets the min length threshold
+            Assert.Equal("GOLEM_NORMAL_ROCK", match.MatchedMaterialName);
+            Assert.Equal(UnityMatMatchKind.FilenameStem, match.MatchKind);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProcessModel_MinSubstringLength_BlocksVeryShortNames()
+    {
+        // Very short sidecar names (fewer than 4 chars) should NOT match
+        // via substring/prefix strategy when using default min length.
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-shortsub-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var modelPath = Path.Combine(tempDir, "model.fbx");
+            File.WriteAllText(modelPath, "");
+
+            // "G" is a very short m_Name — should not match anything via substring.
+            File.WriteAllText(Path.Combine(tempDir, "G.mat"), @"%YAML 1.1
+--- !u!21 &2100000
+Material:
+  m_Name: G
+  m_SavedProperties:
+    m_TexEnvs: []
+    m_Floats: []
+    m_Colors:
+    - _Color: {r: 1, g: 0, b: 0, a: 1}
+");
+
+            var resolver = new UnityMatSidecarResolver();
+            var result = resolver.ProcessModel(modelPath, new List<string> { "GOLEM_NORMAL_ROCK" });
+
+            Assert.True(result.FoundAnyMatFiles);
+            Assert.Single(result.Matches);
+            var match = result.Matches[0];
+            Assert.Null(match.ParsedData);
+            Assert.Equal(UnityMatMatchKind.None, match.MatchKind);
+            Assert.True(match.MatchKind == UnityMatMatchKind.None,
+                "Very short sidecar name 'G' should NOT match 'GOLEM_NORMAL_ROCK' via substring with default min length 4");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProcessModel_MinSubstringLength_ZeroPermitsAll()
+    {
+        // Setting MinSubstringMatchLength=0 should restore legacy behavior
+        // where even very short substrings can match.
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-zerolegacy-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var modelPath = Path.Combine(tempDir, "model.fbx");
+            File.WriteAllText(modelPath, "");
+
+            File.WriteAllText(Path.Combine(tempDir, "G.mat"), @"%YAML 1.1
+--- !u!21 &2100000
+Material:
+  m_Name: G
+  m_SavedProperties:
+    m_TexEnvs: []
+    m_Floats: []
+    m_Colors:
+    - _Color: {r: 1, g: 0, b: 0, a: 1}
+");
+
+            // Explicit minSubstringMatchLength=0 to allow all lengths
+            var resolver = new UnityMatSidecarResolver(minSubstringMatchLength: 0);
+            var result = resolver.ProcessModel(modelPath, new List<string> { "GOLEM_NORMAL_ROCK" });
+
+            Assert.True(result.FoundAnyMatFiles);
+            Assert.Single(result.Matches);
+            var match = result.Matches[0];
+            Assert.NotNull(match.ParsedData);
+            Assert.Equal(UnityMatMatchKind.FilenameStem, match.MatchKind);
+            Assert.True(match.MatchKind == UnityMatMatchKind.FilenameStem,
+                "With minSubstringMatchLength=0, 'G' should match 'GOLEM_NORMAL_ROCK' (legacy behavior)");
+            Assert.True(match.ParsedData.MainColor.HasValue);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProcessModel_ExactNameMatch_StillWorksWithNewThreshold()
+    {
+        // Exact name matches (Strategy 1) should be unaffected by min length threshold.
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-exactthresh-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var modelPath = Path.Combine(tempDir, "model.glb");
+            File.WriteAllText(modelPath, "");
+
+            File.WriteAllText(Path.Combine(tempDir, "Hi.mat"), @"--- !u!21 &2100000
+Material:
+  m_Name: Hi
+  m_SavedProperties:
+    m_TexEnvs: []
+    m_Floats: []
+    m_Colors:
+    - _Color: {r: 0.1, g: 0.2, b: 0.3, a: 1}
+");
+
+            // "Hi" is short (2 chars) but exact name match should still work
+            var resolver = new UnityMatSidecarResolver();
+            var result = resolver.ProcessModel(modelPath, new List<string> { "Hi" });
+
+            Assert.True(result.FoundAnyMatFiles);
+            Assert.Single(result.Matches);
+            var match = result.Matches[0];
+            Assert.NotNull(match.ParsedData);
+            Assert.Equal(UnityMatMatchKind.ExactName, match.MatchKind);
+            Assert.True(match.ParsedData.MainColor.HasValue);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProcessModel_FilenameStemMatch_StillWorksWithNewThreshold()
+    {
+        // Filename stem matches (Strategy 2) should be unaffected by min length threshold.
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-fstemthresh-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var modelPath = Path.Combine(tempDir, "model.glb");
+            File.WriteAllText(modelPath, "");
+
+            // Filename stem "AB" (2 chars) with different m_Name
+            File.WriteAllText(Path.Combine(tempDir, "AB.mat"), @"--- !u!21 &2100000
+Material:
+  m_Name: DifferentName
+  m_SavedProperties:
+    m_TexEnvs: []
+    m_Floats: []
+    m_Colors:
+    - _Color: {r: 0.9, g: 0.1, b: 0.1, a: 1}
+");
+
+            var resolver = new UnityMatSidecarResolver();
+            var result = resolver.ProcessModel(modelPath, new List<string> { "AB" });
+
+            Assert.True(result.FoundAnyMatFiles);
+            Assert.Single(result.Matches);
+            var match = result.Matches[0];
+            Assert.NotNull(match.ParsedData);
+            Assert.Equal(UnityMatMatchKind.FilenameStem, match.MatchKind);
+            Assert.True(match.MatchKind == UnityMatMatchKind.FilenameStem,
+                "Filename stem match should work regardless of name length");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }

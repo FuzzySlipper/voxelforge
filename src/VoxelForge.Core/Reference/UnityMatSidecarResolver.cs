@@ -10,11 +10,41 @@ public sealed class UnityMatSidecarResolver
     private readonly IReadOnlyList<string> _unityAssetRoots;
 
     /// <summary>
+    /// Optional explicit alias map: material name → sidecar name/filename stem.
+    /// When set, checked before all other matching strategies for deterministic
+    /// resolution of ambiguous aliases.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? AliasMap { get; }
+
+    /// <summary>
+    /// Minimum length for substring/prefix-based matching (Strategy 3).
+    /// Substrings shorter than this are ignored to avoid overly broad
+    /// matches like "G" matching thousands of names starting with "G".
+    /// Default: 4. Set to 0 for legacy behavior (all substring lengths allowed).
+    /// </summary>
+    public int MinSubstringMatchLength { get; } = 4;
+
+    /// <summary>
     /// Create a sidecar resolver that searches the given directories for .meta files.
     /// </summary>
-    public UnityMatSidecarResolver(IReadOnlyList<string>? unityAssetRoots = null)
+    /// <param name="unityAssetRoots">Directories to search for .meta files.</param>
+    /// <param name="aliasMap">
+    /// Optional explicit alias map. Keys are model material names; values are
+    /// sidecar material names (m_Name) or filename stems that should match.
+    /// When set, checked first before all other matching strategies.
+    /// </param>
+    /// <param name="minSubstringMatchLength">
+    /// Minimum character length for substring/prefix matching. Default 4.
+    /// Set to 0 to permit all substring lengths (legacy broad behavior).
+    /// </param>
+    public UnityMatSidecarResolver(
+        IReadOnlyList<string>? unityAssetRoots = null,
+        IReadOnlyDictionary<string, string>? aliasMap = null,
+        int minSubstringMatchLength = 4)
     {
         _unityAssetRoots = unityAssetRoots ?? [];
+        AliasMap = aliasMap;
+        MinSubstringMatchLength = Math.Max(0, minSubstringMatchLength);
     }
 
     /// <summary>
@@ -280,12 +310,55 @@ public sealed class UnityMatSidecarResolver
         return roots;
     }
 
-    private static (string path, UnityMatData data, UnityMatMatchKind kind, List<string> warnings)? MatchMatToMaterial(
+    private (string path, UnityMatData data, UnityMatMatchKind kind, List<string> warnings)? MatchMatToMaterial(
         string materialName,
         List<(string path, UnityMatData data, string? name)> parsedMats)
     {
         if (parsedMats.Count == 0)
             return null;
+
+        // Strategy 0: Explicit alias map (if configured)
+        if (AliasMap is not null &&
+            AliasMap.TryGetValue(materialName, out var aliasTarget) &&
+            !string.IsNullOrWhiteSpace(aliasTarget))
+        {
+            // Look for a parsed .mat whose m_Name matches the alias target
+            var aliasByMatName = parsedMats
+                .Where(m => string.Equals(m.name, aliasTarget, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (aliasByMatName.Count >= 1)
+            {
+                var m = aliasByMatName[0];
+                var listWarnings = new List<string>();
+                if (aliasByMatName.Count > 1)
+                {
+                    var others = aliasByMatName.Skip(1).Select(x => Path.GetFileName(x.path));
+                    listWarnings.Add($"Multiple .mat files match alias '{aliasTarget}' for material '{materialName}'. Using '{Path.GetFileName(m.path)}' (also: {string.Join(", ", others)}).");
+                }
+                return (m.path, m.data, UnityMatMatchKind.ExactName, listWarnings);
+            }
+
+            // Fallback: match by filename stem matching alias target
+            var aliasByFilename = parsedMats
+                .Where(m => string.Equals(
+                    Path.GetFileNameWithoutExtension(m.path),
+                    aliasTarget,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (aliasByFilename.Count >= 1)
+            {
+                var m = aliasByFilename[0];
+                var listWarnings = new List<string>();
+                if (aliasByFilename.Count > 1)
+                {
+                    var others = aliasByFilename.Skip(1).Select(x => Path.GetFileName(x.path));
+                    listWarnings.Add($"Multiple .mat files match alias filename '{aliasTarget}' for material '{materialName}'. Using '{Path.GetFileName(m.path)}' (also: {string.Join(", ", others)}).");
+                }
+                return (m.path, m.data, UnityMatMatchKind.FilenameStem, listWarnings);
+            }
+        }
 
         // Strategy 1: Exact name match between m_Name in .mat and material name
         var exactMatches = parsedMats
@@ -330,16 +403,25 @@ public sealed class UnityMatSidecarResolver
                 [$"Multiple .mat files match material '{materialName}' by filename. Using '{Path.GetFileName(m.path)}' (also: {string.Join(", ", others)})."]);
         }
 
-        // Strategy 3: Substring/prefix match — handles cases where material name
-        // (e.g. "GOLEM_NORMAL_ROCK") contains or is contained by .mat m_Name (e.g. "Golem").
-        // This is a documented alias convention: if the .mat name is a prefix or significant
-        // substring of the material name, it's considered a match. Asset-level sidecars
-        // (.vf-reference-settings.json) can provide explicit alias maps for ambiguous cases.
+        // Strategy 3: Substring/prefix match with minimum length threshold.
+        // Handles cases where material name (e.g. "GOLEM_NORMAL_ROCK") contains
+        // or is contained by .mat m_Name (e.g. "Golem"). The min length threshold
+        // prevents overly broad matches like "G" matching anything starting with G.
+        // Asset-level sidecars (.vf-reference-settings.json) can provide explicit
+        // alias maps for ambiguous cases.
         var substringCandidates = parsedMats
             .Where(m =>
             {
                 var matName = m.name ?? Path.GetFileNameWithoutExtension(m.path);
                 if (string.IsNullOrWhiteSpace(matName)) return false;
+
+                // Only consider substrings that meet the minimum length.
+                // The shorter name must be >= MinSubstringMatchLength to avoid
+                // overly broad substring matches (e.g. "G" matching "GOLEM...").
+                int shorterLen = Math.Min(matName.Length, materialName.Length);
+                if (shorterLen < MinSubstringMatchLength)
+                    return false;
+
                 return materialName.StartsWith(matName, StringComparison.OrdinalIgnoreCase) ||
                        matName.StartsWith(materialName, StringComparison.OrdinalIgnoreCase) ||
                        materialName.Contains(matName, StringComparison.OrdinalIgnoreCase);

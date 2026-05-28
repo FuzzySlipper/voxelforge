@@ -344,11 +344,14 @@ public static class ReferenceDiagnosticsHelper
 
     /// <summary>
     /// Add Unity .mat sidecar diagnostic warnings if sidecar processing produced them.
+    /// Also reports mixed provenance when both Unity sidecar and .vf-reference-settings.json
+    /// contributed to material/texture/sampling state.
     /// </summary>
     public static void AddUnityMatSidecarDiagnostics(
         List<DiagnosticWarning> warnings,
         UnityMatSidecarResult? sidecarResult,
-        IReadOnlyList<string>? materialNames = null)
+        IReadOnlyList<string>? materialNames = null,
+        IReadOnlyList<ReferenceMeshData>? meshes = null)
     {
         if (sidecarResult is null)
             return;
@@ -423,6 +426,83 @@ public static class ReferenceDiagnosticsHelper
                 Message = gw,
                 Severity = "info",
             });
+        }
+
+        // Mixed provenance diagnostics: when meshes are provided, report cases
+        // where Unity sidecar and .vf-reference-settings.json (or manual overrides)
+        // each contributed different parts of the material state (texture source vs
+        // sampling controls) for the same mesh.
+        if (meshes is not null && meshes.Count > 0)
+        {
+            bool reportedMixedProvenance = false;
+            foreach (var mesh in meshes)
+            {
+                // Check for mixed texture source provenance
+                string? textureSource = null;
+                if (!string.IsNullOrWhiteSpace(mesh.DiffuseTextureSource))
+                    textureSource = mesh.DiffuseTextureSource;
+                else if (mesh.DiffuseTexturePath is not null)
+                    textureSource = "assimp";
+
+                string samplingSource = mesh.SamplingControlsSource;
+
+                // Mixed: texture and sampling come from different sources
+                if (textureSource is not null &&
+                    !string.Equals(textureSource, samplingSource, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!reportedMixedProvenance)
+                    {
+                        warnings.Add(new DiagnosticWarning
+                        {
+                            Code = "mixed_provenance_detected",
+                            Message = "Mixed provenance: Unity sidecar and .vf-reference-settings.json (and/or manual overrides) each " +
+                                      "contributed different parts of the material state for one or more meshes. See per-mesh diagnostics below.",
+                            Severity = "info",
+                        });
+                        reportedMixedProvenance = true;
+                    }
+
+                    // Per-mesh detail
+                    string meshLabel = string.IsNullOrWhiteSpace(mesh.MaterialName)
+                        ? "unnamed"
+                        : $"'{mesh.MaterialName}'";
+                    string texturePart = textureSource switch
+                    {
+                        "unity_sidecar" => "diffuse texture from Unity .mat sidecar",
+                        "vf_reference_settings" => "diffuse texture from .vf-reference-settings.json",
+                        "manual_override" => "diffuse texture from manual override",
+                        _ => $"diffuse source '{textureSource}'",
+                    };
+                    string samplingPart = samplingSource switch
+                    {
+                        "unity_sidecar" => "sampling controls from Unity .mat sidecar (default bottom_left)",
+                        "vf_reference_settings" => "sampling controls from .vf-reference-settings.json",
+                        "manual_sampling_override" => "sampling controls from manual override",
+                        _ => $"sampling from '{samplingSource}'",
+                    };
+                    warnings.Add(new DiagnosticWarning
+                    {
+                        Code = "mixed_provenance_per_mesh",
+                        Message = $"Mesh/mat {meshLabel}: {texturePart}, {samplingPart}.",
+                        Severity = "info",
+                    });
+                }
+
+                // Also check emissive texture source mixing
+                if (!string.IsNullOrWhiteSpace(mesh.EmissiveTextureSource) &&
+                    !string.Equals(mesh.EmissiveTextureSource, samplingSource, StringComparison.OrdinalIgnoreCase))
+                {
+                    string meshLabel2 = string.IsNullOrWhiteSpace(mesh.MaterialName)
+                        ? "unnamed"
+                        : $"'{mesh.MaterialName}'";
+                    warnings.Add(new DiagnosticWarning
+                    {
+                        Code = "emissive_provenance_mix",
+                        Message = $"Mesh/mat {meshLabel2}: emissive texture from {mesh.EmissiveTextureSource} while sampling is from {samplingSource}.",
+                        Severity = "info",
+                    });
+                }
+            }
         }
     }
 }
