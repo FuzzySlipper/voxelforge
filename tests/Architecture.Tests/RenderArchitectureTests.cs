@@ -454,10 +454,11 @@ public sealed class RenderArchitectureTests
         Assert.Contains("bridge:render-state", text);
 
         // The preload must allow the render control commands
-        Assert.Contains("bridge:set-grid-visible", text);
-        Assert.Contains("bridge:set-wireframe", text);
-        Assert.Contains("bridge:set-background-color", text);
-        Assert.Contains("bridge:capture-screenshot", text);
+        // Note: bridge:set-grid-visible, bridge:set-wireframe,
+        // bridge:set-background-color, and bridge:capture-screenshot were
+        // removed as dead channels — they had no corresponding ipcMain.handle
+        // in the main process. The preload only exposes channels that are
+        // actually wired in the main process.
 
         // The preload must allow bridge event channels
         Assert.Contains("voxelforge:mesh-update", text);

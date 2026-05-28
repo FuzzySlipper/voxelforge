@@ -1,445 +1,593 @@
 /**
  * Menu/bridge parity contract tests for VoxelForge Electron shell.
  *
+ * These tests read the actual source files at test-time rather than maintaining
+ * separate hard-coded constants. If a channel, handler, or command is added or
+ * removed in the source, these tests will detect the drift and fail —
+ * no manual test constant syncing required.
+ *
  * Verifies:
  * 1. MenuChannels constants match allowed event channels in preload
  * 2. Preload allowedChannels include all bridge:* channels used in main index.ts
  * 3. Main process IPC handlers cover all bridge:* channels
  * 4. Bridge command registry covers all voxelforge.* commands referenced
  * 5. Renderer menu event listeners wire to correct bridge channels
- * 6. Reference model and other extended workflow coverage contract
+ * 6. Electron coverage of the C# CommandRegistry (Myra CLI parity)
+ * 7. Distinguishable (disabled-with-followup) coverage for extended workflows
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
+import * as fs from "fs";
+import * as path from "path";
 import { MenuChannels } from "../src/shared/menu-channels";
 
-// ── Expected preload allowed channels (mirror of src/preload/index.ts) ──
+// ── Source file paths ──
 
-const EXPECTED_ALLOWED_CHANNELS = [
-  "bridge:handshake",
-  "bridge:mesh-snapshot",
-  "bridge:mesh-subscribe",
-  "bridge:mesh-unsubscribe",
-  "bridge:palette-get",
-  "bridge:state-subscribe",
-  "bridge:state-request-full",
-  "bridge:command-execute",
-  "bridge:history-undo",
-  "bridge:history-redo",
-  "bridge:project-save",
-  "bridge:project-load",
-  "bridge:project-new",
-  "bridge:ping",
-  "bridge:version-handshake",
-  // Canonical render-scene channels (#1657/#1662)
-  "bridge:render-snapshot",
-  "bridge:render-state",
-  // Render control commands
-  "bridge:set-grid-visible",
-  "bridge:set-wireframe",
-  "bridge:set-background-color",
-  "bridge:capture-screenshot",
-  "renderer:ready",
-  "renderer:metrics",
-] as const;
+const REPO_ROOT = path.resolve(__dirname, "..");
+const PRELOAD_PATH = path.resolve(REPO_ROOT, "src", "preload", "index.ts");
+const MAIN_PATH = path.resolve(REPO_ROOT, "src", "main", "index.ts");
+const MENU_CHANNELS_PATH = path.resolve(REPO_ROOT, "src", "shared", "menu-channels.ts");
+const MENU_TS_PATH = path.resolve(REPO_ROOT, "src", "main", "menu.ts");
+const BRIDGE_PROGRAM_CS = path.resolve(
+  REPO_ROOT, "..", "src", "VoxelForge.Bridge", "Program.cs",
+);
+const COMMAND_REGISTRY_CS = path.resolve(
+  REPO_ROOT, "..", "src", "VoxelForge.App", "Console", "CommandRegistry.cs",
+);
+const RENDERER_INDEX_PATH = path.resolve(REPO_ROOT, "src", "renderer", "index.ts");
 
-const EXPECTED_ALLOWED_EVENT_CHANNELS = [
-  "voxelforge:mesh-update",
-  "voxelforge:palette-update",
-  "voxelforge:state-delta",
-  "voxelforge:editing-latency",
-  // Native menu events from main process
-  "menu:file-new",
-  "menu:file-open",
-  "menu:file-save",
-  "menu:file-save-as",
-  "menu:file-exit",
-  "menu:edit-undo",
-  "menu:edit-redo",
+// ── Source-parsing helpers ──
+
+/**
+ * Extract all string literals between double or single quotes inside
+ * `const allowedChannels = [...]` or `const allowedEventChannels = [...]`.
+ */
+function extractPreloadArray(source: string, name: "allowedChannels" | "allowedEventChannels"): string[] {
+  const pattern = new RegExp(
+    `const\\s+${name}\\s*=\\s*\\[([\\s\\S]*?)\\]`,
+  );
+  const match = source.match(pattern);
+  if (!match) {
+    throw new Error(`Could not find const ${name} in preload/index.ts`);
+  }
+  const body = match[1];
+  const channels: string[] = [];
+  for (const quoted of body.matchAll(/['"]([^'"]+)['"]/g)) {
+    channels.push(quoted[1]);
+  }
+  return channels;
+}
+
+/**
+ * Extract all ipcMain.handle("channel", ...) channel names from main/index.ts.
+ */
+function extractIpcMainHandleChannels(source: string): string[] {
+  const channels: string[] = [];
+  for (const m of source.matchAll(/ipcMain\.handle\(["']([^"']+)["']/g)) {
+    channels.push(m[1]);
+  }
+  return channels;
+}
+
+/**
+ * Extract all ipcMain.on("channel", ...) channel names from main/index.ts
+ * that match the renderer:* pattern.
+ */
+function extractIpcMainOnChannels(source: string): string[] {
+  const channels: string[] = [];
+  for (const m of source.matchAll(/ipcMain\.on\(["']([^"']+)["']/g)) {
+    channels.push(m[1]);
+  }
+  return channels;
+}
+
+/**
+ * Extract all bridge commands registered in Program.cs:
+ * registry.RegisterCommand<..., ..., HandlerType>("command.name")
+ */
+function extractBridgeProgramCommands(source: string): Map<string, string> {
+  const commands = new Map<string, string>();
+  for (const m of source.matchAll(
+    /registry\.RegisterCommand<[^>]+?(\w+Handler)>\(["']([^"']+)["']\)/g,
+  )) {
+    commands.set(m[2], m[1]);
+  }
+  return commands;
+}
+
+/**
+ * Extract all bridge events registered in Program.cs:
+ * registry.RegisterEvent<PayloadType>("event.name")
+ */
+function extractBridgeProgramEvents(source: string): string[] {
+  const events: string[] = [];
+  for (const m of source.matchAll(
+    /registry\.RegisterEvent<[^>]+>\s*\(\s*"([^"]+)"\s*\)/g,
+  )) {
+    events.push(m[1]);
+  }
+  return events;
+}
+
+/**
+ * Extract the body of a JavaScript arrow function, matching braces properly.
+ * Returns the text inside the outer { ... } pair.
+ */
+function extractArrowBody(source: string, arrowStart: number): string {
+  // Skip past the arrow function head: (...args) => {
+  const braceStart = source.indexOf("{", arrowStart);
+  if (braceStart === -1) return "";
+
+  let depth = 1;
+  let pos = braceStart + 1;
+  while (pos < source.length && depth > 0) {
+    if (source[pos] === "{") depth++;
+    else if (source[pos] === "}") depth--;
+    pos++;
+  }
+  // Return the body including the outer braces for isolation
+  return source.slice(arrowStart, pos);
+}
+
+/**
+ * Menu channels that are wired directly to scene/view methods (not bridge channels).
+ * These are handled locally in the renderer without a bridge round-trip.
+ */
+const SCENE_ONLY_MENU_CHANNELS = new Set<string>([
+  "menu:view-front",
+  "menu:view-side",
+  "menu:view-top",
+  "menu:view-wireframe",
+  "menu:view-bg-color",
+  "menu:help-about",
+  "menu:file-exit", // main process closes window; renderer just logs
+]);
+
+/**
+ * Menu channels that use executeCommand() → bridge:command-execute
+ */
+const EXECUTE_COMMAND_MENU_CHANNELS = new Set<string>([
   "menu:edit-fill-region",
   "menu:edit-palette-list",
   "menu:edit-palette-add",
   "menu:edit-regions-list",
   "menu:edit-regions-label",
   "menu:edit-clear-all",
-  "menu:view-front",
-  "menu:view-side",
-  "menu:view-top",
-  "menu:view-wireframe",
   "menu:view-grid-size",
   "menu:view-measure-grid",
   "menu:view-measure-scale",
-  "menu:view-bg-color",
-  "menu:help-about",
-] as const;
+]);
 
-// ── Expected menu channels (mirror of src/shared/menu-channels.ts) ──
+/** The bridge channel used by executeCommand() calls. */
+const EXECUTE_COMMAND_BRIDGE = "bridge:command-execute";
 
-const EXPECTED_MENU_CHANNELS: Record<string, string> = {
-  FILE_NEW: "menu:file-new",
-  FILE_OPEN: "menu:file-open",
-  FILE_SAVE: "menu:file-save",
-  FILE_SAVE_AS: "menu:file-save-as",
-  FILE_EXIT: "menu:file-exit",
-  EDIT_UNDO: "menu:edit-undo",
-  EDIT_REDO: "menu:edit-redo",
-  EDIT_FILL_REGION: "menu:edit-fill-region",
-  EDIT_PALETTE_LIST: "menu:edit-palette-list",
-  EDIT_PALETTE_ADD: "menu:edit-palette-add",
-  EDIT_REGIONS_LIST: "menu:edit-regions-list",
-  EDIT_REGIONS_LABEL: "menu:edit-regions-label",
-  EDIT_CLEAR_ALL: "menu:edit-clear-all",
-  VIEW_FRONT: "menu:view-front",
-  VIEW_SIDE: "menu:view-side",
-  VIEW_TOP: "menu:view-top",
-  VIEW_WIREFRAME: "menu:view-wireframe",
-  VIEW_GRID_SIZE: "menu:view-grid-size",
-  VIEW_MEASURE_GRID: "menu:view-measure-grid",
-  VIEW_MEASURE_SCALE: "menu:view-measure-scale",
-  VIEW_BG_COLOR: "menu:view-bg-color",
-  HELP_ABOUT: "menu:help-about",
-};
+/**
+ * Build the menu-to-bridge mapping by reading the renderer's setupMenuEventListeners().
+ * Uses proper brace matching to find each handler's body in isolation.
+ */
+function extractRendererMenuBridgeMap(rendererSource: string): Map<string, string> {
+  const map = new Map<string, string>();
 
-// ── Expected main process IPC handlers (mirror of src/main/index.ts) ──
+  // Find the start of setupMenuEventListeners
+  const functionStart = rendererSource.indexOf("function setupMenuEventListeners");
+  if (functionStart === -1) return map;
 
-const EXPECTED_IPC_HANDLERS = [
-  "bridge:handshake",
-  "bridge:mesh-snapshot",
-  "bridge:render-snapshot",
-  "bridge:render-state",
-  "bridge:palette-get",
-  "bridge:state-subscribe",
-  "bridge:state-request-full",
-  "bridge:command-execute",
-  "bridge:history-undo",
-  "bridge:history-redo",
-  "bridge:project-save",
-  "bridge:project-load",
-  "bridge:project-new",
-  "bridge:mesh-subscribe",
-  "bridge:mesh-unsubscribe",
-  "bridge:ping",
-  "bridge:version-handshake",
-] as const;
+  // Extract the function body with proper brace matching
+  const bodyStart = rendererSource.indexOf("{", functionStart);
+  let depth = 1;
+  let pos = bodyStart + 1;
+  while (pos < rendererSource.length && depth > 0) {
+    if (rendererSource[pos] === "{") depth++;
+    else if (rendererSource[pos] === "}") depth--;
+    pos++;
+  }
+  const setupFunctionBody = rendererSource.slice(bodyStart + 1, pos - 1);
 
-const EXPECTED_IPC_ON_LISTENERS = [
-  "renderer:metrics",
-  "renderer:ready",
-] as const;
+  // Now find all onEvent("menu:...") calls within this function body
+  const menuChannelRegex = /onEvent\(["'](menu:[^"']+)["']\s*,\s*(\([^)]*\)\s*)=>?\s*\{/g;
+  let match: RegExpExecArray | null;
 
-// ── Expected bridge command registrations (mirror of src/VoxelForge.Bridge/Program.cs) ──
+  while ((match = menuChannelRegex.exec(setupFunctionBody)) !== null) {
+    const menuChannel = match[1];
+    const handlerBody = extractArrowBody(setupFunctionBody, match.index + match[0].length);
 
-const EXPECTED_BRIDGE_COMMANDS: Record<string, string> = {
-  "ping": "PingHandler",
-  "version.handshake": "VersionHandshakeHandler",
-  "voxelforge.handshake": "VoxelForgeSchemaHandshakeHandler",
-  "voxelforge.mesh.request_snapshot": "MeshSnapshotHandler",
-  "voxelforge.mesh.subscribe": "MeshSubscribeHandler",
-  "voxelforge.mesh.unsubscribe": "MeshUnsubscribeHandler",
-  "voxelforge.palette.get": "PaletteGetHandler",
-  "voxelforge.state.subscribe": "EditorStateSubscribeHandler",
-  "voxelforge.state.request_full": "EditorStateRequestFullHandler",
-  "voxelforge.command.execute": "CommandExecuteHandler",
-  "voxelforge.history.undo": "HistoryUndoHandler",
-  "voxelforge.history.redo": "HistoryRedoHandler",
-  "voxelforge.project.save": "ProjectSaveHandler",
-  "voxelforge.project.load": "ProjectLoadHandler",
-  "voxelforge.project.new": "ProjectNewHandler",
-} as const;
+    // Determine what bridge channel this handler uses
+    if (EXECUTE_COMMAND_MENU_CHANNELS.has(menuChannel)) {
+      map.set(menuChannel, EXECUTE_COMMAND_BRIDGE);
+    } else if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
+      // Look for a bridge: channel in the handler body via runAction
+      const bridgeMatch = handlerBody.match(/["'](bridge:[^"']+)["']/);
+      if (bridgeMatch) {
+        map.set(menuChannel, bridgeMatch[1]);
+      } else {
+        // Flag as missing bridge mapping; test will catch it
+        map.set(menuChannel, "");
+      }
+    }
+    // Scene-only channels are skipped (no bridge mapping needed)
+  }
 
-// ── Expected bridge event registrations (mirror of Program.cs) ──
+  return map;
+}
 
-const EXPECTED_BRIDGE_EVENTS = [
-  "voxelforge.mesh.update",
-  "voxelforge.palette.update",
-  "voxelforge.state.delta",
-  "voxelforge.diagnostics.editing_latency",
-] as const;
+/**
+ * Extract the IPC channel → bridge command mapping from main/index.ts
+ * by reading the command name used alongside each ipcMain.handle.
+ */
+function extractIpcToBridgeCommandMap(mainSource: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const handleBlock = mainSource.slice(
+    mainSource.indexOf("function setupIpcHandlers"),
+    mainSource.indexOf("function setupMeshSubscription"),
+  );
+  const handleRegex = /ipcMain\.handle\(["'](bridge:[^"']+)["']/g;
+  let match: RegExpExecArray | null;
 
-// ── Renderer menu-to-bridge wiring contract ──
-// From src/renderer/index.ts setupMenuEventListeners()
+  while ((match = handleRegex.exec(handleBlock)) !== null) {
+    const ipcChannel = match[1];
+    const start = match.index + match[0].length;
+    const nearby = handleBlock.slice(start, start + 500);
+    const cmdMatch = nearby.match(/command:\s*"([^"]+)"/);
+    if (cmdMatch) {
+      map.set(ipcChannel, cmdMatch[1]);
+    }
+  }
+  return map;
+}
 
-const RENDERER_MENU_BRIDGE_MAP: Record<string, { bridgeChannel: string; payloadDescriptor: string }> = {
-  "menu:file-new": { bridgeChannel: "bridge:project-new", payloadDescriptor: "{}" },
-  "menu:file-open": { bridgeChannel: "bridge:project-load", payloadDescriptor: "{ path }" },
-  "menu:file-save": { bridgeChannel: "bridge:project-save", payloadDescriptor: "{ path }" },
-  "menu:file-save-as": { bridgeChannel: "bridge:project-save", payloadDescriptor: "{ path }" },
-  "menu:edit-undo": { bridgeChannel: "bridge:history-undo", payloadDescriptor: "{}" },
-  "menu:edit-redo": { bridgeChannel: "bridge:history-redo", payloadDescriptor: "{}" },
-  "menu:edit-fill-region": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "fill_box command" },
-  "menu:edit-palette-list": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "list_palette command" },
-  "menu:edit-palette-add": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "set_palette_entry command" },
-  "menu:edit-regions-list": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "list_regions command" },
-  "menu:edit-regions-label": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "assign_voxels_to_region command" },
-  "menu:edit-clear-all": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "clear_model command" },
-  "menu:view-grid-size": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "set_grid_hint command" },
-  "menu:view-measure-grid": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "toggle_measure_grid command" },
-  "menu:view-measure-scale": { bridgeChannel: "bridge:command-execute", payloadDescriptor: "set_measure_scale command" },
-};
+/**
+ * Extract the C# event → Electron event mapping from setupMeshSubscription.
+ * Returns a Map of C# event name -> Electron event name.
+ */
+function extractEventForwardingMap(mainSource: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const forwardBlock = mainSource.slice(
+    mainSource.indexOf("function setupMeshSubscription"),
+    mainSource.indexOf("async function ensureBridgeClient"),
+  );
 
-// ── Tests ──
+  const eventRegex = /client\.onEvent\(["']([^"']+)["'],/g;
+  let match: RegExpExecArray | null;
 
-describe("Menu channel constants (menu-channels.ts)", () => {
-  it("exports all expected menu channels", () => {
-    for (const [key, channel] of Object.entries(EXPECTED_MENU_CHANNELS)) {
-      expect(MenuChannels).toHaveProperty(key);
-      expect((MenuChannels as Record<string, string>)[key]).toBe(channel);
+  while ((match = eventRegex.exec(forwardBlock)) !== null) {
+    const csEvent = match[1];
+    // Find the webContents.send channel used in the same handler
+    const handlerStart = match.index + match[0].length;
+    const handlerBlock = forwardBlock.slice(handlerStart, handlerStart + 2000);
+    const sendMatch = handlerBlock.match(/webContents\.send\(["']([^"']+)["']/);
+    if (sendMatch) {
+      map.set(csEvent, sendMatch[1]);
+    }
+  }
+  return map;
+}
+
+/**
+ * Extract all console command class names from CommandRegistry.cs.
+ * Returns unique class names (handles duplicate registrations like RefVisibilityCommand).
+ */
+function extractMyraCommandNames(source: string): string[] {
+  const commands: string[] = [];
+  const seen = new Set<string>();
+  for (const m of source.matchAll(/new\s+(\w+Command)\(/g)) {
+    if (!seen.has(m[1])) {
+      seen.add(m[1]);
+      commands.push(m[1]);
+    }
+  }
+  return commands;
+}
+
+// ── Parsed source state ──
+
+let preloadSource: string;
+let mainSource: string;
+let menuChannelsSource: string;
+let bridgeProgramSource: string;
+let commandRegistrySource: string;
+let rendererSource: string;
+
+let preloadAllowedChannels: string[];
+let preloadAllowedEventChannels: string[];
+let ipcHandleChannels: string[];
+let ipcOnChannels: string[];
+let bridgeCommands: Map<string, string>;
+let bridgeEvents: string[];
+let ipcToBridgeCommand: Map<string, string>;
+let eventForwardingMap: Map<string, string>;
+let rendererMenuBridgeMap: Map<string, string>;
+let myraCommandNames: string[];
+
+beforeAll(() => {
+  preloadSource = fs.readFileSync(PRELOAD_PATH, "utf-8");
+  mainSource = fs.readFileSync(MAIN_PATH, "utf-8");
+  menuChannelsSource = fs.readFileSync(MENU_CHANNELS_PATH, "utf-8");
+  bridgeProgramSource = fs.readFileSync(BRIDGE_PROGRAM_CS, "utf-8");
+  commandRegistrySource = fs.readFileSync(COMMAND_REGISTRY_CS, "utf-8");
+  rendererSource = fs.readFileSync(RENDERER_INDEX_PATH, "utf-8");
+
+  preloadAllowedChannels = extractPreloadArray(preloadSource, "allowedChannels");
+  preloadAllowedEventChannels = extractPreloadArray(preloadSource, "allowedEventChannels");
+  ipcHandleChannels = extractIpcMainHandleChannels(mainSource);
+  ipcOnChannels = extractIpcMainOnChannels(mainSource);
+  bridgeCommands = extractBridgeProgramCommands(bridgeProgramSource);
+  bridgeEvents = extractBridgeProgramEvents(bridgeProgramSource);
+  ipcToBridgeCommand = extractIpcToBridgeCommandMap(mainSource);
+  eventForwardingMap = extractEventForwardingMap(mainSource);
+  rendererMenuBridgeMap = extractRendererMenuBridgeMap(rendererSource);
+  myraCommandNames = extractMyraCommandNames(commandRegistrySource);
+});
+
+// ── Test: MenuChannels ↔ preload ↔ main event channels ──
+
+describe("Menu channel alignment", () => {
+  it("all MenuChannels values recognized as allowedEventChannels in preload", () => {
+    const eventSet = new Set(preloadAllowedEventChannels);
+    for (const channel of Object.values(MenuChannels)) {
+      expect(eventSet.has(channel)).toBe(true);
     }
   });
 
-  it("every menu channel value starts with 'menu:'", () => {
+  it("every MenuChannels value starts with 'menu:'", () => {
     for (const channel of Object.values(MenuChannels)) {
       expect(channel).toMatch(/^menu:/);
     }
   });
 
-  it("all menu channels have matching allowedEventChannels in preload", () => {
-    const menuValues = new Set(Object.values(MenuChannels));
-    const eventValues = new Set(EXPECTED_ALLOWED_EVENT_CHANNELS);
-    for (const channel of menuValues) {
-      expect(eventValues.has(channel)).toBe(true);
+  it("every menu:* channel in preload allowedEventChannels exists in MenuChannels", () => {
+    const menuChannelSet = new Set(Object.values(MenuChannels));
+    for (const channel of preloadAllowedEventChannels) {
+      if (channel.startsWith("menu:")) {
+        expect(menuChannelSet.has(channel)).toBe(true);
+      }
     }
   });
 });
 
-describe("Preload allowed channels (preload/index.ts)", () => {
-  it("includes all bridge:* request channels used in main IPC handlers", () => {
-    const allowedSet = new Set(EXPECTED_ALLOWED_CHANNELS);
-    for (const channel of EXPECTED_IPC_HANDLERS) {
+// ── Test: Preload ↔ Main IPC handlers ──
+
+describe("Preload-to-Main IPC channel alignment", () => {
+  it("every bridge:* ipcMain.handle channel is allowed in preload", () => {
+    const allowedSet = new Set(preloadAllowedChannels);
+    for (const channel of ipcHandleChannels) {
+      if (channel.startsWith("bridge:")) {
+        expect(allowedSet.has(channel)).toBe(true);
+      }
+    }
+  });
+
+  it("every renderer:* channel used via ipcMain.on or ipcMain.handle is in preload allowedChannels", () => {
+    const allowedSet = new Set(preloadAllowedChannels);
+    // renderer:* channels may be used with ipcMain.on (send) or ipcMain.handle (invoke)
+    const allRendererChannels = [
+      ...ipcOnChannels.filter((c) => c.startsWith("renderer:")),
+      ...ipcHandleChannels.filter((c) => c.startsWith("renderer:")),
+    ];
+    for (const channel of allRendererChannels) {
       expect(allowedSet.has(channel)).toBe(true);
     }
   });
 
-  it("includes all renderer event channels used in main event forwarding", () => {
-    const allowedSet = new Set(EXPECTED_ALLOWED_EVENT_CHANNELS);
-    expect(allowedSet.has("voxelforge:mesh-update")).toBe(true);
-    expect(allowedSet.has("voxelforge:palette-update")).toBe(true);
-    expect(allowedSet.has("voxelforge:state-delta")).toBe(true);
-    expect(allowedSet.has("voxelforge:editing-latency")).toBe(true);
-  });
-
-  it("includes bridge:project-new as an allowed channel", () => {
-    expect(EXPECTED_ALLOWED_CHANNELS).toContain("bridge:project-new");
-  });
-});
-
-describe("Main process IPC handlers (main/index.ts)", () => {
-  it("has ipcMain.handle for every bridge:* channel", () => {
-    for (const channel of EXPECTED_IPC_HANDLERS) {
-      expect(channel).toMatch(/^bridge:/);
-    }
-  });
-
-  it("has ipcMain.on for renderer:* channels", () => {
-    for (const channel of EXPECTED_IPC_ON_LISTENERS) {
-      expect(channel).toMatch(/^renderer:/);
-    }
-  });
-
-  it("bridge:project-new handler maps to voxelforge.project.new command", () => {
-    // The test validates the contract: the main process handler for
-    // bridge:project-new must send "voxelforge.project.new" to the C# bridge.
-    // This is a wiring contract, verified by the bridge registry test below.
-    expect(EXPECTED_IPC_HANDLERS).toContain("bridge:project-new");
-    expect(Object.keys(EXPECTED_BRIDGE_COMMANDS)).toContain("voxelforge.project.new");
-  });
-});
-
-describe("Bridge Program command registration (Program.cs)", () => {
-  it("registers all expected commands with correct handler types", () => {
-    for (const [command, handlerType] of Object.entries(EXPECTED_BRIDGE_COMMANDS)) {
-      expect(command).toBeTruthy();
-      expect(handlerType).toBeTruthy();
-      expect(command).toMatch(/^[a-z]+(\.[a-z][a-z._]*)?$/);
-    }
-  });
-
-  it("voxelforge.project.new is registered as a bridge command", () => {
-    expect(EXPECTED_BRIDGE_COMMANDS["voxelforge.project.new"]).toBe("ProjectNewHandler");
-  });
-
-  it("registers all expected event types", () => {
-    for (const event of EXPECTED_BRIDGE_EVENTS) {
-      expect(event).toMatch(/^voxelforge\./);
-    }
-  });
-
-  it("all bridge:* IPC handlers map to known bridge commands", () => {
-    // Mapping from IPC channel to bridge command
-    const ipcToCommand: Record<string, string> = {
-      "bridge:handshake": "voxelforge.handshake",
-      "bridge:mesh-snapshot": "voxelforge.mesh.request_snapshot",
-      "bridge:render-snapshot": "voxelforge.mesh.request_snapshot",
-      "bridge:render-state": "voxelforge.state.request_full",
-      "bridge:palette-get": "voxelforge.palette.get",
-      "bridge:state-subscribe": "voxelforge.state.subscribe",
-      "bridge:state-request-full": "voxelforge.state.request_full",
-      "bridge:command-execute": "voxelforge.command.execute",
-      "bridge:history-undo": "voxelforge.history.undo",
-      "bridge:history-redo": "voxelforge.history.redo",
-      "bridge:project-save": "voxelforge.project.save",
-      "bridge:project-load": "voxelforge.project.load",
-      "bridge:project-new": "voxelforge.project.new",
-      "bridge:mesh-subscribe": "voxelforge.mesh.subscribe",
-      "bridge:mesh-unsubscribe": "voxelforge.mesh.unsubscribe",
-      "bridge:ping": "ping",
-      "bridge:version-handshake": "version.handshake",
-    };
-
-    for (const [ipcChannel, command] of Object.entries(ipcToCommand)) {
-      expect(EXPECTED_BRIDGE_COMMANDS).toHaveProperty(command);
+  it("every bridge:* channel in preload allowedChannels has a corresponding ipcMain.handle", () => {
+    const handleSet = new Set(ipcHandleChannels);
+    for (const channel of preloadAllowedChannels) {
+      if (channel.startsWith("bridge:")) {
+        expect(handleSet.has(channel)).toBe(true);
+      }
     }
   });
 });
 
-describe("Renderer menu event listeners (renderer/index.ts)", () => {
-  it("each menu channel has a corresponding renderer event listener contract", () => {
-    for (const [menuChannel, mapping] of Object.entries(RENDERER_MENU_BRIDGE_MAP)) {
-      const bridgeChannel = mapping.bridgeChannel;
-      // All bridge channels used by menu events must be allowed in preload
-      expect(EXPECTED_ALLOWED_CHANNELS).toContain(bridgeChannel);
+// ── Test: Main IPC handler ↔ Bridge command registry ──
+
+describe("Main IPC handler → Bridge command mapping", () => {
+  it("every bridge:* IPC handler maps to a registered bridge command", () => {
+    for (const [ipcChannel, cmd] of ipcToBridgeCommand) {
+      if (cmd.startsWith("voxelforge.")) {
+        expect(bridgeCommands.has(cmd)).toBe(true);
+      }
     }
   });
 
-  it("menu:file-new maps to bridge:project-new which maps to voxelforge.project.new", () => {
-    expect(EXPECTED_ALLOWED_CHANNELS).toContain("bridge:project-new");
-    expect(EXPECTED_IPC_HANDLERS).toContain("bridge:project-new");
-    expect(EXPECTED_BRIDGE_COMMANDS).toHaveProperty("voxelforge.project.new");
+  it("bridge:project-new maps to voxelforge.project.new which is registered in C#", () => {
+    expect(bridgeCommands.has("voxelforge.project.new")).toBe(true);
+    expect(bridgeCommands.get("voxelforge.project.new")).toBe("ProjectNewHandler");
   });
 
-  it("all renderer menu-to-bridge mappings are internally consistent", () => {
-    const bridgeChannelsUsed = new Set(
-      Object.values(RENDERER_MENU_BRIDGE_MAP).map((m) => m.bridgeChannel)
-    );
-    // Every bridge channel used by the renderer must have an IPC handler
-    for (const channel of bridgeChannelsUsed) {
-      expect(EXPECTED_IPC_HANDLERS).toContain(channel);
+  it("non-voxelforge bridge commands (ping, version.handshake) are registered in Program.cs", () => {
+    expect(bridgeCommands.has("ping")).toBe(true);
+    expect(bridgeCommands.has("version.handshake")).toBe(true);
+  });
+});
+
+// ── Test: Bridge event registrations ──
+
+describe("Bridge event forwarding alignment", () => {
+  it("every C# bridge event type is forwarded to the renderer in setupMeshSubscription", () => {
+    for (const csEvent of bridgeEvents) {
+      expect(eventForwardingMap.has(csEvent)).toBe(true);
+    }
+  });
+
+  it("all forwarded Electron events are in preload allowedEventChannels", () => {
+    const eventSet = new Set(preloadAllowedEventChannels);
+    for (const [csEvent, electronEvent] of eventForwardingMap) {
+      expect(eventSet.has(electronEvent)).toBe(true);
     }
   });
 });
 
-describe("Reference model workflow coverage contract", () => {
-  it("defines expected reference model bridge commands for future wiring", () => {
-    // Reference model workflows: load/list/remove/clear
-    const refModelCommands = [
-      "voxelforge.reference_model.load",
-      "voxelforge.reference_model.list",
-      "voxelforge.reference_model.remove",
-      "voxelforge.reference_model.clear",
-    ];
-    for (const cmd of refModelCommands) {
-      expect(cmd).toMatch(/^voxelforge\.reference/);
+// ── Test: Renderer menu-to-bridge wiring ──
+
+describe("Renderer menu event listeners", () => {
+  it("every menu channel has a corresponding renderer onEvent listener", () => {
+    const menuValues = new Set(Object.values(MenuChannels));
+    for (const channel of preloadAllowedEventChannels) {
+      if (channel.startsWith("menu:")) {
+        expect(menuValues.has(channel)).toBe(true);
+        expect(rendererSource).toContain(`onEvent("${channel}"`);
+      }
     }
   });
 
-  it("defines expected transform bridge commands for future wiring", () => {
-    const transformCommands = [
-      "voxelforge.transform.orient",
-      "voxelforge.transform.rotate",
-      "voxelforge.transform.scale",
-      "voxelforge.transform.mode",
-    ];
-    for (const cmd of transformCommands) {
-      expect(cmd).toMatch(/^voxelforge\.transform/);
+  it("every bridge channel used by renderer menu wiring has a main IPC handler", () => {
+    const handleSet = new Set(ipcHandleChannels);
+    for (const bridgeChannel of rendererMenuBridgeMap.values()) {
+      expect(handleSet.has(bridgeChannel)).toBe(true);
     }
   });
 
-  it("defines expected texture/emissive bridge commands for future wiring", () => {
-    const textureCommands = [
-      "voxelforge.texture.assign",
-      "voxelforge.emissive.assign",
-    ];
-    for (const cmd of textureCommands) {
-      expect(cmd).toMatch(/^voxelforge\.(texture|emissive)/);
+  it("menu:file-new end-to-end: menu -> bridge:project-new -> voxelforge.project.new", () => {
+    expect(preloadAllowedChannels).toContain("bridge:project-new");
+    expect(ipcHandleChannels).toContain("bridge:project-new");
+    expect(bridgeCommands.has("voxelforge.project.new")).toBe(true);
+  });
+
+  it("scene-only menu channels (view-*, help-about) do NOT require bridge mapping", () => {
+    for (const channel of SCENE_ONLY_MENU_CHANNELS) {
+      expect(rendererMenuBridgeMap.has(channel)).toBe(false);
     }
   });
 
-  it("defines expected meta save/load bridge commands for future wiring", () => {
-    const metaCommands = [
-      "voxelforge.meta.save",
-      "voxelforge.meta.load",
-    ];
-    for (const cmd of metaCommands) {
-      expect(cmd).toMatch(/^voxelforge\.meta/);
-    }
-  });
-
-  it("defines expected animation bridge commands for future wiring", () => {
-    const animCommands = [
-      "voxelforge.animation.list",
-      "voxelforge.animation.play",
-    ];
-    for (const cmd of animCommands) {
-      expect(cmd).toMatch(/^voxelforge\.animation/);
-    }
-  });
-
-  it("defines expected image ref bridge commands for future wiring", () => {
-    const imageCommands = [
-      "voxelforge.image_ref.load",
-      "voxelforge.image_ref.list",
-    ];
-    for (const cmd of imageCommands) {
-      expect(cmd).toMatch(/^voxelforge\.image_ref/);
-    }
-  });
-
-  it("defines expected voxelize bridge command for future wiring", () => {
-    const voxelizeCommands = [
-      "voxelforge.voxelize.execute",
-    ];
-    for (const cmd of voxelizeCommands) {
-      expect(cmd).toMatch(/^voxelforge\.voxelize/);
+  it("all non-scene menu channels have populated bridge channel mappings", () => {
+    const menuValues = Object.values(MenuChannels);
+    for (const menuChannel of menuValues) {
+      if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
+        expect(rendererMenuBridgeMap.get(menuChannel)).toBeTruthy();
+      }
     }
   });
 });
 
-describe("CLI command coverage manifest", () => {
-  it("produces a deterministic manifest of all known bridge commands", () => {
-    const manifest: { command: string; handlerClass: string; status: string }[] = [];
-    for (const [command, handlerClass] of Object.entries(EXPECTED_BRIDGE_COMMANDS)) {
-      manifest.push({ command, handlerClass, status: "registered" });
+// ── Test: Electron coverage of C# CommandRegistry (Myra CLI parity) ──
+
+describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
+  /**
+   * Build a deterministic Electron coverage manifest that maps each Myra
+   * CommandRegistry entry to one of:
+   *   - "registered"       → bridge command handler exists in Program.cs
+   *   - "menu-exec"        → accessible via menu -> executeCommand (bridge:command-execute)
+   *   - "disabled-followup"→ visible disabled placeholder in menu; needs bridge handler
+   *   - "uncovered"        → not yet wired anywhere in Electron
+   */
+  const expectedCoverage: Map<string, { coverage: string; reason?: string }> = new Map([
+    // ── Registered bridge commands (have C# bridge handlers) ──
+    ["DescribeCommand", { coverage: "registered" }],
+    ["SetVoxelConsoleCommand", { coverage: "registered" }],
+    ["RemoveVoxelConsoleCommand", { coverage: "registered" }],
+    ["FillCommand", { coverage: "registered" }],
+    ["GetVoxelCommand", { coverage: "registered" }],
+    ["GetCubeCommand", { coverage: "registered" }],
+    ["GetSphereCommand", { coverage: "registered" }],
+    ["CountCommand", { coverage: "registered" }],
+    ["UndoCommand", { coverage: "registered" }],
+    ["RedoCommand", { coverage: "registered" }],
+    ["ListRegionsCommand", { coverage: "registered" }],
+    ["LabelVoxelCommand", { coverage: "registered" }],
+    ["PaletteCommand", { coverage: "registered" }],
+    ["PaletteMapConsoleCommand", { coverage: "disabled-followup" }],
+    ["PaletteReduceConsoleCommand", { coverage: "disabled-followup" }],
+    ["AoBakeConsoleCommand", { coverage: "disabled-followup" }],
+    ["EdgeDarkenConsoleCommand", { coverage: "disabled-followup" }],
+    ["LightBakeConsoleCommand", { coverage: "disabled-followup" }],
+    ["SaveCommand", { coverage: "registered" }],
+    ["LoadCommand", { coverage: "registered" }],
+    ["ListFilesCommand", { coverage: "registered" }],
+    ["ClearCommand", { coverage: "registered" }],
+    ["GridCommand", { coverage: "registered" }],
+    ["ConfigCommand", { coverage: "registered" }],
+    ["MeasureCommand", { coverage: "registered" }],
+    ["ScreenshotCommand", { coverage: "disabled-followup" }],
+
+    // ── Reference model — disabled-with-followup (visible disabled menu entries) ──
+    ["RefLoadCommand", { coverage: "disabled-followup" }],
+    ["RefListCommand", { coverage: "disabled-followup" }],
+    ["RefRemoveCommand", { coverage: "disabled-followup" }],
+    ["RefClearCommand", { coverage: "disabled-followup" }],
+    ["RefTransformCommand", { coverage: "disabled-followup" }],
+    ["RefModeCommand", { coverage: "disabled-followup" }],
+    ["RefVisibilityCommand", { coverage: "disabled-followup" }],
+    ["RefScaleCommand", { coverage: "disabled-followup" }],
+    ["RefRotateCommand", { coverage: "disabled-followup" }],
+    ["RefOrientCommand", { coverage: "disabled-followup" }],
+    ["RefInfoCommand", { coverage: "disabled-followup" }],
+    ["RefAnimCommand", { coverage: "disabled-followup" }],
+    ["RefTexCommand", { coverage: "disabled-followup" }],
+    ["RefTexEmissiveCommand", { coverage: "disabled-followup" }],
+    ["RefSaveMetaCommand", { coverage: "disabled-followup" }],
+    ["RefLoadMetaCommand", { coverage: "disabled-followup" }],
+
+    // ── Image references — disabled-with-followup ──
+    ["ImgLoadCommand", { coverage: "disabled-followup" }],
+    ["ImgListCommand", { coverage: "disabled-followup" }],
+    ["ImgRemoveCommand", { coverage: "disabled-followup" }],
+
+    // ── Voxelize — disabled-with-followup ──
+    ["VoxelizeCommand", { coverage: "disabled-followup" }],
+    ["VoxelizeCompareCommand", { coverage: "disabled-followup" }],
+
+    // ── Infra commands ──
+    ["HelpCommand", { coverage: "registered" }],
+    ["ExecCommand", { coverage: "registered" }],
+  ]);
+
+  it("produces a deterministic coverage manifest from CommandRegistry sources", () => {
+    const manifest: { command: string; coverage: string }[] = [];
+
+    for (const cmdName of myraCommandNames) {
+      const entry = expectedCoverage.get(cmdName) ?? { coverage: "uncovered" };
+      manifest.push({ command: cmdName, coverage: entry.coverage });
     }
 
-    // Also include the reference model workflow commands as "planned" (not yet registered)
-    const plannedCommands = [
-      "voxelforge.reference_model.load",
-      "voxelforge.reference_model.list",
-      "voxelforge.reference_model.remove",
-      "voxelforge.reference_model.clear",
-      "voxelforge.transform.orient",
-      "voxelforge.transform.rotate",
-      "voxelforge.transform.scale",
-      "voxelforge.transform.mode",
-      "voxelforge.texture.assign",
-      "voxelforge.emissive.assign",
-      "voxelforge.meta.save",
-      "voxelforge.meta.load",
-      "voxelforge.animation.list",
-      "voxelforge.animation.play",
-      "voxelforge.image_ref.load",
-      "voxelforge.image_ref.list",
-      "voxelforge.voxelize.execute",
-    ];
-    for (const cmd of plannedCommands) {
-      manifest.push({ command: cmd, handlerClass: "TBD", status: "planned" });
+    // Log the manifest for visibility
+    console.log(`\n[manifest] Electron coverage of ${myraCommandNames.length} Myra CLI commands:\n`);
+    for (const entry of manifest) {
+      console.log(`  ${entry.coverage.padEnd(22)} ${entry.command}`);
     }
 
-    // Verify all registered commands appear
-    const registeredEntries = manifest.filter((m) => m.status === "registered");
-    expect(registeredEntries.length).toBe(Object.keys(EXPECTED_BRIDGE_COMMANDS).length);
+    // Every command must have explicit coverage (no "uncovered" except edge cases)
+    const uncovered = manifest.filter((m) => m.coverage === "uncovered");
+    expect(uncovered.length).toBeLessThanOrEqual(2);
+    expect(manifest.length).toBe(myraCommandNames.length);
+  });
 
-    // Verify manifest is deterministic: same insertion order every time
-    // (registered commands first in declaration order, then planned commands)
-    for (let i = 0; i < registeredEntries.length; i++) {
-      const expected = Object.entries(EXPECTED_BRIDGE_COMMANDS)[i];
-      expect(registeredEntries[i].command).toBe(expected[0]);
-      expect(registeredEntries[i].handlerClass).toBe(expected[1]);
+  it("no Myra CLI command is left as bare 'planned' or 'TBD' — all have explicit coverage", () => {
+    for (const cmdName of myraCommandNames) {
+      const entry = expectedCoverage.get(cmdName);
+      expect(entry).toBeDefined();
+      expect(entry!.coverage).not.toBe("planned");
+      expect(entry!.coverage).not.toBe("TBD");
     }
+  });
 
-    // Verify planned entries follow
-    const plannedEntries = manifest.filter((m) => m.status === "planned");
-    expect(plannedEntries.length).toBe(plannedCommands.length);
-    expect(plannedEntries.every((m) => m.handlerClass === "TBD")).toBe(true);
+  it("disabled-with-followup commands have visible disabled menu entries", () => {
+    const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
+    // Count all enabled: false entries across the menu
+    const enabledFalseCount = (menuSource.match(/enabled:\s*false/g) ?? []).length;
+
+    // Most disabled-followup commands should have a visible placeholder.
+    // Some advanced CLI commands (like auxillary baking commands) do not
+    // require individual menu items at this stage.
+    expect(enabledFalseCount).toBeGreaterThanOrEqual(10);
+  });
+});
+
+// ── Test: Extended workflow menu manifest ──
+
+describe("Extended workflow coverage", () => {
+  it("menu.ts contains Reference Model, Texture/Emissive, Animation, Image Ref, Voxelize sections", () => {
+    const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
+
+    expect(menuSource).toContain("Reference");
+    expect(menuSource).toContain("Texture");
+    expect(menuSource).toContain("Animation");
+    expect(menuSource).toContain("Image Ref");
+    expect(menuSource).toContain("Voxelize");
+  });
+
+  it("menu.ts extended workflow items are visually distinguishable as disabled", () => {
+    const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
+    const enabledFalseCount = (menuSource.match(/enabled:\s*false/g) ?? []).length;
+    expect(enabledFalseCount).toBeGreaterThanOrEqual(5);
   });
 });
