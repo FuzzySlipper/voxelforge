@@ -1170,6 +1170,135 @@ public sealed class ReferenceModelMcpToolTests : IDisposable
         Assert.Equal("manual_sampling_override", firstMesh.GetProperty("sampling_controls_source").GetString());
     }
 
+    [Fact]
+    public void GetReferenceModelDiagnostics_MixedProvenance_ReportsThroughMcpPath()
+    {
+        // Verify that mixed provenance warnings surface through the MCP
+        // get_reference_model_diagnostics tool (finding #830 fix).
+        // We set up a model with Unity sidecar result and meshes that have
+        // mixed provenance (DiffuseTextureSource != SamplingControlsSource),
+        // then verify diagnostics includes mixed_provenance_* warnings.
+
+        var model = new ReferenceModelData
+        {
+            FilePath = "/test/model.fbx",
+            Format = "FBX",
+            Meshes =
+            [
+                new ReferenceMeshData
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 128, 128, 128, 255)],
+                    Indices = [0, 0, 0],
+                    MaterialName = "TestMat",
+                    DiffuseTexturePath = "/test/textures/diffuse.png",
+                    DiffuseTextureSource = "unity_sidecar",
+                    SamplingControlsSource = "vf_reference_settings",
+                },
+            ],
+            UnitySidecarResult = new UnityMatSidecarResult
+            {
+                FoundAnyMatFiles = true,
+                Matches =
+                [
+                    new UnityMatMatchResult
+                    {
+                        MatFilePath = "/test/Materials/TestMat.mat",
+                        MatchedMaterialName = "TestMat",
+                        MatchKind = UnityMatMatchKind.ExactName,
+                        ParsedData = new UnityMatData
+                        {
+                            MaterialName = "TestMat",
+                        },
+                        Warnings = [],
+                    },
+                ],
+                GlobalWarnings = [],
+            },
+        };
+
+        var session = CreateSession();
+        session.ReferenceModels.Add(model);
+
+        var diagTool = new GetReferenceModelDiagnosticsMcpTool(session);
+        var result = diagTool.Invoke(JsonArguments("""{ "index": 0 }"""), CancellationToken.None);
+        Assert.True(result.Success, result.Message);
+
+        using var doc = JsonDocument.Parse(result.Message);
+        var warnings = doc.RootElement.GetProperty("warnings");
+        var warningCodes = warnings.EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToArray();
+
+        // Must include the standard sidecar diagnostics
+        Assert.Contains("unity_mat_sidecars_matched", warningCodes);
+        // Must include mixed provenance diagnostics (the fix for finding #830)
+        Assert.Contains("mixed_provenance_detected", warningCodes);
+        Assert.Contains("mixed_provenance_per_mesh", warningCodes);
+
+        var mixedDiag = warnings.EnumerateArray()
+            .First(w => w.GetProperty("code").GetString() == "mixed_provenance_per_mesh");
+        Assert.Contains("TestMat", mixedDiag.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("Unity .mat sidecar", mixedDiag.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("vf-reference-settings.json", mixedDiag.GetProperty("message").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetReferenceModelDiagnostics_NoMixedProvenance_OmitsMixedDiagnostics()
+    {
+        // When mesh sources agree (both from unity_sidecar), no mixed provenance through MCP path.
+        var model = new ReferenceModelData
+        {
+            FilePath = "/test/model.fbx",
+            Format = "FBX",
+            Meshes =
+            [
+                new ReferenceMeshData
+                {
+                    Vertices = [new ReferenceVertex(0, 0, 0, 0, 1, 0, 128, 128, 128, 255)],
+                    Indices = [0, 0, 0],
+                    MaterialName = "Simple",
+                    DiffuseTexturePath = "/test/textures/tex.png",
+                    DiffuseTextureSource = "unity_sidecar",
+                    SamplingControlsSource = "unity_sidecar",
+                },
+            ],
+            UnitySidecarResult = new UnityMatSidecarResult
+            {
+                FoundAnyMatFiles = true,
+                Matches =
+                [
+                    new UnityMatMatchResult
+                    {
+                        MatFilePath = "/test/Materials/Simple.mat",
+                        MatchedMaterialName = "Simple",
+                        MatchKind = UnityMatMatchKind.ExactName,
+                        ParsedData = new UnityMatData
+                        {
+                            MaterialName = "Simple",
+                        },
+                        Warnings = [],
+                    },
+                ],
+                GlobalWarnings = [],
+            },
+        };
+
+        var session = CreateSession();
+        session.ReferenceModels.Add(model);
+
+        var diagTool = new GetReferenceModelDiagnosticsMcpTool(session);
+        var result = diagTool.Invoke(JsonArguments("""{ "index": 0 }"""), CancellationToken.None);
+        Assert.True(result.Success, result.Message);
+
+        using var doc = JsonDocument.Parse(result.Message);
+        var warnings = doc.RootElement.GetProperty("warnings");
+        var warningCodes = warnings.EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToArray();
+
+        // Standard sidecar diagnostics should be present
+        Assert.Contains("unity_mat_sidecars_matched", warningCodes);
+        // Mixed provenance diagnostics should NOT be present
+        Assert.DoesNotContain("mixed_provenance_detected", warningCodes);
+        Assert.DoesNotContain("mixed_provenance_per_mesh", warningCodes);
+    }
+
     private static VoxelForgeMcpSession CreateSession()
     {
         return new VoxelForgeMcpSession(new EditorConfigState(), NullLoggerFactory.Instance);

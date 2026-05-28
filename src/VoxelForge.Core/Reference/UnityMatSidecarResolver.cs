@@ -336,7 +336,7 @@ public sealed class UnityMatSidecarResolver
                     var others = aliasByMatName.Skip(1).Select(x => Path.GetFileName(x.path));
                     listWarnings.Add($"Multiple .mat files match alias '{aliasTarget}' for material '{materialName}'. Using '{Path.GetFileName(m.path)}' (also: {string.Join(", ", others)}).");
                 }
-                return (m.path, m.data, UnityMatMatchKind.ExactName, listWarnings);
+                return (m.path, m.data, UnityMatMatchKind.AliasMap, listWarnings);
             }
 
             // Fallback: match by filename stem matching alias target
@@ -356,7 +356,7 @@ public sealed class UnityMatSidecarResolver
                     var others = aliasByFilename.Skip(1).Select(x => Path.GetFileName(x.path));
                     listWarnings.Add($"Multiple .mat files match alias filename '{aliasTarget}' for material '{materialName}'. Using '{Path.GetFileName(m.path)}' (also: {string.Join(", ", others)}).");
                 }
-                return (m.path, m.data, UnityMatMatchKind.FilenameStem, listWarnings);
+                return (m.path, m.data, UnityMatMatchKind.AliasMap, listWarnings);
             }
         }
 

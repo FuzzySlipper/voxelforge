@@ -668,10 +668,58 @@ Material:
             var match = result.Matches[0];
             Assert.NotNull(match.ParsedData);
             Assert.Equal("GOLEM_NORMAL_ROCK", match.MatchedMaterialName);
-            Assert.Equal(UnityMatMatchKind.ExactName, match.MatchKind);
+            Assert.Equal(UnityMatMatchKind.AliasMap, match.MatchKind);
             Assert.Equal(0.5f, match.ParsedData.Cutoff);
             Assert.True(match.ParsedData.MainColor.HasValue);
             Assert.Equal(0.5f, match.ParsedData.MainColor.Value.R);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+
+    [Fact]
+    public void ProcessModel_AliasMap_FilenameStemMatch_ReturnsAliasMapKind()
+    {
+        // When the alias target does not match any .mat m_Name,
+        // the resolver falls back to filename stem matching against the alias target.
+        // The match kind should still be AliasMap.
+        var tempDir = Path.Combine(Path.GetTempPath(), "voxelforge-aliasfn-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var modelPath = Path.Combine(tempDir, "model.fbx");
+            File.WriteAllText(modelPath, "");
+
+            // Mat m_Name differs from alias target; alias maps via filename stem fallback
+            File.WriteAllText(Path.Combine(tempDir, "Golem.mat"), @"%YAML 1.1
+--- !u!21 &2100000
+Material:
+  m_Name: NotMatching
+  m_SavedProperties:
+    m_TexEnvs: []
+    m_Floats:
+    - _Cutoff: 0.5
+    m_Colors:
+    - _Color: {r: 0.5, g: 0.6, b: 0.7, a: 1}
+");
+
+            var aliasMap = new Dictionary<string, string>
+            {
+                { "GOLEM_NORMAL_ROCK", "Golem" },
+            };
+
+            var resolver = new UnityMatSidecarResolver(aliasMap: aliasMap);
+            var result = resolver.ProcessModel(modelPath, new List<string> { "GOLEM_NORMAL_ROCK" });
+
+            Assert.True(result.FoundAnyMatFiles);
+            Assert.Single(result.Matches);
+            var match = result.Matches[0];
+            Assert.NotNull(match.ParsedData);
+            Assert.Equal("GOLEM_NORMAL_ROCK", match.MatchedMaterialName);
+            Assert.Equal(UnityMatMatchKind.AliasMap, match.MatchKind);
         }
         finally
         {

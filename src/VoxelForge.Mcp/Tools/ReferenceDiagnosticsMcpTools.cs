@@ -48,7 +48,7 @@ public sealed class GetReferenceModelDiagnosticsMcpTool : ModelLifecycleMcpToolB
             // Add Unity .mat sidecar diagnostics
             if (model.UnitySidecarResult is not null)
             {
-                ReferenceDiagnosticsHelper.AddUnityMatSidecarDiagnostics(warnings, model.UnitySidecarResult);
+                ReferenceDiagnosticsHelper.AddUnityMatSidecarDiagnostics(warnings, model.UnitySidecarResult, meshes: model.Meshes);
             }
 
             var rawSize = rawAabb.Size;

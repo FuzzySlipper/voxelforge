@@ -109,6 +109,12 @@ public enum UnityMatMatchKind
 
     /// <summary>No .mat found; system default fallback.</summary>
     None,
+
+    /// <summary>
+    /// Matched via explicit alias map (from .vf-reference-settings.json).
+    /// Indicates the user explicitly mapped one material name to another.
+    /// </summary>
+    AliasMap,
 }
 
 /// <summary>
