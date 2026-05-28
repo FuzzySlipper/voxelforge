@@ -24,6 +24,8 @@ const allowedChannels = [
   // Canonical render-scene channels (#1657/#1662)
   "bridge:render-snapshot",
   "bridge:render-state",
+  // Myra CLI command routing for reference/image/voxelize workflows
+  "bridge:myra-command-execute",
   "renderer:ready",
   "renderer:metrics",
 ] as const;
@@ -55,6 +57,30 @@ const allowedEventChannels = [
   "menu:view-measure-grid",
   "menu:view-measure-scale",
   "menu:view-bg-color",
+  // Reference model menu events
+  "menu:reference-model-load",
+  "menu:reference-model-list",
+  "menu:reference-model-remove",
+  "menu:reference-clear",
+  "menu:reference-transform",
+  "menu:reference-mode",
+  "menu:reference-visibility",
+  "menu:reference-scale",
+  "menu:reference-rotate",
+  "menu:reference-orient",
+  "menu:reference-info",
+  "menu:reference-animation",
+  "menu:reference-texture-assign",
+  "menu:reference-emissive-assign",
+  "menu:reference-meta-save",
+  "menu:reference-meta-load",
+  // Image reference menu events
+  "menu:image-ref-load",
+  "menu:image-ref-list",
+  "menu:image-ref-remove",
+  // Voxelize menu events
+  "menu:voxelize-execute",
+  "menu:voxelize-compare",
   "menu:help-about",
 ] as const;
 

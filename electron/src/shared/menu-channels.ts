@@ -24,6 +24,34 @@ export const MenuChannels = {
   VIEW_MEASURE_GRID: "menu:view-measure-grid",
   VIEW_MEASURE_SCALE: "menu:view-measure-scale",
   VIEW_BG_COLOR: "menu:view-bg-color",
+
+  // Reference model menu
+  REFERENCE_MODEL_LOAD: "menu:reference-model-load",
+  REFERENCE_MODEL_LIST: "menu:reference-model-list",
+  REFERENCE_MODEL_REMOVE: "menu:reference-model-remove",
+  REFERENCE_CLEAR: "menu:reference-clear",
+  REFERENCE_TRANSFORM: "menu:reference-transform",
+  REFERENCE_MODE: "menu:reference-mode",
+  REFERENCE_VISIBILITY: "menu:reference-visibility",
+  REFERENCE_SCALE: "menu:reference-scale",
+  REFERENCE_ROTATE: "menu:reference-rotate",
+  REFERENCE_ORIENT: "menu:reference-orient",
+  REFERENCE_INFO: "menu:reference-info",
+  REFERENCE_ANIMATION: "menu:reference-animation",
+  REFERENCE_TEXTURE_ASSIGN: "menu:reference-texture-assign",
+  REFERENCE_EMISSIVE_ASSIGN: "menu:reference-emissive-assign",
+  REFERENCE_META_SAVE: "menu:reference-meta-save",
+  REFERENCE_META_LOAD: "menu:reference-meta-load",
+
+  // Image reference menu
+  IMAGE_REF_LOAD: "menu:image-ref-load",
+  IMAGE_REF_LIST: "menu:image-ref-list",
+  IMAGE_REF_REMOVE: "menu:image-ref-remove",
+
+  // Voxelize menu
+  VOXELIZE_EXECUTE: "menu:voxelize-execute",
+  VOXELIZE_COMPARE: "menu:voxelize-compare",
+
   HELP_ABOUT: "menu:help-about",
 } as const;
 

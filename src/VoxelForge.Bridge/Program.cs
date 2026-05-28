@@ -9,6 +9,7 @@ using VoxelForge.App.Services;
 using VoxelForge.App.Snapshots;
 using VoxelForge.Bridge.Handlers;
 using VoxelForge.Bridge.Protocol;
+using VoxelForge.Content;
 using VoxelForge.Core;
 using VoxelForge.Core.Meshing;
 using VoxelForge.App.Events;
@@ -69,6 +70,11 @@ public sealed class Program
         services.AddSingleton<ProjectLoadHandler>();
         services.AddSingleton<ProjectNewHandler>();
 
+        // Reference model / image / voxelize support
+        services.AddSingleton<ReferenceModelLoader>();
+        services.AddSingleton<ReferenceAssetService>();
+        services.AddSingleton<MyraCommandExecuteHandler>();
+
         // Register bridge host before building the provider so all services
         // (including model data) are in a single container.
         services.AddBridgeHost(registry =>
@@ -88,6 +94,8 @@ public sealed class Program
             registry.RegisterCommand<ProjectSaveRequest, ProjectCommandResponse, ProjectSaveHandler>("voxelforge.project.save");
             registry.RegisterCommand<ProjectLoadRequest, ProjectCommandResponse, ProjectLoadHandler>("voxelforge.project.load");
             registry.RegisterCommand<ProjectNewRequest, ProjectCommandResponse, ProjectNewHandler>("voxelforge.project.new");
+            // Myra CLI command routing for reference/image/voxelize workflows
+            registry.RegisterCommand<MyraCommandExecuteRequest, MyraCommandExecuteResponse, MyraCommandExecuteHandler>("voxelforge.myra.execute");
             // Register event types
             registry.RegisterEvent<MeshUpdateEventPayload>("voxelforge.mesh.update");
             registry.RegisterEvent<PaletteUpdateEventPayload>("voxelforge.palette.update");

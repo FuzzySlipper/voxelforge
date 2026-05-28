@@ -722,6 +722,24 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
   ipcMain.on("renderer:ready", () => {
     console.log("[electron] Renderer process ready.");
   });
+
+  // ── Myra CLI command routing for reference/image/voxelize workflows ──
+  ipcMain.handle("bridge:myra-command-execute", async (_event, payload: unknown) => {
+    const client = await ensureBridgeClient(handshake);
+    const p = payload as { command?: string; args?: string[] };
+    const response = await client.send(
+      {
+        requestId: `renderer-myra-${Date.now()}`,
+        command: "voxelforge.myra.execute",
+        payload: { command: p.command ?? "", args: p.args ?? [] },
+      },
+      requestTimeoutMs,
+    );
+    if (response.error) {
+      throw new Error(`Myra command error: ${response.error.message}`);
+    }
+    return response.result;
+  });
 }
 
 async function setupMeshSubscription(handshake: { endpoint: string; auth_token: string }, mainWindow: BrowserWindow): Promise<void> {

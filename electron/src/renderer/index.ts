@@ -409,6 +409,182 @@ function setupMenuEventListeners(): void {
   window.voxelforgeBridge.onEvent("menu:help-about", () => {
     setStatus("About VoxelForge — Voxel Authoring Tool with LLM integration. Coordinate System: Y-up (right-handed). R=X, G=Y, B=Z.");
   });
+
+  // ── Reference Model menu ──
+  window.voxelforgeBridge.onEvent("menu:reference-model-load", () => {
+    const path = window.prompt("Load Reference Model — Enter file path\n\nSupported: .obj .fbx .gltf .glb .stl .dae .x .3ds .blend", "");
+    if (path) void myraExecuteCommand("Load Ref Model", "refload", [path]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-model-list", () => {
+    void myraExecuteCommand("List Ref Models", "reflist", []);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-model-remove", () => {
+    const idx = promptInt("Remove Reference Model — enter index:");
+    if (idx !== null) void myraExecuteCommand("Remove Ref Model", "refremove", [String(idx)]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-clear", () => {
+    if (window.confirm("Remove all reference models?")) {
+      void myraExecuteCommand("Clear References", "refclear", []);
+    }
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-transform", () => {
+    const idx = promptInt("Transform — Reference Model Index:");
+    if (idx === null) return;
+    const x = promptFloat("Transform — Position X:", "0");
+    if (x === null) return;
+    const y = promptFloat("Transform — Position Y:", "0");
+    if (y === null) return;
+    const z = promptFloat("Transform — Position Z:", "0");
+    if (z === null) return;
+    const rx = promptFloat("Transform — Rotation X (degrees):", "0");
+    if (rx === null) return;
+    const ry = promptFloat("Transform — Rotation Y (degrees):", "0");
+    if (ry === null) return;
+    const rz = promptFloat("Transform — Rotation Z (degrees):", "0");
+    if (rz === null) return;
+    const scale = promptFloat("Transform — Scale:", "1.0");
+    if (scale === null) return;
+    void myraExecuteCommand("Transform", "reftransform", [
+      String(idx), String(x), String(y), String(z),
+      String(rx), String(ry), String(rz), String(scale),
+    ]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-mode", () => {
+    const idx = promptInt("Render Mode — Reference Model Index:");
+    if (idx === null) return;
+    const mode = window.prompt("Render Mode — Enter mode (wireframe | solid | transparent):", "solid");
+    if (mode) void myraExecuteCommand("Set Mode", "refmode", [String(idx), mode]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-visibility", () => {
+    const idx = promptInt("Toggle Visibility — Reference Model Index:");
+    if (idx === null) return;
+    const show = window.confirm("Show reference model? (Cancel = hide)");
+    void myraExecuteCommand("Visibility", show ? "refshow" : "refhide", [String(idx)]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-scale", () => {
+    const idx = promptInt("Scale — Reference Model Index:");
+    if (idx === null) return;
+    const scale = promptFloat("Scale — Value:", "1.0");
+    if (scale === null) return;
+    void myraExecuteCommand("Scale", "refscale", [String(idx), String(scale)]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-rotate", () => {
+    const idx = promptInt("Rotate — Reference Model Index:");
+    if (idx === null) return;
+    const axis = window.prompt("Rotate — Axis (x | y | z):", "y");
+    if (!axis) return;
+    const degrees = promptFloat("Rotate — Degrees (default 90):", "90");
+    if (degrees === null) return;
+    void myraExecuteCommand("Rotate", "refrotate", [String(idx), axis, String(degrees)]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-orient", () => {
+    const idx = promptInt("Auto-Orient — Reference Model Index:");
+    if (idx !== null) void myraExecuteCommand("Auto-Orient", "reforient", [String(idx)]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-info", () => {
+    const idx = promptInt("Inspect — Reference Model Index:");
+    if (idx !== null) void myraExecuteCommand("Inspect", "refinfo", [String(idx)]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-animation", (payload: unknown) => {
+    const data = payload as { action?: string };
+    const action = data?.action ?? "list";
+    const idx = promptInt("Animation — Reference Model Index:");
+    if (idx === null) return;
+    const clipPrompt = action === "play" ? window.prompt("Animation Play — Clip index or name (optional):", "0") : null;
+    const args = [String(idx), action];
+    if (clipPrompt) args.push(clipPrompt);
+    const label = `Animation ${action}`;
+    void myraExecuteCommand(label, "refanim", args);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-texture-assign", () => {
+    const idx = promptInt("Texture Assign — Reference Model Index:");
+    if (idx === null) return;
+    const texPath = window.prompt("Texture Assign — Texture file path:", "");
+    if (!texPath) return;
+    const meshIdx = window.prompt("Texture Assign — Mesh index (optional, blank for all):", "");
+    const args = [String(idx), texPath];
+    if (meshIdx) args.push(meshIdx);
+    void myraExecuteCommand("Assign Texture", "reftex", args);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-emissive-assign", () => {
+    const idx = promptInt("Emissive Assign — Reference Model Index:");
+    if (idx === null) return;
+    const texPath = window.prompt("Emissive Assign — Texture file path:", "");
+    if (!texPath) return;
+    const brightness = promptFloat("Emissive Assign — Brightness (default 1.0):", "1.0");
+    if (brightness === null) return;
+    const meshIdx = window.prompt("Emissive Assign — Mesh index (optional):", "");
+    const args = [String(idx), texPath, String(brightness)];
+    if (meshIdx) args.push(meshIdx);
+    void myraExecuteCommand("Assign Emissive", "reftex-emissive", args);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-meta-save", () => {
+    const idx = promptInt("Save Meta — Reference Model Index:");
+    if (idx === null) return;
+    const path = promptPath("Save Meta — Enter .refmeta path:", `${idx}.refmeta`);
+    if (path) void myraExecuteCommand("Save Meta", "refsave", [String(idx), path]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:reference-meta-load", () => {
+    const path = promptPath("Load Meta — Enter .refmeta file path:", "");
+    if (path) void myraExecuteCommand("Load Meta", "refloadmeta", [path]);
+  });
+
+  // ── Image Reference menu ──
+  window.voxelforgeBridge.onEvent("menu:image-ref-load", () => {
+    const path = promptPath("Load Image Reference — Enter file path:", "");
+    if (path) void myraExecuteCommand("Load Image Ref", "imgload", [path]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:image-ref-list", () => {
+    void myraExecuteCommand("List Image Refs", "imglist", []);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:image-ref-remove", () => {
+    const idx = promptInt("Remove Image Ref — enter index:");
+    if (idx !== null) void myraExecuteCommand("Remove Image Ref", "imgremove", [String(idx)]);
+  });
+
+  // ── Voxelize menu ──
+  window.voxelforgeBridge.onEvent("menu:voxelize-execute", () => {
+    const idx = promptInt("Voxelize — Reference Model Index:");
+    if (idx === null) return;
+    const resolution = promptInt("Voxelize — Resolution (2-256):", "32");
+    if (resolution === null) return;
+    const mode = window.prompt("Voxelize — Mode (surface | solid):", "solid");
+    if (mode && !mode.match(/^(surface|solid)$/i)) {
+      setStatus("Invalid mode. Use 'surface' or 'solid'.");
+      return;
+    }
+    void myraExecuteCommand("Voxelize", "voxelize", [String(idx), String(resolution), mode ?? "solid"]);
+  });
+
+  window.voxelforgeBridge.onEvent("menu:voxelize-compare", () => {
+    const idx = promptInt("Voxelize Compare — Reference Model Index:");
+    if (idx === null) return;
+    const resolutions = window.prompt("Voxelize Compare — Resolutions (comma-separated, e.g. 16,32,64):", "16,32,64");
+    if (!resolutions) return;
+    const mode = window.prompt("Voxelize Compare — Mode (surface | solid):", "solid");
+    if (mode && !mode.match(/^(surface|solid)$/i)) {
+      setStatus("Invalid mode. Use 'surface' or 'solid'.");
+      return;
+    }
+    void myraExecuteCommand("Voxelize Compare", "voxcompare", [String(idx), resolutions, mode ?? "solid"]);
+  });
 }
 
 function wireControls(): void {
@@ -567,6 +743,51 @@ async function executeCommand(commandName: string, argumentsPayload: Record<stri
     command_name: commandName,
     arguments: argumentsPayload,
   });
+}
+
+/**
+ * Execute a Myra CLI command through the dedicated bridge channel.
+ * Routes to voxelforge.myra.execute on the C# side, which dispatches
+ * through the Myra Console CommandRouter.
+ */
+async function myraExecuteCommand(label: string, command: string, args: string[]): Promise<void> {
+  setBusy(true);
+  setStatus(`${label}…`);
+  try {
+    const response = await window.voxelforgeBridge.request("bridge:myra-command-execute", {
+      command,
+      args,
+    }) as { success: boolean; message: string; state?: EditorUiStateSnapshot };
+    if (response.state) {
+      applyState(response.state);
+    }
+    setStatus(response.message);
+  } catch (err) {
+    setStatus(`${label} failed: ${formatError(err)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+/** Prompt for a file path using the browser prompt pattern. */
+function promptPath(label: string, placeholder = ""): string | null {
+  return window.prompt(`${label}\n\nEnter file path:`, placeholder);
+}
+
+/** Prompt for a positive integer. */
+function promptInt(label: string, defaultValue = "0"): number | null {
+  const s = window.prompt(label, defaultValue);
+  if (s === null) return null;
+  const n = parseInt(s, 10);
+  return isNaN(n) ? null : n;
+}
+
+/** Prompt for a float. */
+function promptFloat(label: string, defaultValue = "0"): number | null {
+  const s = window.prompt(label, defaultValue);
+  if (s === null) return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
 }
 
 async function refreshAll(): Promise<void> {

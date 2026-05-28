@@ -162,6 +162,40 @@ const EXECUTE_COMMAND_MENU_CHANNELS = new Set<string>([
 const EXECUTE_COMMAND_BRIDGE = "bridge:command-execute";
 
 /**
+ * Menu channels that use myraExecuteCommand() → bridge:myra-command-execute
+ * These route to the Myra CLI CommandRouter on the C# side.
+ */
+const MYRA_COMMAND_MENU_CHANNELS = new Set<string>([
+  // Reference model
+  "menu:reference-model-load",
+  "menu:reference-model-list",
+  "menu:reference-model-remove",
+  "menu:reference-clear",
+  "menu:reference-transform",
+  "menu:reference-mode",
+  "menu:reference-visibility",
+  "menu:reference-scale",
+  "menu:reference-rotate",
+  "menu:reference-orient",
+  "menu:reference-info",
+  "menu:reference-animation",
+  "menu:reference-texture-assign",
+  "menu:reference-emissive-assign",
+  "menu:reference-meta-save",
+  "menu:reference-meta-load",
+  // Image reference
+  "menu:image-ref-load",
+  "menu:image-ref-list",
+  "menu:image-ref-remove",
+  // Voxelize
+  "menu:voxelize-execute",
+  "menu:voxelize-compare",
+]);
+
+/** The bridge channel used by myraExecuteCommand() calls. */
+const MYRA_COMMAND_BRIDGE = "bridge:myra-command-execute";
+
+/**
  * Build the menu-to-bridge mapping by reading the renderer's setupMenuEventListeners().
  * Uses proper brace matching to find each handler's body in isolation.
  */
@@ -194,6 +228,8 @@ function extractRendererMenuBridgeMap(rendererSource: string): Map<string, strin
     // Determine what bridge channel this handler uses
     if (EXECUTE_COMMAND_MENU_CHANNELS.has(menuChannel)) {
       map.set(menuChannel, EXECUTE_COMMAND_BRIDGE);
+    } else if (MYRA_COMMAND_MENU_CHANNELS.has(menuChannel)) {
+      map.set(menuChannel, MYRA_COMMAND_BRIDGE);
     } else if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
       // Look for a bridge: channel in the handler body via runAction
       const bridgeMatch = handlerBody.match(/["'](bridge:[^"']+)["']/);
@@ -502,32 +538,32 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     ["MeasureCommand", { coverage: "registered" }],
     ["ScreenshotCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
 
-    // ── Reference model — disabled-with-followup (visible disabled menu entries) ──
-    ["RefLoadCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefListCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefRemoveCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefClearCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefTransformCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefModeCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefVisibilityCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefScaleCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefRotateCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefOrientCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefInfoCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefAnimCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefTexCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefTexEmissiveCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefSaveMetaCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["RefLoadMetaCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    // ── Reference model — menu-exec (enabled via bridge:command-execute / bridge:myra-execute) ──
+    ["RefLoadCommand", { coverage: "menu-exec" }],
+    ["RefListCommand", { coverage: "menu-exec" }],
+    ["RefRemoveCommand", { coverage: "menu-exec" }],
+    ["RefClearCommand", { coverage: "menu-exec" }],
+    ["RefTransformCommand", { coverage: "menu-exec" }],
+    ["RefModeCommand", { coverage: "menu-exec" }],
+    ["RefVisibilityCommand", { coverage: "menu-exec" }],
+    ["RefScaleCommand", { coverage: "menu-exec" }],
+    ["RefRotateCommand", { coverage: "menu-exec" }],
+    ["RefOrientCommand", { coverage: "menu-exec" }],
+    ["RefInfoCommand", { coverage: "menu-exec" }],
+    ["RefAnimCommand", { coverage: "menu-exec" }],
+    ["RefTexCommand", { coverage: "menu-exec" }],
+    ["RefTexEmissiveCommand", { coverage: "menu-exec" }],
+    ["RefSaveMetaCommand", { coverage: "menu-exec" }],
+    ["RefLoadMetaCommand", { coverage: "menu-exec" }],
 
-    // ── Image references — disabled-with-followup ──
-    ["ImgLoadCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["ImgListCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["ImgRemoveCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    // ── Image references — menu-exec ──
+    ["ImgLoadCommand", { coverage: "menu-exec" }],
+    ["ImgListCommand", { coverage: "menu-exec" }],
+    ["ImgRemoveCommand", { coverage: "menu-exec" }],
 
-    // ── Voxelize — disabled-with-followup ──
-    ["VoxelizeCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
-    ["VoxelizeCompareCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    // ── Voxelize — menu-exec ──
+    ["VoxelizeCommand", { coverage: "menu-exec" }],
+    ["VoxelizeCompareCommand", { coverage: "menu-exec" }],
 
     // ── Infra commands ──
     ["HelpCommand", { coverage: "registered" }],
@@ -568,10 +604,9 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     // Count all enabled: false entries across the menu
     const enabledFalseCount = (menuSource.match(/enabled:\s*false/g) ?? []).length;
 
-    // Most disabled-followup commands should have a visible placeholder.
-    // Some advanced CLI commands (like auxiliary baking commands) do not
-    // require individual menu items at this stage.
-    expect(enabledFalseCount).toBeGreaterThanOrEqual(10);
+    // Remaining disabled-followup commands (#1714: advanced baking, palette ops, screenshot)
+    // should still have visible placeholder.
+    expect(enabledFalseCount).toBeGreaterThanOrEqual(5);
   });
 
   it("disabled-with-followup commands cite durable Den follow-up task IDs", () => {
@@ -589,7 +624,7 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
     const disabledMenuBlocks = menuSource.match(/enabled:\s*false,[\s\S]*?toolTip:\s*"[^"]+"/g) ?? [];
 
-    expect(disabledMenuBlocks.length).toBeGreaterThanOrEqual(10);
+    expect(disabledMenuBlocks.length).toBeGreaterThanOrEqual(5);
     for (const block of disabledMenuBlocks) {
       expect(block).toMatch(/follow-up task #(?:1713|1714)/);
     }
@@ -612,6 +647,6 @@ describe("Extended workflow coverage", () => {
   it("menu.ts extended workflow items are visually distinguishable as disabled", () => {
     const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
     const enabledFalseCount = (menuSource.match(/enabled:\s*false/g) ?? []).length;
-    expect(enabledFalseCount).toBeGreaterThanOrEqual(5);
+    expect(enabledFalseCount).toBeGreaterThanOrEqual(2);
   });
 });

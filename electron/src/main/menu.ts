@@ -6,15 +6,11 @@ import { MenuChannels } from "../shared/menu-channels";
  * Menu clicks send IPC events to the renderer, which wires them to existing bridge commands
  * (runAction / executeCommand) and may show dialogs natively in the renderer.
  *
- * Extended workflows (reference model, texture, animation, image_ref, voxelize) are shown as
- * disabled placeholder items with human-readable follow-up context. They appear in the menu
- * as "unavailable" to give visibility into the Myra CLI parity gap, with the bridge command
- * name and Den follow-up task included in the tooltip/context so a future coder can wire them
- * properly.
+ * Extended workflows (reference model, texture, animation, image_ref, voxelize) are fully
+ * enabled in this task (#1713) with IPC handlers and Myra CLI routing.
  *
- * Den follow-up tracking:
- *   - Reference/image/voxelize workflow bridge handlers → task #1713
- *   - Full CLI command-palette/advanced Tools workflows → task #1714
+ * Remaining disabled items (advanced baking, palette ops, screenshot) stay as placeholders
+ * for Den follow-up task #1714.
  */
 export function setupMenu(mainWindow: BrowserWindow): void {
   const template: MenuItemConstructorOptions[] = [
@@ -194,94 +190,133 @@ function buildViewMenu(win: BrowserWindow): MenuItemConstructorOptions {
 }
 
 /**
- * Reference Model menu — shows all Myra reference_model.* commands as disabled
- * placeholder items. These are bridge:command-execute based and require a
- * command-palette/console panel or dedicated handler wiring in follow-up task #1713.
- *
- * Reminder: Reference model CLI commands registered in CommandRegistry.cs:
- *   RefLoadCommand, RefListCommand, RefRemoveCommand, RefClearCommand,
- *   RefTransformCommand, RefModeCommand, RefVisibilityCommand,
- *   RefScaleCommand, RefRotateCommand, RefOrientCommand, RefInfoCommand,
- *   RefAnimCommand, RefTexCommand, RefTexEmissiveCommand,
- *   RefSaveMetaCommand, RefLoadMetaCommand
- *
- * These are accessible via C# Myra CLI but need Electron bridge handler wiring
- * (Den follow-up task #1713).
+ * Reference Model menu — fully enabled with IPC event routing.
+ * Each item sends a menu:* IPC event to the renderer which bridges
+ * to the Myra CLI via bridge:myra-command-execute → voxelforge.myra.execute.
  */
 function buildReferenceMenu(win: BrowserWindow): MenuItemConstructorOptions {
   return {
     label: "&Reference",
     submenu: [
       {
-        label: "Load Reference Model",
-        enabled: false,
-        toolTip: "reference_model.load — follow-up task #1713",
+        label: "Load Reference Model...",
+        click: () => send(win, MenuChannels.REFERENCE_MODEL_LOAD),
       },
       {
         label: "List Reference Models",
-        enabled: false,
-        toolTip: "reference_model.list — follow-up task #1713",
+        click: () => send(win, MenuChannels.REFERENCE_MODEL_LIST),
       },
       {
-        label: "Remove Reference Model",
-        enabled: false,
-        toolTip: "reference_model.remove — follow-up task #1713",
+        label: "Remove Reference Model...",
+        click: () => send(win, MenuChannels.REFERENCE_MODEL_REMOVE),
       },
       {
         label: "Clear All References",
-        enabled: false,
-        toolTip: "reference_model.clear — follow-up task #1713",
+        click: () => send(win, MenuChannels.REFERENCE_CLEAR),
       },
       { type: "separator" },
       {
-        label: "Transform (Orient/Rotate/Scale/Mode)",
-        enabled: false,
-        toolTip: "transform.* — follow-up task #1713",
+        label: "Transform (Position)...",
+        click: () => send(win, MenuChannels.REFERENCE_TRANSFORM),
       },
       {
-        label: "Texture Assignment",
-        enabled: false,
-        toolTip: "texture.assign / emissive.assign — follow-up task #1713",
+        label: "Render Mode...",
+        click: () => send(win, MenuChannels.REFERENCE_MODE),
       },
+      {
+        label: "Toggle Visibility...",
+        click: () => send(win, MenuChannels.REFERENCE_VISIBILITY),
+      },
+      {
+        label: "Scale...",
+        click: () => send(win, MenuChannels.REFERENCE_SCALE),
+      },
+      {
+        label: "Rotate...",
+        click: () => send(win, MenuChannels.REFERENCE_ROTATE),
+      },
+      {
+        label: "Auto-Orient",
+        click: () => send(win, MenuChannels.REFERENCE_ORIENT),
+      },
+      {
+        label: "Info / Inspect...",
+        click: () => send(win, MenuChannels.REFERENCE_INFO),
+      },
+      { type: "separator" },
+      {
+        label: "Texture Assignment...",
+        click: () => send(win, MenuChannels.REFERENCE_TEXTURE_ASSIGN),
+      },
+      {
+        label: "Emissive Texture...",
+        click: () => send(win, MenuChannels.REFERENCE_EMISSIVE_ASSIGN),
+      },
+      { type: "separator" },
       {
         label: "Animation",
-        enabled: false,
-        toolTip: "animation.list / animation.play — follow-up task #1713",
-      },
-      {
-        label: "Save/Load Meta",
-        enabled: false,
-        toolTip: "meta.save / meta.load — follow-up task #1713",
+        submenu: [
+          {
+            label: "List Clips",
+            click: () => send(win, MenuChannels.REFERENCE_ANIMATION, { action: "list" }),
+          },
+          {
+            label: "Play",
+            click: () => send(win, MenuChannels.REFERENCE_ANIMATION, { action: "play" }),
+          },
+          {
+            label: "Stop",
+            click: () => send(win, MenuChannels.REFERENCE_ANIMATION, { action: "stop" }),
+          },
+          {
+            label: "Pause",
+            click: () => send(win, MenuChannels.REFERENCE_ANIMATION, { action: "pause" }),
+          },
+        ],
       },
       { type: "separator" },
       {
-        label: "Image Ref Load",
-        enabled: false,
-        toolTip: "image_ref.load — follow-up task #1713",
+        label: "Save Meta...",
+        click: () => send(win, MenuChannels.REFERENCE_META_SAVE),
+      },
+      {
+        label: "Load Meta...",
+        click: () => send(win, MenuChannels.REFERENCE_META_LOAD),
+      },
+      { type: "separator" },
+      {
+        label: "Image Ref Load...",
+        click: () => send(win, MenuChannels.IMAGE_REF_LOAD),
       },
       {
         label: "Image Ref List",
-        enabled: false,
-        toolTip: "image_ref.list — follow-up task #1713",
+        click: () => send(win, MenuChannels.IMAGE_REF_LIST),
       },
       {
-        label: "Image Ref Remove",
-        enabled: false,
-        toolTip: "image_ref.remove — follow-up task #1713",
+        label: "Image Ref Remove...",
+        click: () => send(win, MenuChannels.IMAGE_REF_REMOVE),
       },
     ],
   };
 }
 
 /**
- * Tools menu — advanced baking, voxelization, screenshot operations.
- * These are accessible via the Myra CLI (bridge:command-execute) but need
- * proper dialog/handler wiring in follow-up task #1714.
+ * Tools menu — most items remain disabled for advanced CLI/console workflows (#1714).
+ * Voxelize and Voxelize Compare are enabled in this task (#1713).
  */
 function buildToolsMenu(win: BrowserWindow): MenuItemConstructorOptions {
   return {
     label: "&Tools",
     submenu: [
+      {
+        label: "Voxelize...",
+        click: () => send(win, MenuChannels.VOXELIZE_EXECUTE),
+      },
+      {
+        label: "Voxelize & Compare...",
+        click: () => send(win, MenuChannels.VOXELIZE_COMPARE),
+      },
+      { type: "separator" },
       {
         label: "Bake AO",
         enabled: false,
@@ -306,17 +341,6 @@ function buildToolsMenu(win: BrowserWindow): MenuItemConstructorOptions {
         label: "Palette Reduce",
         enabled: false,
         toolTip: "palette_reduce — follow-up task #1714",
-      },
-      { type: "separator" },
-      {
-        label: "Voxelize",
-        enabled: false,
-        toolTip: "voxelize.execute — follow-up task #1713",
-      },
-      {
-        label: "Voxelize & Compare",
-        enabled: false,
-        toolTip: "voxelize.compare — follow-up task #1713",
       },
       { type: "separator" },
       {
