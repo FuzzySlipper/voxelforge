@@ -462,6 +462,9 @@ describe("Renderer menu event listeners", () => {
 // ── Test: Electron coverage of C# CommandRegistry (Myra CLI parity) ──
 
 describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
+  const REFERENCE_WORKFLOW_FOLLOWUP_TASK = 1713;
+  const COMMAND_PALETTE_FOLLOWUP_TASK = 1714;
+
   /**
    * Build a deterministic Electron coverage manifest that maps each Myra
    * CommandRegistry entry to one of:
@@ -470,7 +473,7 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
    *   - "disabled-followup"→ visible disabled placeholder in menu; needs bridge handler
    *   - "uncovered"        → not yet wired anywhere in Electron
    */
-  const expectedCoverage: Map<string, { coverage: string; reason?: string }> = new Map([
+  const expectedCoverage: Map<string, { coverage: string; reason?: string; followUpTaskId?: number }> = new Map([
     // ── Registered bridge commands (have C# bridge handlers) ──
     ["DescribeCommand", { coverage: "registered" }],
     ["SetVoxelConsoleCommand", { coverage: "registered" }],
@@ -485,11 +488,11 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     ["ListRegionsCommand", { coverage: "registered" }],
     ["LabelVoxelCommand", { coverage: "registered" }],
     ["PaletteCommand", { coverage: "registered" }],
-    ["PaletteMapConsoleCommand", { coverage: "disabled-followup" }],
-    ["PaletteReduceConsoleCommand", { coverage: "disabled-followup" }],
-    ["AoBakeConsoleCommand", { coverage: "disabled-followup" }],
-    ["EdgeDarkenConsoleCommand", { coverage: "disabled-followup" }],
-    ["LightBakeConsoleCommand", { coverage: "disabled-followup" }],
+    ["PaletteMapConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
+    ["PaletteReduceConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
+    ["AoBakeConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
+    ["EdgeDarkenConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
+    ["LightBakeConsoleCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
     ["SaveCommand", { coverage: "registered" }],
     ["LoadCommand", { coverage: "registered" }],
     ["ListFilesCommand", { coverage: "registered" }],
@@ -497,34 +500,34 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     ["GridCommand", { coverage: "registered" }],
     ["ConfigCommand", { coverage: "registered" }],
     ["MeasureCommand", { coverage: "registered" }],
-    ["ScreenshotCommand", { coverage: "disabled-followup" }],
+    ["ScreenshotCommand", { coverage: "disabled-followup", followUpTaskId: COMMAND_PALETTE_FOLLOWUP_TASK }],
 
     // ── Reference model — disabled-with-followup (visible disabled menu entries) ──
-    ["RefLoadCommand", { coverage: "disabled-followup" }],
-    ["RefListCommand", { coverage: "disabled-followup" }],
-    ["RefRemoveCommand", { coverage: "disabled-followup" }],
-    ["RefClearCommand", { coverage: "disabled-followup" }],
-    ["RefTransformCommand", { coverage: "disabled-followup" }],
-    ["RefModeCommand", { coverage: "disabled-followup" }],
-    ["RefVisibilityCommand", { coverage: "disabled-followup" }],
-    ["RefScaleCommand", { coverage: "disabled-followup" }],
-    ["RefRotateCommand", { coverage: "disabled-followup" }],
-    ["RefOrientCommand", { coverage: "disabled-followup" }],
-    ["RefInfoCommand", { coverage: "disabled-followup" }],
-    ["RefAnimCommand", { coverage: "disabled-followup" }],
-    ["RefTexCommand", { coverage: "disabled-followup" }],
-    ["RefTexEmissiveCommand", { coverage: "disabled-followup" }],
-    ["RefSaveMetaCommand", { coverage: "disabled-followup" }],
-    ["RefLoadMetaCommand", { coverage: "disabled-followup" }],
+    ["RefLoadCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefListCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefRemoveCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefClearCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefTransformCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefModeCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefVisibilityCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefScaleCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefRotateCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefOrientCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefInfoCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefAnimCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefTexCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefTexEmissiveCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefSaveMetaCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["RefLoadMetaCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
 
     // ── Image references — disabled-with-followup ──
-    ["ImgLoadCommand", { coverage: "disabled-followup" }],
-    ["ImgListCommand", { coverage: "disabled-followup" }],
-    ["ImgRemoveCommand", { coverage: "disabled-followup" }],
+    ["ImgLoadCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["ImgListCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["ImgRemoveCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
 
     // ── Voxelize — disabled-with-followup ──
-    ["VoxelizeCommand", { coverage: "disabled-followup" }],
-    ["VoxelizeCompareCommand", { coverage: "disabled-followup" }],
+    ["VoxelizeCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
+    ["VoxelizeCompareCommand", { coverage: "disabled-followup", followUpTaskId: REFERENCE_WORKFLOW_FOLLOWUP_TASK }],
 
     // ── Infra commands ──
     ["HelpCommand", { coverage: "registered" }],
@@ -566,9 +569,30 @@ describe("Electron coverage of C# CommandRegistry (Myra CLI parity)", () => {
     const enabledFalseCount = (menuSource.match(/enabled:\s*false/g) ?? []).length;
 
     // Most disabled-followup commands should have a visible placeholder.
-    // Some advanced CLI commands (like auxillary baking commands) do not
+    // Some advanced CLI commands (like auxiliary baking commands) do not
     // require individual menu items at this stage.
     expect(enabledFalseCount).toBeGreaterThanOrEqual(10);
+  });
+
+  it("disabled-with-followup commands cite durable Den follow-up task IDs", () => {
+    const disabledEntries = [...expectedCoverage.entries()].filter(
+      ([, entry]) => entry.coverage === "disabled-followup",
+    );
+
+    expect(disabledEntries.length).toBeGreaterThan(0);
+    for (const [cmdName, entry] of disabledEntries) {
+      expect(entry.followUpTaskId, `${cmdName} is missing a Den follow-up task id`).toBeGreaterThan(0);
+    }
+  });
+
+  it("visible disabled menu placeholders include follow-up task ids in tooltips", () => {
+    const menuSource = fs.readFileSync(MENU_TS_PATH, "utf-8");
+    const disabledMenuBlocks = menuSource.match(/enabled:\s*false,[\s\S]*?toolTip:\s*"[^"]+"/g) ?? [];
+
+    expect(disabledMenuBlocks.length).toBeGreaterThanOrEqual(10);
+    for (const block of disabledMenuBlocks) {
+      expect(block).toMatch(/follow-up task #(?:1713|1714)/);
+    }
   });
 });
 

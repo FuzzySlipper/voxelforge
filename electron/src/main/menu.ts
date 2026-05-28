@@ -9,14 +9,12 @@ import { MenuChannels } from "../shared/menu-channels";
  * Extended workflows (reference model, texture, animation, image_ref, voxelize) are shown as
  * disabled placeholder items with human-readable follow-up context. They appear in the menu
  * as "unavailable" to give visibility into the Myra CLI parity gap, with the bridge command
- * name included in the tooltip/context so a future coder can wire them properly.
+ * name and Den follow-up task included in the tooltip/context so a future coder can wire them
+ * properly.
  *
  * Den follow-up tracking:
- *   - Reference model workflow → follow-up bridge handler registration
- *   - Texture/Emissive assignments → follow-up bridge handler registration
- *   - Animation commands → follow-up bridge handler registration
- *   - Image reference → follow-up bridge handler registration
- *   - Voxelize → follow-up bridge handler registration
+ *   - Reference/image/voxelize workflow bridge handlers → task #1713
+ *   - Full CLI command-palette/advanced Tools workflows → task #1714
  */
 export function setupMenu(mainWindow: BrowserWindow): void {
   const template: MenuItemConstructorOptions[] = [
@@ -198,7 +196,7 @@ function buildViewMenu(win: BrowserWindow): MenuItemConstructorOptions {
 /**
  * Reference Model menu — shows all Myra reference_model.* commands as disabled
  * placeholder items. These are bridge:command-execute based and require a
- * command-palette/console panel or dedicated handler wiring in a follow-up task.
+ * command-palette/console panel or dedicated handler wiring in follow-up task #1713.
  *
  * Reminder: Reference model CLI commands registered in CommandRegistry.cs:
  *   RefLoadCommand, RefListCommand, RefRemoveCommand, RefClearCommand,
@@ -208,7 +206,7 @@ function buildViewMenu(win: BrowserWindow): MenuItemConstructorOptions {
  *   RefSaveMetaCommand, RefLoadMetaCommand
  *
  * These are accessible via C# Myra CLI but need Electron bridge handler wiring
- * (follow-up bridge handler registration).
+ * (Den follow-up task #1713).
  */
 function buildReferenceMenu(win: BrowserWindow): MenuItemConstructorOptions {
   return {
@@ -217,59 +215,59 @@ function buildReferenceMenu(win: BrowserWindow): MenuItemConstructorOptions {
       {
         label: "Load Reference Model",
         enabled: false,
-        toolTip: "reference_model.load — bridge handler follow-up needed",
+        toolTip: "reference_model.load — follow-up task #1713",
       },
       {
         label: "List Reference Models",
         enabled: false,
-        toolTip: "reference_model.list — bridge handler follow-up needed",
+        toolTip: "reference_model.list — follow-up task #1713",
       },
       {
         label: "Remove Reference Model",
         enabled: false,
-        toolTip: "reference_model.remove — bridge handler follow-up needed",
+        toolTip: "reference_model.remove — follow-up task #1713",
       },
       {
         label: "Clear All References",
         enabled: false,
-        toolTip: "reference_model.clear — bridge handler follow-up needed",
+        toolTip: "reference_model.clear — follow-up task #1713",
       },
       { type: "separator" },
       {
         label: "Transform (Orient/Rotate/Scale/Mode)",
         enabled: false,
-        toolTip: "transform.* — bridge handlers follow-up needed",
+        toolTip: "transform.* — follow-up task #1713",
       },
       {
         label: "Texture Assignment",
         enabled: false,
-        toolTip: "texture.assign / emissive.assign — bridge handlers follow-up needed",
+        toolTip: "texture.assign / emissive.assign — follow-up task #1713",
       },
       {
         label: "Animation",
         enabled: false,
-        toolTip: "animation.list / animation.play — bridge handlers follow-up needed",
+        toolTip: "animation.list / animation.play — follow-up task #1713",
       },
       {
         label: "Save/Load Meta",
         enabled: false,
-        toolTip: "meta.save / meta.load — bridge handlers follow-up needed",
+        toolTip: "meta.save / meta.load — follow-up task #1713",
       },
       { type: "separator" },
       {
         label: "Image Ref Load",
         enabled: false,
-        toolTip: "image_ref.load — bridge handler follow-up needed",
+        toolTip: "image_ref.load — follow-up task #1713",
       },
       {
         label: "Image Ref List",
         enabled: false,
-        toolTip: "image_ref.list — bridge handler follow-up needed",
+        toolTip: "image_ref.list — follow-up task #1713",
       },
       {
         label: "Image Ref Remove",
         enabled: false,
-        toolTip: "image_ref.remove — bridge handler follow-up needed",
+        toolTip: "image_ref.remove — follow-up task #1713",
       },
     ],
   };
@@ -278,7 +276,7 @@ function buildReferenceMenu(win: BrowserWindow): MenuItemConstructorOptions {
 /**
  * Tools menu — advanced baking, voxelization, screenshot operations.
  * These are accessible via the Myra CLI (bridge:command-execute) but need
- * proper dialog/handler wiring.
+ * proper dialog/handler wiring in follow-up task #1714.
  */
 function buildToolsMenu(win: BrowserWindow): MenuItemConstructorOptions {
   return {
@@ -287,44 +285,44 @@ function buildToolsMenu(win: BrowserWindow): MenuItemConstructorOptions {
       {
         label: "Bake AO",
         enabled: false,
-        toolTip: "ao_bake — bridge handler follow-up needed",
+        toolTip: "ao_bake — follow-up task #1714",
       },
       {
         label: "Edge Darken",
         enabled: false,
-        toolTip: "edge_darken — bridge handler follow-up needed",
+        toolTip: "edge_darken — follow-up task #1714",
       },
       {
         label: "Light Bake",
         enabled: false,
-        toolTip: "light_bake — bridge handler follow-up needed",
+        toolTip: "light_bake — follow-up task #1714",
       },
       {
         label: "Palette Map",
         enabled: false,
-        toolTip: "palette_map — bridge handler follow-up needed",
+        toolTip: "palette_map — follow-up task #1714",
       },
       {
         label: "Palette Reduce",
         enabled: false,
-        toolTip: "palette_reduce — bridge handler follow-up needed",
+        toolTip: "palette_reduce — follow-up task #1714",
       },
       { type: "separator" },
       {
         label: "Voxelize",
         enabled: false,
-        toolTip: "voxelize.execute — bridge handler follow-up needed",
+        toolTip: "voxelize.execute — follow-up task #1713",
       },
       {
         label: "Voxelize & Compare",
         enabled: false,
-        toolTip: "voxelize.compare — bridge handler follow-up needed",
+        toolTip: "voxelize.compare — follow-up task #1713",
       },
       { type: "separator" },
       {
         label: "Screenshot",
         enabled: false,
-        toolTip: "screenshot — bridge handler follow-up needed",
+        toolTip: "screenshot — follow-up task #1714",
       },
     ],
   };
