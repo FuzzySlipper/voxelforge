@@ -618,3 +618,51 @@ public sealed class ProjectLoadHandler : IBridgeCommandHandler<ProjectLoadReques
         return path.Trim();
     }
 }
+
+public sealed class ProjectNewHandler : IBridgeCommandHandler<ProjectNewRequest, ProjectCommandResponse>
+{
+    private readonly VoxelModelHolder _modelHolder;
+    private readonly EditorUiStateBridgeService _stateService;
+    private readonly MeshSubscriptionManager _meshSubscriptionManager;
+    private readonly MeshChangePushService _meshPushService;
+    private readonly VoxelForge.App.Events.IEventPublisher _events;
+
+    public ProjectNewHandler(
+        VoxelModelHolder modelHolder,
+        EditorUiStateBridgeService stateService,
+        MeshSubscriptionManager meshSubscriptionManager,
+        MeshChangePushService meshPushService,
+        VoxelForge.App.Events.IEventPublisher events)
+    {
+        _modelHolder = modelHolder;
+        _stateService = stateService;
+        _meshSubscriptionManager = meshSubscriptionManager;
+        _meshPushService = meshPushService;
+        _events = events;
+    }
+
+    public async ValueTask<ProjectCommandResponse?> HandleAsync(
+        ProjectNewRequest request,
+        BridgeRequestContext context,
+        CancellationToken cancellationToken)
+    {
+        _modelHolder.ResetToNewProject(request.Name);
+        _modelHolder.MarkDirty(false);
+
+        var message = $"Created new project '{_modelHolder.Workspace.CurrentModelName}'.";
+        _modelHolder.SetStatus(message);
+
+        // Push fresh mesh and state
+        _meshSubscriptionManager.RecordFullDirty(_modelHolder.ModelId, _modelHolder.Model);
+        await _meshPushService.PushMeshUpdateAsync(cancellationToken).ConfigureAwait(false);
+        await _stateService.PublishFullStateAsync(message, cancellationToken).ConfigureAwait(false);
+
+        return new ProjectCommandResponse
+        {
+            Success = true,
+            Message = message,
+            MeshChanged = true,
+            State = _stateService.BuildSnapshot(),
+        };
+    }
+}

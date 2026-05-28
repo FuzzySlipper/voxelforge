@@ -67,6 +67,7 @@ public sealed class Program
         services.AddSingleton<HistoryRedoHandler>();
         services.AddSingleton<ProjectSaveHandler>();
         services.AddSingleton<ProjectLoadHandler>();
+        services.AddSingleton<ProjectNewHandler>();
 
         // Register bridge host before building the provider so all services
         // (including model data) are in a single container.
@@ -86,6 +87,7 @@ public sealed class Program
             registry.RegisterCommand<HistoryRedoRequest, HistoryCommandResponse, HistoryRedoHandler>("voxelforge.history.redo");
             registry.RegisterCommand<ProjectSaveRequest, ProjectCommandResponse, ProjectSaveHandler>("voxelforge.project.save");
             registry.RegisterCommand<ProjectLoadRequest, ProjectCommandResponse, ProjectLoadHandler>("voxelforge.project.load");
+            registry.RegisterCommand<ProjectNewRequest, ProjectCommandResponse, ProjectNewHandler>("voxelforge.project.new");
             // Register event types
             registry.RegisterEvent<MeshUpdateEventPayload>("voxelforge.mesh.update");
             registry.RegisterEvent<PaletteUpdateEventPayload>("voxelforge.palette.update");

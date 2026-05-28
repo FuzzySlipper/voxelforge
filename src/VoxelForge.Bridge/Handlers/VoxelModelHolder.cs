@@ -190,4 +190,37 @@ public sealed class VoxelModelHolder
         ArgumentNullException.ThrowIfNull(message);
         Workspace.StatusMessage = message;
     }
+
+    /// <summary>
+    /// Reset to a fresh empty model for the "New Project" workflow.
+    /// Clears all voxels but retains a default palette with one entry.
+    /// </summary>
+    public void ResetToNewProject(string? projectName = null)
+    {
+        var model = new VoxelModel(_loggerFactory.CreateLogger<VoxelModel>())
+        {
+            GridHint = 32,
+        };
+
+        // Add a default palette entry so tools have something to work with
+        model.Palette.Set(1, new MaterialDef
+        {
+            Name = "Default",
+            Color = new RgbaColor(200, 200, 200, 255),
+        });
+
+        var labelLogger = _loggerFactory.CreateLogger<LabelIndex>();
+        var labels = new LabelIndex(labelLogger);
+
+        Workspace.Document = new EditorDocumentState(model, labels);
+        Workspace.ModelId = projectName ?? "untitled";
+        Workspace.ProjectPath = null;
+        Workspace.IsDirty = false;
+        Workspace.StatusMessage = "Created new project.";
+        Workspace.CurrentModelName = projectName ?? "untitled";
+        Workspace.IsLoaded = true;
+        Workspace.IncrementRevision();
+
+        _logger.LogInformation("Created new project '{ProjectName}'", Workspace.CurrentModelName);
+    }
 }

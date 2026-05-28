@@ -523,6 +523,11 @@ public sealed class ProjectLoadRequest
     public required string Path { get; set; }
 }
 
+public sealed class ProjectNewRequest
+{
+    public string? Name { get; set; }
+}
+
 public sealed class ProjectCommandResponse
 {
     public required bool Success { get; init; }
