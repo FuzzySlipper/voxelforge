@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:menu-smoke": "node scripts/run-menu-gui-smoke.mjs",
+    "gui:llm-smoke": "node scripts/run-accessible-gui-smoke.mjs",
     "smoke-test": "npm run build && electron . --smoke-test",
     "smoke-test:menu": "npm run build && node scripts/run-menu-gui-smoke.mjs",
     "smoke-test:live-kwin": "scripts/run-live-kwin-menu-smoke.sh",
@@ -32,6 +33,7 @@
     "electron": "^41.0.0",
     "electron-builder": "^26.8.1",
     "esbuild": "^0.28.0",
+    "playwright": "^1.60.0",
     "typescript": "^5.8.0",
     "vitest": "^4.1.5"
   },

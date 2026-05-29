@@ -1,16 +1,29 @@
 import { app, Menu, MenuItemConstructorOptions, BrowserWindow } from "electron";
 import { MenuChannels } from "../shared/menu-channels";
+import { APP_MENU_MODEL } from "../shared/menu-command-model";
 
 /**
  * Build and set the native Electron application menu for the canonical JS renderer shell.
- * Menu clicks send IPC events to the renderer, which wires them to existing bridge commands
- * (runAction / executeCommand) and may show dialogs natively in the renderer.
  *
- * Extended workflows (reference model, texture, animation, image_ref, voxelize) are fully
- * enabled in this task (#1713) with IPC handlers and Myra CLI routing.
+ * NATIVE MENU POSTURE (per #1740/#1743):
+ *   This native menu is REDUCED to essential OS-level items and keyboard shortcuts.
+ *   Primary workflow commands (Reference, Tools, View, most Edit/File items) are now
+ *   served by the renderer-owned accessible menu surface (AccessibleMenuSurface with
+ *   role="menubar", role="menuitem", keyboard navigation).
  *
- * Remaining disabled items (advanced baking, palette ops, screenshot) stay as placeholders
- * for Den follow-up task #1714.
+ *   Rationale for retention:
+ *     1. OS keyboard accelerators (Cmd+Q, Cmd+W, Alt+F4) must work regardless of
+ *        renderer state.
+ *     2. macOS standard app menu (About, Hide, Quit) is required for platform conformity.
+ *     3. Users on screen readers that natively interact with the OS menu bar still
+ *        need the native menu as a fallback.
+ *
+ *   Shared model: APP_MENU_MODEL in src/shared/menu-command-model.ts is the canonical
+ *   menu structure consumed by the renderer surface AND by any retained native menu items.
+ *   Changes to menu structure should be made in the model only; both surfaces auto-sync.
+ *
+ *   Menu clicks send IPC events to the renderer, which wires them to existing bridge commands
+ *   (runAction / executeCommand) and may show dialogs natively in the renderer.
  */
 export function setupMenu(mainWindow: BrowserWindow): void {
   const template: MenuItemConstructorOptions[] = [

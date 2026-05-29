@@ -14,6 +14,8 @@ import { createCoalescer } from "../shared/refresh-coalescer";
 import { CommandPalette } from "./command-palette-ui";
 import { createRendererDeps } from "./menu-handler-deps";
 import { handleReferenceModelLoad } from "./menu-handlers";
+import { AccessibleMenuSurface } from "./accessible-menu-surface";
+import { MenuChannels } from "../shared/menu-channels";
 
 declare global {
   interface Window {
@@ -99,6 +101,7 @@ const ui = {
   wireframeToggleButton: requiredElement<HTMLButtonElement>("wireframe-toggle-button"),
   openButton: requiredElement<HTMLButtonElement>("open-button"),
   saveButton: requiredElement<HTMLButtonElement>("save-button"),
+  menuBar: requiredElement<HTMLElement>("accessible-menu-bar"),
   hudModel: requiredElement<HTMLElement>("hud-model"),
   hudMesh: requiredElement<HTMLElement>("hud-mesh"),
   hudTool: requiredElement<HTMLElement>("hud-tool"),
@@ -125,6 +128,9 @@ let loadingPlaceholder: HTMLDivElement | null = null;
 
 /** Command palette for CLI command execution. */
 let commandPalette: CommandPalette | null = null;
+
+/** Accessible renderer-owned menu surface. */
+let accessibleMenu: AccessibleMenuSurface | null = null;
 
 async function main(): Promise<void> {
   // Create a loading placeholder as a separate element so we can remove it later
@@ -160,6 +166,7 @@ async function main(): Promise<void> {
     await refreshMesh();
     setupBridgeEvents();
     setupMenuEventListeners();
+    setupAccessibleMenu();
     setupCommandPalette();
     setBridgeStatus("Bridge connected. C# owns editor state; TS owns presentation.", true);
     clearLoadingPlaceholder();
@@ -747,6 +754,159 @@ function setupMenuEventListeners(): void {
     }
     void myraExecuteCommand("Voxelize Compare", "voxcompare", [String(idx), resolutions, mode ?? "solid"]);
   });
+}
+
+/**
+ * Initialize the renderer-owned accessible menu surface.
+ * Creates a semantic menubar with ARIA roles, keyboard navigation, and focus styles
+ * that routes commands through the same handler paths as native menu IPC events.
+ */
+function setupAccessibleMenu(): void {
+  if (accessibleMenu) {
+    accessibleMenu.destroy();
+  }
+
+  accessibleMenu = new AccessibleMenuSurface({
+    container: ui.menuBar,
+    onCommand: (channel: string, itemId: string) => {
+      console.log(`[renderer] Accessible menu command activated: ${channel} (${itemId})`);
+      dispatchMenuCommand(channel);
+    },
+  });
+}
+
+/**
+ * Dispatch a menu command channel to the same handler path used by native menu IPC.
+ * This ensures accessible menu items and native menu items share the same code path.
+ */
+function dispatchMenuCommand(channel: string): void {
+  // Build deps for handlers that need them
+  const deps = createRendererDeps(
+    myraExecuteCommand,
+    runAction,
+    setStatus,
+    () => ui.projectPath.value,
+  );
+
+  switch (channel) {
+    // ── File menu ──
+    case MenuChannels.FILE_NEW:
+      console.log("[renderer] Menu command: file-new");
+      if (window.confirm("Clear the current model? Unsaved changes will be lost.")) {
+        void runAction("New Project", "bridge:project-new", {});
+      }
+      break;
+    case MenuChannels.FILE_OPEN:
+      console.log("[renderer] Menu command: file-open");
+      {
+        const path = promptPath("Enter project file path (.vforge):", ui.projectPath.value);
+        if (path) {
+          ui.projectPath.value = path;
+          void runAction("Open", "bridge:project-load", { path });
+        }
+      }
+      break;
+    case MenuChannels.FILE_SAVE:
+      console.log("[renderer] Menu command: file-save");
+      void runAction("Save", "bridge:project-save", { path: ui.projectPath.value });
+      break;
+    case MenuChannels.FILE_SAVE_AS:
+      console.log("[renderer] Menu command: file-save-as");
+      {
+        const path = promptPath("Save project as (.vforge):", ui.projectPath.value);
+        if (path) {
+          const fullPath = path.endsWith(".vforge") ? path : path + ".vforge";
+          ui.projectPath.value = fullPath;
+          void runAction("Save As", "bridge:project-save", { path: fullPath });
+        }
+      }
+      break;
+    case MenuChannels.FILE_EXIT:
+      console.log("[renderer] Menu command: file-exit");
+      break;
+
+    // ── Edit menu ──
+    case MenuChannels.EDIT_UNDO:
+      console.log("[renderer] Menu command: edit-undo");
+      void runAction("Undo", "bridge:history-undo", {});
+      break;
+    case MenuChannels.EDIT_REDO:
+      console.log("[renderer] Menu command: edit-redo");
+      void runAction("Redo", "bridge:history-redo", {});
+      break;
+    case MenuChannels.EDIT_FILL_REGION:
+      console.log("[renderer] Menu command: edit-fill-region");
+      {
+        const x1 = parseInt(window.prompt("Fill Region — X1:") ?? "", 10);
+        const y1 = parseInt(window.prompt("Fill Region — Y1:") ?? "", 10);
+        const z1 = parseInt(window.prompt("Fill Region — Z1:") ?? "", 10);
+        const x2 = parseInt(window.prompt("Fill Region — X2:") ?? "", 10);
+        const y2 = parseInt(window.prompt("Fill Region — Y2:") ?? "", 10);
+        const z2 = parseInt(window.prompt("Fill Region — Z2:") ?? "", 10);
+        const idx = parseInt(window.prompt("Fill Region — Palette Index:") ?? "1", 10);
+        if (!isNaN(x1) && !isNaN(y1) && !isNaN(z1) && !isNaN(x2) && !isNaN(y2) && !isNaN(z2) && !isNaN(idx)) {
+          void executeCommand("fill_box", { x1, y1, z1, x2, y2, z2, palette_index: idx });
+        }
+      }
+      break;
+    case MenuChannels.EDIT_CLEAR_ALL:
+      console.log("[renderer] Menu command: edit-clear-all");
+      if (window.confirm("Remove all voxels from the model?")) {
+        void executeCommand("clear_model", {});
+      }
+      break;
+
+    // ── View menu (scene operations) ──
+    case MenuChannels.VIEW_FRONT:
+      try { scene.snapCameraToView("front"); } catch (e) { console.warn("[menu] view-front:", e); }
+      break;
+    case MenuChannels.VIEW_SIDE:
+      try { scene.snapCameraToView("side"); } catch (e) { console.warn("[menu] view-side:", e); }
+      break;
+    case MenuChannels.VIEW_TOP:
+      try { scene.snapCameraToView("top"); } catch (e) { console.warn("[menu] view-top:", e); }
+      break;
+    case MenuChannels.VIEW_WIREFRAME:
+      wireframeVisible = !wireframeVisible;
+      scene.setWireframeVisible(wireframeVisible);
+      ui.wireframeToggleButton.classList.toggle("active", wireframeVisible);
+      break;
+    case MenuChannels.VIEW_GRID_SIZE:
+      {
+        const sizeStr = window.prompt("Grid Size (1-256):", "32");
+        const size = parseInt(sizeStr ?? "", 10);
+        if (!isNaN(size) && size >= 1 && size <= 256) {
+          void executeCommand("set_grid_hint", { size });
+        }
+      }
+      break;
+
+    // ── Reference Model menu ──
+    case MenuChannels.REFERENCE_MODEL_LOAD:
+      void handleReferenceModelLoad(deps);
+      break;
+    case MenuChannels.REFERENCE_MODEL_LIST:
+      void myraExecuteCommand("List Ref Models", "reflist", []);
+      break;
+    case MenuChannels.REFERENCE_MODEL_REMOVE:
+      {
+        const idx = promptInt("Remove Reference Model — enter index:");
+        if (idx !== null) {
+          void myraExecuteCommand("Remove Ref Model", "refremove", [String(idx)]);
+        }
+      }
+      break;
+
+    // ── Other channels pass through as menu:* IPC events ──
+    case MenuChannels.HELP_ABOUT:
+      setStatus("About VoxelForge — Voxel Authoring Tool with LLM integration.");
+      break;
+    case MenuChannels.COMMAND_PALETTE:
+      commandPalette?.show();
+      break;
+    default:
+      console.log(`[renderer] Menu command not explicitly dispatched: ${channel}`);
+  }
 }
 
 /**

@@ -12,10 +12,12 @@
     button { border: 1px solid #394150; background: #242b36; color: #d9e2ef; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
     button:hover:not(:disabled), button.active { background: #33557a; border-color: #5a8fca; color: #fff; }
     button:disabled { cursor: not-allowed; color: #6f7a89; background: #1d222b; border-color: #2a303b; }
+    button:focus-visible { outline: 2px solid #5a8fca; outline-offset: 1px; }
     input { width: 100%; border: 1px solid #394150; background: #11151b; color: #d9e2ef; padding: 8px; border-radius: 6px; }
-    .app-shell { display: grid; grid-template-rows: 48px 1fr 30px; height: 100%; }
-    .topbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #303846; background: #1f252e; }
-    .brand { font-weight: 700; color: #8fc7ff; margin-right: 12px; letter-spacing: 0.02em; }
+    input:focus { outline: 2px solid #5a8fca; outline-offset: 0; border-color: #5a8fca; }
+    .app-shell { display: grid; grid-template-rows: auto 1fr 30px; height: 100%; }
+    .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid #303846; background: #1f252e; min-height: 36px; }
+    .brand { font-weight: 700; color: #8fc7ff; margin-right: 8px; letter-spacing: 0.02em; font-size: 13px; }
     .topbar .spacer { flex: 1; }
     .main { display: grid; grid-template-columns: 280px 1fr 310px; min-height: 0; }
     .panel { min-height: 0; overflow: auto; background: #1b2028; border-right: 1px solid #303846; padding: 12px; }
@@ -39,37 +41,42 @@
     #status { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .ok { color: #7fd68a; }
     .warn { color: #ffca6e; }
+    /* Skip link for keyboard users */
+    .skip-link { position: absolute; top: -100px; left: 8px; z-index: 99999; background: #33557a; color: #fff; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-size: 13px; }
+    .skip-link:focus { top: 8px; }
   </style>
 </head>
 <body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
   <div class="app-shell">
-    <header class="topbar">
-      <div class="brand">VoxelForge</div>
-      <button id="undo-button" disabled>Undo</button>
-      <button id="redo-button" disabled>Redo</button>
-      <button id="refresh-button">Refresh</button>
-      <button id="fit-view-button">Fit View</button>
-      <button id="grid-toggle-button" class="active">Grid</button>
-      <button id="wireframe-toggle-button">Wireframe</button>
-      <div class="spacer"></div>
-      <span id="connection-indicator" class="warn">Connecting…</span>
+    <header class="topbar" role="banner">
+      <div id="accessible-menu-bar" role="none"></div>
+      <div class="brand" aria-label="VoxelForge application">VoxelForge</div>
+      <button id="undo-button" disabled aria-label="Undo last action">Undo</button>
+      <button id="redo-button" disabled aria-label="Redo last undone action">Redo</button>
+      <button id="refresh-button" aria-label="Refresh mesh from sidecar">Refresh</button>
+      <button id="fit-view-button" aria-label="Fit view to model bounds">Fit View</button>
+      <button id="grid-toggle-button" class="active" aria-label="Toggle grid visibility" aria-pressed="true">Grid</button>
+      <button id="wireframe-toggle-button" aria-label="Toggle wireframe overlay" aria-pressed="false">Wireframe</button>
+      <div class="spacer" role="presentation"></div>
+      <span id="connection-indicator" class="warn" aria-live="polite" role="status">Connecting…</span>
     </header>
 
-    <main class="main">
-      <aside class="panel left">
+    <main class="main" id="main-content">
+      <aside class="panel left" aria-label="Tools and palette panel">
         <section class="section">
           <h2>Tools (C# Session State)</h2>
-          <div id="tool-list" class="button-grid"></div>
+          <div id="tool-list" class="button-grid" role="group" aria-label="Available tools"></div>
         </section>
 
         <section class="section">
           <h2>Palette (C# Document State)</h2>
-          <div id="palette-list" class="palette-list"></div>
+          <div id="palette-list" class="palette-list" role="listbox" aria-label="Palette entries"></div>
         </section>
 
         <section class="section">
           <h2>Viewport Editing</h2>
-          <div class="callout">
+          <div class="callout" role="note">
             Click on a voxel in the viewport to edit. Active tool determines the action:
             <strong>Place</strong> (add adjacent voxel), <strong>Remove</strong>, <strong>Paint</strong>, or <strong>Select</strong>.
             C# validates and applies all edits through the undoable command pipeline.
@@ -78,24 +85,24 @@
         </section>
       </aside>
 
-      <section class="viewport-wrap">
-        <div id="renderer-container"></div>
-        <div class="viewport-hud">
+      <section class="viewport-wrap" aria-label="3D viewport">
+        <div id="renderer-container" role="img" aria-label="3D mesh renderer viewport"></div>
+        <div class="viewport-hud" aria-hidden="true">
           <div class="hud-pill" id="hud-model">Model: —</div>
           <div class="hud-pill" id="hud-mesh">Mesh: —</div>
           <div class="hud-pill" id="hud-tool">Tool: —</div>
         </div>
       </section>
 
-      <aside class="panel right">
+      <aside class="panel right" aria-label="Project and diagnostics panel">
         <section class="section">
           <h2>Project I/O (via C#)</h2>
           <div class="field-row">
             <input id="project-path" value="content/mcp-preview.vforge" aria-label="Project path or name">
-            <button id="open-button">Open</button>
-            <button id="save-button">Save</button>
+            <button id="open-button" aria-label="Open project file">Open</button>
+            <button id="save-button" aria-label="Save project file">Save</button>
           </div>
-          <div class="callout" style="margin-top: 8px; font-size: 11px;">
+          <div class="callout" style="margin-top: 8px; font-size: 11px;" role="note">
             Open a <code>.vforge</code> file to view it in the renderer.
             Default path matches the MCP <code>publish_preview</code> snapshot name.
             Use <strong>Refresh</strong> to reload from the sidecar after a publish.
@@ -105,24 +112,24 @@
 
         <section class="section">
           <h2>Authoritative State</h2>
-          <div class="kv" id="state-diagnostics"></div>
+          <div class="kv" id="state-diagnostics" role="list" aria-label="Authoritative state diagnostics"></div>
         </section>
 
         <section class="section">
           <h2>Viewport Diagnostics</h2>
-          <div class="kv" id="viewport-diagnostics"></div>
+          <div class="kv" id="viewport-diagnostics" role="list" aria-label="Viewport diagnostics"></div>
         </section>
 
         <section class="section">
           <h2>Bridge Status</h2>
-          <div class="callout" id="bridge-status">Waiting for sidecar handshake…</div>
+          <div class="callout" id="bridge-status" aria-live="polite" role="status">Waiting for sidecar handshake…</div>
         </section>
       </aside>
     </main>
 
-    <footer class="status-bar">
-      <span id="status">Connecting to VoxelForge sidecar…</span>
-      <span id="dirty-indicator">clean</span>
+    <footer class="status-bar" role="contentinfo">
+      <span id="status" aria-live="polite" role="status">Connecting to VoxelForge sidecar…</span>
+      <span id="dirty-indicator" aria-label="Document dirty state">clean</span>
     </footer>
   </div>
   <script src="./bundle.js"></script>
