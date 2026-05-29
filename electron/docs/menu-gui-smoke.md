@@ -38,6 +38,64 @@ npm run smoke-test:menu
 npx electron scripts/menu-gui-smoke.mjs
 ```
 
+## Runner live KWin smoke loop
+
+Task #1732 adds a separate **live visual** workflow for Runner debugging on the
+`agent` Plasma/KWin session. This is not a CI replacement for the deterministic
+smoke above; it is a screenshot/log feedback loop for the failure mode where a
+native menu item is visible and clickable but appears to do nothing.
+
+```bash
+cd electron
+
+# Recommended Runner command. Builds first, launches Electron in the live
+# KWin/Wayland session, drives Reference > Load Reference Model..., and writes
+# screenshots + logs under ../artifacts/live-kwin-menu-smoke/<timestamp>/.
+npm run smoke-test:live-kwin
+
+# Faster iteration after a recent build:
+scripts/run-live-kwin-menu-smoke.sh --no-build
+
+# Coordinate fallback if Alt+R menu mnemonics stop working in the live desktop:
+scripts/run-live-kwin-menu-smoke.sh --menu-mode coordinate \
+  --reference-menu-x 134 --reference-menu-y 34 \
+  --load-item-x 172 --load-item-y 64
+```
+
+The live workflow expects the Runner host's real desktop session:
+
+- `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus`
+- `WAYLAND_DISPLAY=wayland-0`
+- `DISPLAY=:0`
+- `XDG_RUNTIME_DIR=/run/user/1001`
+
+It applies a local Python compatibility shim before creating the KWin EIS input
+backend because the current `kwin-mcp`/`libei` combination on this host can crash
+when binding variadic seat capabilities without explicit ctypes values. The shim
+uses `ctypes.c_int(...)` capability args and a `ctypes.c_void_p(None)` sentinel.
+
+Evidence produced on every run:
+
+- `01-baseline.png` — live Electron window before menu driving.
+- `02-prompt-visible.png` — renderer-owned Reference Model path prompt after the native menu action.
+- `03-after-reference-load-submit.png` — after submitting the reference-model path prompt.
+- `04-final.png` or `failure.png` — final/failure-visible desktop state.
+- `electron-live-kwin.log` — Electron stdout/stderr plus forwarded renderer console logs.
+- `summary.json` — menu path, coordinates/keys, screenshot paths, KWin connection info,
+  and booleans for the expected signals.
+
+The PASS condition is intentionally narrow: the log must show the renderer
+received `menu:reference-model-load`, accepted the typed path, and attempted the
+`bridge:myra-command-execute` `refload` request. If any signal is missing, the
+script exits nonzero but still writes before/after screenshots, clicked/keyed
+path details, app log, and summary JSON for debugging.
+
+V1 caveat: AT-SPI/window enumeration in this live session currently only sees
+`xdg-desktop-portal-gtk`, so the workflow uses screenshots plus keyboard/menu
+coordinates rather than semantic UI selectors. Treat coordinate mode as brittle
+and adjust the `--reference-menu-*` / `--load-item-*` values from the baseline
+screenshot when the desktop theme, scale, or window placement changes.
+
 ## What it tests
 
 1. **Menu structure**: 6 top-level menus exist (File, Edit, Reference, View,
@@ -70,6 +128,13 @@ Every renderer menu event handler in `src/renderer/index.ts` now logs:
 
 - `[renderer] Menu event received: <channel>` — confirms IPC event arrived
 - `[renderer] menu:<channel> cancelled by user` — when prompt/dialog is dismissed
+- `[renderer] bridge:myra-command-execute request/response` — confirms menu-driven
+  Myra commands reached the bridge path and returned a result or error
+
+The live renderer also uses a DOM-owned path prompt for `Reference > Load
+Reference Model...` because Electron's built-in `window.prompt()` is not
+available in the current live app runtime. This makes the prompt visible in KWin
+screenshots and keeps the handler testable through dependency injection.
 
 This makes it possible to see in Electron dev tools console exactly where the
 chain breaks: was the event received but cancelled? Was the `bridge:myra-command-execute`

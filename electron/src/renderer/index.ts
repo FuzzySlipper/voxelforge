@@ -457,7 +457,7 @@ function setupMenuEventListeners(): void {
 
   // ── Reference Model menu ──
   window.voxelforgeBridge.onEvent("menu:reference-model-load", () => {
-    handleReferenceModelLoad(createRendererDeps(
+    void handleReferenceModelLoad(createRendererDeps(
       myraExecuteCommand,
       runAction,
       setStatus,
@@ -964,6 +964,7 @@ async function executeCommand(commandName: string, argumentsPayload: Record<stri
  * through the Myra Console CommandRouter.
  */
 async function myraExecuteCommand(label: string, command: string, args: string[]): Promise<void> {
+  console.log(`[renderer] bridge:myra-command-execute request: ${command} ${JSON.stringify(args)}`);
   setBusy(true);
   setStatus(`${label}…`);
   try {
@@ -971,11 +972,13 @@ async function myraExecuteCommand(label: string, command: string, args: string[]
       command,
       args,
     }) as { success: boolean; message: string; state?: EditorUiStateSnapshot };
+    console.log(`[renderer] bridge:myra-command-execute response: success=${response.success} message=${JSON.stringify(response.message)}`);
     if (response.state) {
       applyState(response.state);
     }
     setStatus(response.message);
   } catch (err) {
+    console.log(`[renderer] bridge:myra-command-execute failed: ${formatError(err)}`);
     setStatus(`${label} failed: ${formatError(err)}`);
   } finally {
     setBusy(false);

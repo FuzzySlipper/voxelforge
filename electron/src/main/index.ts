@@ -6,6 +6,7 @@ import { setupMenu } from "./menu";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const isRendererSmokeTest = process.argv.includes("--renderer-smoke-test");
+const forwardRendererConsole = process.env.VOXELFORGE_FORWARD_RENDERER_CONSOLE === "1" || process.argv.includes("--forward-renderer-console");
 const isHeadless = isSmokeTest || process.argv.includes("--headless");
 
 // Parse --preview <path> for auto-loading a .vforge preview file on startup
@@ -401,6 +402,13 @@ async function runRenderer(repoRoot: string | null): Promise<void> {
   });
 
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "renderer.html"));
+
+  if (forwardRendererConsole) {
+    mainWindow.webContents.on("console-message", (details) => {
+      const source = details.sourceId ? `${details.sourceId}:${details.lineNumber}` : `line ${details.lineNumber}`;
+      console.log(`[renderer-console:${details.level}] ${details.message} (${source})`);
+    });
+  }
 
   // Set up native application menu
   setupMenu(mainWindow);

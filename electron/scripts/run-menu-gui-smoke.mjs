@@ -93,6 +93,9 @@ async function main() {
 
   const electronCmd = electronPath || "npx";
   const electronArgs = electronPath ? [scriptPath] : ["electron", scriptPath];
+  if (process.env.WAYLAND_DISPLAY) {
+    electronArgs.splice(electronPath ? 0 : 1, 0, "--ozone-platform=wayland");
+  }
 
   if (hasDisplay) {
     // DISPLAY is set (or macOS/Windows), run directly

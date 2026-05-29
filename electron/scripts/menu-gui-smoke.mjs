@@ -124,7 +124,10 @@ async function main() {
   }
 
   // ── Create the test window ──
-  console.log("\n[1] Creating BrowserWindow...");
+  console.log("\n[1] Waiting for Electron app readiness...");
+  await app.whenReady();
+
+  console.log("[2] Creating BrowserWindow...");
 
   const sentEvents = [];
 
@@ -183,16 +186,16 @@ async function main() {
 
   // Test items by menu channel
   const testItems = [
-    { label: "Load Reference Model", expectedChannel: MenuChannels.REFERENCE_MODEL_LOAD },
+    { label: "Load Reference Model...", expectedChannel: MenuChannels.REFERENCE_MODEL_LOAD },
     { label: "List Reference Models", expectedChannel: MenuChannels.REFERENCE_MODEL_LIST },
     { label: "New", expectedChannel: MenuChannels.FILE_NEW },
-    { label: "Open", expectedChannel: MenuChannels.FILE_OPEN },
+    { label: "Open...", expectedChannel: MenuChannels.FILE_OPEN },
     { label: "Save", expectedChannel: MenuChannels.FILE_SAVE },
     { label: "Undo", expectedChannel: MenuChannels.EDIT_UNDO },
     { label: "Redo", expectedChannel: MenuChannels.EDIT_REDO },
     { label: "Front", expectedChannel: MenuChannels.VIEW_FRONT },
     { label: "Wireframe Toggle", expectedChannel: MenuChannels.VIEW_WIREFRAME },
-    { label: "Voxelize", expectedChannel: MenuChannels.VOXELIZE_EXECUTE },
+    { label: "Voxelize...", expectedChannel: MenuChannels.VOXELIZE_EXECUTE },
     { label: "About VoxelForge", expectedChannel: MenuChannels.HELP_ABOUT },
   ];
 

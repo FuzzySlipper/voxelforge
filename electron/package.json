@@ -12,6 +12,7 @@
     "test:menu-smoke": "node scripts/run-menu-gui-smoke.mjs",
     "smoke-test": "npm run build && electron . --smoke-test",
     "smoke-test:menu": "npm run build && node scripts/run-menu-gui-smoke.mjs",
+    "smoke-test:live-kwin": "scripts/run-live-kwin-menu-smoke.sh",
     "renderer-smoke-test": "npm run build && electron . --renderer-smoke-test",
     "start": "npm run build && electron .",
     "start:dev": "npm run build && electron .",

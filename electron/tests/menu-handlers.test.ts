@@ -35,14 +35,14 @@ function createMockDeps(overrides: Partial<MenuHandlerDeps> = {}): MenuHandlerDe
 // ── Acceptance gap: Reference > Load Reference Model... ──
 
 describe("handleReferenceModelLoad", () => {
-  it("sends bridge:myra-command-execute with command='refload' and accepted path", () => {
+  it("sends bridge:myra-command-execute with command='refload' and accepted path", async () => {
     const myraExecuteCommand = vi.fn(async () => {});
     const deps = createMockDeps({
       promptUser: () => "/home/models/test-reference.obj",
       myraExecuteCommand,
     });
 
-    handleReferenceModelLoad(deps);
+    await handleReferenceModelLoad(deps);
 
     expect(myraExecuteCommand).toHaveBeenCalledWith(
       "Load Ref Model",
@@ -54,7 +54,7 @@ describe("handleReferenceModelLoad", () => {
     );
   });
 
-  it("does NOT call myraExecuteCommand when prompt is cancelled (null path)", () => {
+  it("does NOT call myraExecuteCommand when prompt is cancelled (null path)", async () => {
     const myraExecuteCommand = vi.fn(async () => {});
     const setStatus = vi.fn();
     const deps = createMockDeps({
@@ -63,7 +63,7 @@ describe("handleReferenceModelLoad", () => {
       setStatus,
     });
 
-    handleReferenceModelLoad(deps);
+    await handleReferenceModelLoad(deps);
 
     expect(myraExecuteCommand).not.toHaveBeenCalled();
     expect(setStatus).toHaveBeenCalledWith(
@@ -74,7 +74,7 @@ describe("handleReferenceModelLoad", () => {
     );
   });
 
-  it("does NOT call myraExecuteCommand when prompt returns empty string", () => {
+  it("does NOT call myraExecuteCommand when prompt returns empty string", async () => {
     const myraExecuteCommand = vi.fn(async () => {});
     const setStatus = vi.fn();
     const deps = createMockDeps({
@@ -83,7 +83,7 @@ describe("handleReferenceModelLoad", () => {
       setStatus,
     });
 
-    handleReferenceModelLoad(deps);
+    await handleReferenceModelLoad(deps);
 
     expect(myraExecuteCommand).not.toHaveBeenCalled();
     expect(setStatus).toHaveBeenCalledWith(

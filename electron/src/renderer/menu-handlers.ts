@@ -23,12 +23,17 @@ export type { MenuHandlerDeps };
  * Prompts for a file path; if accepted, sends a `bridge:myra-command-execute`
  * request with command "refload" and the path as an argument.
  */
-export function handleReferenceModelLoad(deps: MenuHandlerDeps): void {
+export async function handleReferenceModelLoad(deps: MenuHandlerDeps): Promise<void> {
   deps.log("[renderer] Menu event received: menu:reference-model-load");
-  const path = deps.promptUser(
-    "Load Reference Model — Enter file path\n\nSupported: .obj .fbx .gltf .glb .stl .dae .x .3ds .blend",
-    "",
-  );
+  const path = deps.promptUserAsync
+    ? await deps.promptUserAsync(
+      "Load Reference Model — Enter file path\n\nSupported: .obj .fbx .gltf .glb .stl .dae .x .3ds .blend",
+      "",
+    )
+    : deps.promptUser(
+      "Load Reference Model — Enter file path\n\nSupported: .obj .fbx .gltf .glb .stl .dae .x .3ds .blend",
+      "",
+    );
   if (path) {
     deps.log(`[renderer] Accepted path: "${path}"`);
     void deps.myraExecuteCommand("Load Ref Model", "refload", [path]);
