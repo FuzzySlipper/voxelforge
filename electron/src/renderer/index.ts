@@ -264,48 +264,62 @@ function setupMeshSubscription(): void {
 function setupMenuEventListeners(): void {
   // ── File menu ──
   window.voxelforgeBridge.onEvent("menu:file-new", () => {
+    console.log("[renderer] Menu event received: menu:file-new");
     // Confirm in the renderer before clearing
     if (window.confirm("Clear the current model? Unsaved changes will be lost.")) {
       void runAction("New Project", "bridge:project-new", {});
+    } else {
+      console.log("[renderer] menu:file-new cancelled by user");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:file-open", () => {
+    console.log("[renderer] Menu event received: menu:file-open");
     const path = window.prompt("Enter project file path (.vforge):", ui.projectPath.value);
     if (path) {
       ui.projectPath.value = path;
       void runAction("Open", "bridge:project-load", { path });
+    } else {
+      console.log("[renderer] menu:file-open cancelled by user");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:file-save", () => {
+    console.log("[renderer] Menu event received: menu:file-save");
     void runAction("Save", "bridge:project-save", { path: ui.projectPath.value });
   });
 
   window.voxelforgeBridge.onEvent("menu:file-save-as", () => {
+    console.log("[renderer] Menu event received: menu:file-save-as");
     const path = window.prompt("Save project as (.vforge):", ui.projectPath.value);
     if (path) {
       const fullPath = path.endsWith(".vforge") ? path : path + ".vforge";
       ui.projectPath.value = fullPath;
       void runAction("Save As", "bridge:project-save", { path: fullPath });
+    } else {
+      console.log("[renderer] menu:file-save-as cancelled by user");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:file-exit", () => {
+    console.log("[renderer] Menu event received: menu:file-exit");
     // Main process already closes the window; we just log
     console.log("[renderer] Exit requested via native menu.");
   });
 
   // ── Edit menu ──
   window.voxelforgeBridge.onEvent("menu:edit-undo", () => {
+    console.log("[renderer] Menu event received: menu:edit-undo");
     void runAction("Undo", "bridge:history-undo", {});
   });
 
   window.voxelforgeBridge.onEvent("menu:edit-redo", () => {
+    console.log("[renderer] Menu event received: menu:edit-redo");
     void runAction("Redo", "bridge:history-redo", {});
   });
 
   window.voxelforgeBridge.onEvent("menu:edit-fill-region", () => {
+    console.log("[renderer] Menu event received: menu:edit-fill-region");
     const x1 = parseInt(window.prompt("Fill Region — X1:") ?? "", 10);
     const y1 = parseInt(window.prompt("Fill Region — Y1:") ?? "", 10);
     const z1 = parseInt(window.prompt("Fill Region — Z1:") ?? "", 10);
@@ -317,14 +331,18 @@ function setupMenuEventListeners(): void {
       void executeCommand("fill_box", {
         x1, y1, z1, x2, y2, z2, palette_index: idx,
       });
+    } else {
+      console.log("[renderer] menu:edit-fill-region cancelled or invalid input");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:edit-palette-list", () => {
+    console.log("[renderer] Menu event received: menu:edit-palette-list");
     void executeCommand("list_palette", {});
   });
 
   window.voxelforgeBridge.onEvent("menu:edit-palette-add", () => {
+    console.log("[renderer] Menu event received: menu:edit-palette-add");
     const indexStr = window.prompt("Add Material — Index:") ?? "";
     const name = window.prompt("Add Material — Name:") ?? "";
     const r = parseInt(window.prompt("Add Material — R (0-255):") ?? "255", 10);
@@ -339,10 +357,12 @@ function setupMenuEventListeners(): void {
   });
 
   window.voxelforgeBridge.onEvent("menu:edit-regions-list", () => {
+    console.log("[renderer] Menu event received: menu:edit-regions-list");
     void executeCommand("list_regions", {});
   });
 
   window.voxelforgeBridge.onEvent("menu:edit-regions-label", () => {
+    console.log("[renderer] Menu event received: menu:edit-regions-label");
     const regionName = window.prompt("Label Voxel — Region Name:");
     const x = parseInt(window.prompt("Label Voxel — X:") ?? "", 10);
     const y = parseInt(window.prompt("Label Voxel — Y:") ?? "", 10);
@@ -351,29 +371,38 @@ function setupMenuEventListeners(): void {
       void executeCommand("assign_voxels_to_region", {
         region_name: regionName, x, y, z,
       });
+    } else {
+      console.log("[renderer] menu:edit-regions-label cancelled or invalid input");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:edit-clear-all", () => {
+    console.log("[renderer] Menu event received: menu:edit-clear-all");
     if (window.confirm("Remove all voxels from the model?")) {
       void executeCommand("clear_model", {});
+    } else {
+      console.log("[renderer] menu:edit-clear-all cancelled by user");
     }
   });
 
   // ── View menu ──
   window.voxelforgeBridge.onEvent("menu:view-front", () => {
+    console.log("[renderer] Menu event received: menu:view-front");
     try { scene.snapCameraToView("front"); } catch (e) { console.warn("[menu] view-front:", e); }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-side", () => {
+    console.log("[renderer] Menu event received: menu:view-side");
     try { scene.snapCameraToView("side"); } catch (e) { console.warn("[menu] view-side:", e); }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-top", () => {
+    console.log("[renderer] Menu event received: menu:view-top");
     try { scene.snapCameraToView("top"); } catch (e) { console.warn("[menu] view-top:", e); }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-wireframe", () => {
+    console.log("[renderer] Menu event received: menu:view-wireframe");
     try {
       wireframeVisible = !wireframeVisible;
       scene.setWireframeVisible(wireframeVisible);
@@ -382,26 +411,34 @@ function setupMenuEventListeners(): void {
   });
 
   window.voxelforgeBridge.onEvent("menu:view-grid-size", () => {
+    console.log("[renderer] Menu event received: menu:view-grid-size");
     const sizeStr = window.prompt("Grid Size (1-256):", "32");
     const size = parseInt(sizeStr ?? "", 10);
     if (!isNaN(size) && size >= 1 && size <= 256) {
       void executeCommand("set_grid_hint", { size });
+    } else {
+      console.log("[renderer] menu:view-grid-size cancelled or invalid input");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-measure-grid", () => {
+    console.log("[renderer] Menu event received: menu:view-measure-grid");
     void executeCommand("toggle_measure_grid", {});
   });
 
   window.voxelforgeBridge.onEvent("menu:view-measure-scale", () => {
+    console.log("[renderer] Menu event received: menu:view-measure-scale");
     const scaleStr = window.prompt("Voxels per meter (e.g. 8):", "8");
     const scale = parseFloat(scaleStr ?? "");
     if (!isNaN(scale) && scale > 0) {
       void executeCommand("set_measure_scale", { voxels_per_meter: scale });
+    } else {
+      console.log("[renderer] menu:view-measure-scale cancelled or invalid input");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:view-bg-color", () => {
+    console.log("[renderer] Menu event received: menu:view-bg-color");
     const r = parseInt(window.prompt("Background Color — R (0-255):", "43") ?? "43", 10);
     const g = parseInt(window.prompt("Background Color — G (0-255):", "43") ?? "43", 10);
     const b = parseInt(window.prompt("Background Color — B (0-255):", "43") ?? "43", 10);
@@ -412,33 +449,53 @@ function setupMenuEventListeners(): void {
 
   // ── Help menu ──
   window.voxelforgeBridge.onEvent("menu:help-about", () => {
+    console.log("[renderer] Menu event received: menu:help-about");
     setStatus("About VoxelForge — Voxel Authoring Tool with LLM integration. Coordinate System: Y-up (right-handed). R=X, G=Y, B=Z.");
   });
 
   // ── Reference Model menu ──
   window.voxelforgeBridge.onEvent("menu:reference-model-load", () => {
+    console.log("[renderer] Menu event received: menu:reference-model-load");
     const path = window.prompt("Load Reference Model — Enter file path\n\nSupported: .obj .fbx .gltf .glb .stl .dae .x .3ds .blend", "");
-    if (path) void myraExecuteCommand("Load Ref Model", "refload", [path]);
+    if (path) {
+      void myraExecuteCommand("Load Ref Model", "refload", [path]);
+    } else {
+      console.log("[renderer] menu:reference-model-load cancelled by user (no path entered)");
+      setStatus("Load Reference Model cancelled.");
+    }
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-model-list", () => {
+    console.log("[renderer] Menu event received: menu:reference-model-list");
     void myraExecuteCommand("List Ref Models", "reflist", []);
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-model-remove", () => {
+    console.log("[renderer] Menu event received: menu:reference-model-remove");
     const idx = promptInt("Remove Reference Model — enter index:");
-    if (idx !== null) void myraExecuteCommand("Remove Ref Model", "refremove", [String(idx)]);
+    if (idx !== null) {
+      void myraExecuteCommand("Remove Ref Model", "refremove", [String(idx)]);
+    } else {
+      console.log("[renderer] menu:reference-model-remove cancelled by user");
+    }
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-clear", () => {
+    console.log("[renderer] Menu event received: menu:reference-clear");
     if (window.confirm("Remove all reference models?")) {
       void myraExecuteCommand("Clear References", "refclear", []);
+    } else {
+      console.log("[renderer] menu:reference-clear cancelled by user");
     }
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-transform", () => {
+    console.log("[renderer] Menu event received: menu:reference-transform");
     const idx = promptInt("Transform — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-transform cancelled by user");
+      return;
+    }
     const x = promptFloat("Transform — Position X:", "0");
     if (x === null) return;
     const y = promptFloat("Transform — Position Y:", "0");
@@ -460,52 +517,95 @@ function setupMenuEventListeners(): void {
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-mode", () => {
+    console.log("[renderer] Menu event received: menu:reference-mode");
     const idx = promptInt("Render Mode — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-mode cancelled by user");
+      return;
+    }
     const mode = window.prompt("Render Mode — Enter mode (wireframe | solid | transparent):", "solid");
-    if (mode) void myraExecuteCommand("Set Mode", "refmode", [String(idx), mode]);
+    if (mode) {
+      void myraExecuteCommand("Set Mode", "refmode", [String(idx), mode]);
+    } else {
+      console.log("[renderer] menu:reference-mode cancelled — no mode entered");
+    }
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-visibility", () => {
+    console.log("[renderer] Menu event received: menu:reference-visibility");
     const idx = promptInt("Toggle Visibility — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-visibility cancelled by user");
+      return;
+    }
     const show = window.confirm("Show reference model? (Cancel = hide)");
     void myraExecuteCommand("Visibility", show ? "refshow" : "refhide", [String(idx)]);
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-scale", () => {
+    console.log("[renderer] Menu event received: menu:reference-scale");
     const idx = promptInt("Scale — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-scale cancelled by user");
+      return;
+    }
     const scale = promptFloat("Scale — Value:", "1.0");
-    if (scale === null) return;
+    if (scale === null) {
+      console.log("[renderer] menu:reference-scale cancelled — no scale entered");
+      return;
+    }
     void myraExecuteCommand("Scale", "refscale", [String(idx), String(scale)]);
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-rotate", () => {
+    console.log("[renderer] Menu event received: menu:reference-rotate");
     const idx = promptInt("Rotate — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-rotate cancelled by user");
+      return;
+    }
     const axis = window.prompt("Rotate — Axis (x | y | z):", "y");
-    if (!axis) return;
+    if (!axis) {
+      console.log("[renderer] menu:reference-rotate cancelled — no axis entered");
+      return;
+    }
     const degrees = promptFloat("Rotate — Degrees (default 90):", "90");
-    if (degrees === null) return;
+    if (degrees === null) {
+      console.log("[renderer] menu:reference-rotate cancelled — no degrees entered");
+      return;
+    }
     void myraExecuteCommand("Rotate", "refrotate", [String(idx), axis, String(degrees)]);
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-orient", () => {
+    console.log("[renderer] Menu event received: menu:reference-orient");
     const idx = promptInt("Auto-Orient — Reference Model Index:");
-    if (idx !== null) void myraExecuteCommand("Auto-Orient", "reforient", [String(idx)]);
+    if (idx === null) {
+      console.log("[renderer] menu:reference-orient cancelled by user");
+      return;
+    }
+    void myraExecuteCommand("Auto-Orient", "reforient", [String(idx)]);
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-info", () => {
+    console.log("[renderer] Menu event received: menu:reference-info");
     const idx = promptInt("Inspect — Reference Model Index:");
-    if (idx !== null) void myraExecuteCommand("Inspect", "refinfo", [String(idx)]);
+    if (idx === null) {
+      console.log("[renderer] menu:reference-info cancelled by user");
+      return;
+    }
+    void myraExecuteCommand("Inspect", "refinfo", [String(idx)]);
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-animation", (payload: unknown) => {
+    console.log("[renderer] Menu event received: menu:reference-animation");
     const data = payload as { action?: string };
     const action = data?.action ?? "list";
     const idx = promptInt("Animation — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-animation cancelled by user");
+      return;
+    }
     const clipPrompt = action === "play" ? window.prompt("Animation Play — Clip index or name (optional):", "0") : null;
     const args = [String(idx), action];
     if (clipPrompt) args.push(clipPrompt);
@@ -514,10 +614,17 @@ function setupMenuEventListeners(): void {
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-texture-assign", () => {
+    console.log("[renderer] Menu event received: menu:reference-texture-assign");
     const idx = promptInt("Texture Assign — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-texture-assign cancelled by user");
+      return;
+    }
     const texPath = window.prompt("Texture Assign — Texture file path:", "");
-    if (!texPath) return;
+    if (!texPath) {
+      console.log("[renderer] menu:reference-texture-assign cancelled — no path entered");
+      return;
+    }
     const meshIdx = window.prompt("Texture Assign — Mesh index (optional, blank for all):", "");
     const args = [String(idx), texPath];
     if (meshIdx) args.push(meshIdx);
@@ -525,12 +632,22 @@ function setupMenuEventListeners(): void {
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-emissive-assign", () => {
+    console.log("[renderer] Menu event received: menu:reference-emissive-assign");
     const idx = promptInt("Emissive Assign — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-emissive-assign cancelled by user");
+      return;
+    }
     const texPath = window.prompt("Emissive Assign — Texture file path:", "");
-    if (!texPath) return;
+    if (!texPath) {
+      console.log("[renderer] menu:reference-emissive-assign cancelled — no path entered");
+      return;
+    }
     const brightness = promptFloat("Emissive Assign — Brightness (default 1.0):", "1.0");
-    if (brightness === null) return;
+    if (brightness === null) {
+      console.log("[renderer] menu:reference-emissive-assign cancelled — no brightness entered");
+      return;
+    }
     const meshIdx = window.prompt("Emissive Assign — Mesh index (optional):", "");
     const args = [String(idx), texPath, String(brightness)];
     if (meshIdx) args.push(meshIdx);
@@ -538,54 +655,94 @@ function setupMenuEventListeners(): void {
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-meta-save", () => {
+    console.log("[renderer] Menu event received: menu:reference-meta-save");
     const idx = promptInt("Save Meta — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:reference-meta-save cancelled by user");
+      return;
+    }
     const path = promptPath("Save Meta — Enter .refmeta path:", `${idx}.refmeta`);
-    if (path) void myraExecuteCommand("Save Meta", "refsave", [String(idx), path]);
+    if (path) {
+      void myraExecuteCommand("Save Meta", "refsave", [String(idx), path]);
+    } else {
+      console.log("[renderer] menu:reference-meta-save cancelled — no path entered");
+    }
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-meta-load", () => {
+    console.log("[renderer] Menu event received: menu:reference-meta-load");
     const path = promptPath("Load Meta — Enter .refmeta file path:", "");
-    if (path) void myraExecuteCommand("Load Meta", "refloadmeta", [path]);
+    if (path) {
+      void myraExecuteCommand("Load Meta", "refloadmeta", [path]);
+    } else {
+      console.log("[renderer] menu:reference-meta-load cancelled — no path entered");
+    }
   });
 
   // ── Image Reference menu ──
   window.voxelforgeBridge.onEvent("menu:image-ref-load", () => {
+    console.log("[renderer] Menu event received: menu:image-ref-load");
     const path = promptPath("Load Image Reference — Enter file path:", "");
-    if (path) void myraExecuteCommand("Load Image Ref", "imgload", [path]);
+    if (path) {
+      void myraExecuteCommand("Load Image Ref", "imgload", [path]);
+    } else {
+      console.log("[renderer] menu:image-ref-load cancelled — no path entered");
+    }
   });
 
   window.voxelforgeBridge.onEvent("menu:image-ref-list", () => {
+    console.log("[renderer] Menu event received: menu:image-ref-list");
     void myraExecuteCommand("List Image Refs", "imglist", []);
   });
 
   window.voxelforgeBridge.onEvent("menu:image-ref-remove", () => {
+    console.log("[renderer] Menu event received: menu:image-ref-remove");
     const idx = promptInt("Remove Image Ref — enter index:");
-    if (idx !== null) void myraExecuteCommand("Remove Image Ref", "imgremove", [String(idx)]);
+    if (idx !== null) {
+      void myraExecuteCommand("Remove Image Ref", "imgremove", [String(idx)]);
+    } else {
+      console.log("[renderer] menu:image-ref-remove cancelled by user");
+    }
   });
 
   // ── Voxelize menu ──
   window.voxelforgeBridge.onEvent("menu:voxelize-execute", () => {
+    console.log("[renderer] Menu event received: menu:voxelize-execute");
     const idx = promptInt("Voxelize — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:voxelize-execute cancelled by user");
+      return;
+    }
     const resolution = promptInt("Voxelize — Resolution (2-256):", "32");
-    if (resolution === null) return;
+    if (resolution === null) {
+      console.log("[renderer] menu:voxelize-execute cancelled — no resolution entered");
+      return;
+    }
     const mode = window.prompt("Voxelize — Mode (surface | solid):", "solid");
     if (mode && !mode.match(/^(surface|solid)$/i)) {
       setStatus("Invalid mode. Use 'surface' or 'solid'.");
+      console.log("[renderer] menu:voxelize-execute invalid mode:", mode);
       return;
     }
     void myraExecuteCommand("Voxelize", "voxelize", [String(idx), String(resolution), mode ?? "solid"]);
   });
 
   window.voxelforgeBridge.onEvent("menu:voxelize-compare", () => {
+    console.log("[renderer] Menu event received: menu:voxelize-compare");
     const idx = promptInt("Voxelize Compare — Reference Model Index:");
-    if (idx === null) return;
+    if (idx === null) {
+      console.log("[renderer] menu:voxelize-compare cancelled by user");
+      return;
+    }
     const resolutions = window.prompt("Voxelize Compare — Resolutions (comma-separated, e.g. 16,32,64):", "16,32,64");
-    if (!resolutions) return;
+    if (!resolutions) {
+      console.log("[renderer] menu:voxelize-compare cancelled — no resolutions entered");
+      return;
+    }
     const mode = window.prompt("Voxelize Compare — Mode (surface | solid):", "solid");
     if (mode && !mode.match(/^(surface|solid)$/i)) {
       setStatus("Invalid mode. Use 'surface' or 'solid'.");
+      console.log("[renderer] menu:voxelize-compare invalid mode:", mode);
       return;
     }
     void myraExecuteCommand("Voxelize Compare", "voxcompare", [String(idx), resolutions, mode ?? "solid"]);
