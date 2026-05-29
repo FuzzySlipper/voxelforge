@@ -186,6 +186,12 @@ public static class VoxelForgeMcpToolRegistry
         services.AddSingleton<McpServerTool, SetReferenceModelTextureServerTool>();
         services.AddSingleton<McpServerTool, SetReferenceTextureSamplingServerTool>();
 
+        // Reference state preset tools
+        services.AddSingleton<ExportReferenceStatePresetMcpTool>();
+        services.AddSingleton<ImportReferenceStatePresetMcpTool>();
+        services.AddSingleton<McpServerTool, ExportReferenceStatePresetServerTool>();
+        services.AddSingleton<McpServerTool, ImportReferenceStatePresetServerTool>();
+
         services.AddSingleton<McpServerTool, GetRegionNeighborsServerTool>();
         services.AddSingleton<McpServerTool, GetInterfaceVoxelsServerTool>();
         services.AddSingleton<McpServerTool, MeasureDistanceServerTool>();
