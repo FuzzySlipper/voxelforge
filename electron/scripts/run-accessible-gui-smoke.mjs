@@ -319,6 +319,7 @@ async function main() {
   let app;
   let page;
   let consoleLogs = [];
+  let finalLogs = [];
   const results = {};
   let exitCode = 0;
 
@@ -357,7 +358,7 @@ async function main() {
     exitCode = 1;
   } finally {
     // Collect final console logs
-    const finalLogs = consoleLogs.length > 0 ? consoleLogs : [];
+    finalLogs = consoleLogs.length > 0 ? consoleLogs : [];
     results.console_logs = finalLogs;
 
     // Cleanup
