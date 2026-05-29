@@ -12,6 +12,8 @@ import type { MeshSnapshotData, MeshUpdateEventData, PaletteUpdateEventData } fr
 import { titleCase, formatError, escapeHtml } from "../shared/string-utils";
 import { createCoalescer } from "../shared/refresh-coalescer";
 import { CommandPalette } from "./command-palette-ui";
+import { createRendererDeps } from "./menu-handler-deps";
+import { handleReferenceModelLoad } from "./menu-handlers";
 
 declare global {
   interface Window {
@@ -455,14 +457,12 @@ function setupMenuEventListeners(): void {
 
   // ── Reference Model menu ──
   window.voxelforgeBridge.onEvent("menu:reference-model-load", () => {
-    console.log("[renderer] Menu event received: menu:reference-model-load");
-    const path = window.prompt("Load Reference Model — Enter file path\n\nSupported: .obj .fbx .gltf .glb .stl .dae .x .3ds .blend", "");
-    if (path) {
-      void myraExecuteCommand("Load Ref Model", "refload", [path]);
-    } else {
-      console.log("[renderer] menu:reference-model-load cancelled by user (no path entered)");
-      setStatus("Load Reference Model cancelled.");
-    }
+    handleReferenceModelLoad(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   });
 
   window.voxelforgeBridge.onEvent("menu:reference-model-list", () => {
