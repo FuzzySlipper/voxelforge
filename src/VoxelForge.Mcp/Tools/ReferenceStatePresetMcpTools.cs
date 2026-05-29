@@ -346,6 +346,7 @@ public sealed class ImportReferenceStatePresetMcpTool : ModelLifecycleMcpToolBas
                                 newMesh.WrapT = mesh.WrapT;
                                 newMesh.SamplingControlsSource = mesh.SamplingControlsSource;
                                 model.Meshes[ov.MeshIndex] = newMesh;
+                                mesh = newMesh; // chain: subsequent rebakes use this rebaked mesh
                             }
                             else
                             {

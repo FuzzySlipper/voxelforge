@@ -575,6 +575,85 @@ public sealed class ReferenceStatePresetTests : IDisposable
         Assert.Contains("Incompatible schema version", result.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MCP_ImportTool_DiffuseAndEmissiveOverride_PreservesBoth()
+    {
+        // This test validates that when a PresetMeshOverride has both
+        // DiffuseTexturePath and EmissiveTexturePath on the same mesh,
+        // the import pipeline chains rebakes correctly (the emissive rebake
+        // uses the diffuse-rebaked mesh, not the original).
+
+        var loggerFactory = NullLoggerFactory.Instance;
+        var loader = new ReferenceModelLoader(loggerFactory.CreateLogger<ReferenceModelLoader>());
+        var assetService = new ReferenceAssetService(loader);
+
+        // Create valid PNG texture files
+        var diffuseTexPath = Path.Combine(_tempDir, "override_diffuse.png");
+        var emissiveTexPath = Path.Combine(_tempDir, "override_emissive.png");
+
+        // 1x1 white PNG (valid base64)
+        var tinyPng = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=");
+        File.WriteAllBytes(diffuseTexPath, tinyPng);
+        File.WriteAllBytes(emissiveTexPath, tinyPng);
+
+        // Create a preset file with a single entry that has both diffuse and
+        // emissive overrides on mesh index 0
+        var presetPath = Path.Combine(_tempDir, "dual_override_preset.json");
+        var presetJson = $$"""
+        {
+            "schemaVersion": 1,
+            "label": "DualOverrideTest",
+            "entries": [
+                {
+                    "sourcePath": "{{_objWithUvsPath}}",
+                    "format": "OBJ",
+                    "positionX": 0, "positionY": 0, "positionZ": 0,
+                    "rotationX": 0, "rotationY": 0, "rotationZ": 0,
+                    "scale": 1, "isVisible": true, "renderMode": "solid",
+                    "meshOverrides": [
+                        {
+                            "meshIndex": 0,
+                            "diffuseTexturePath": "{{diffuseTexPath}}",
+                            "emissiveTexturePath": "{{emissiveTexPath}}",
+                            "emissiveBrightness": 0.5
+                        }
+                    ]
+                }
+            ]
+        }
+        """;
+        File.WriteAllText(presetPath, presetJson);
+
+        var session = new VoxelForgeMcpSession(new EditorConfigState(), loggerFactory);
+
+        var importTool = new ImportReferenceStatePresetMcpTool(
+            session, loader, assetService, loggerFactory);
+        var importResult = importTool.Invoke(
+            JsonSerializer.SerializeToElement(new
+            {
+                preset_path = presetPath
+            }),
+            CancellationToken.None);
+
+        Assert.True(importResult.Success, importResult.Message);
+        Assert.Single(session.ReferenceModels.Models);
+
+        var restored = session.ReferenceModels.Get(0);
+        Assert.NotNull(restored);
+        Assert.NotEmpty(restored.Meshes);
+
+        var mesh = restored.Meshes[0];
+        Assert.NotNull(mesh.DiffuseTexturePath);
+        Assert.NotNull(mesh.EmissiveTexturePath);
+
+        // Both override paths must be preserved — diffuse was not lost to the
+        // emissive rebake
+        Assert.Equal(diffuseTexPath, mesh.DiffuseTexturePath);
+        Assert.Equal(emissiveTexPath, mesh.EmissiveTexturePath);
+        Assert.Equal(0.5f, mesh.EmissiveBrightness);
+    }
+
     // ── Helpers ──
 
     private static ReferenceModelData CreateSimpleModel(string fileName)

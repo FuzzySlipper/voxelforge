@@ -259,7 +259,13 @@ public sealed class ReferenceStatePresetEntry
     /// <summary>File format hint (e.g. "FBX", "OBJ", "GLTF").</summary>
     public string? Format { get; set; }
 
-    /// <summary>Label from the import/source pipeline (e.g. "assimp", "unity_sidecar").</summary>
+    /// <summary>
+    /// Label from the import/source pipeline (e.g. "assimp", "unity_sidecar").
+    /// NOTE: This is a forward-looking/manual field. It is not currently
+    /// populated by <see cref="ReferenceStatePreset.FromModels"/> and is not
+    /// consumed by the import preset pipeline (<c>ApplyPreset</c>). It exists
+    /// for agent or manual annotation use.
+    /// </summary>
     public string? ImportSourceLabel { get; set; }
 
     // ── Transform ──
@@ -291,7 +297,13 @@ public sealed class ReferenceStatePresetEntry
 
     // ── Provenance ──
 
-    /// <summary>Free-form provenance or workflow context for this entry.</summary>
+    /// <summary>
+    /// Free-form provenance or workflow context for this entry.
+    /// NOTE: This is a forward-looking/manual field. It is not currently
+    /// populated by <see cref="ReferenceStatePreset.FromModels"/> and is not
+    /// consumed by the import preset pipeline (<c>ApplyPreset</c>). It exists
+    /// for agent or manual annotation use.
+    /// </summary>
     public string? Provenance { get; set; }
 }
 
