@@ -43,8 +43,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  // For renderer-only mode (no sidecar): used by GUI smoke tests that just
-  // need to verify the renderer HTML loads in a BrowserWindow.
+  // For renderer-only mode (no sidecar): used by GUI smoke tests that verify
+  // the packaged renderer HTML and accessible menu can run in a BrowserWindow.
   if (isRendererOnly) {
     await runRendererOnly(repoRoot);
     return;
@@ -379,6 +379,8 @@ async function runSmokeTest(repoRoot: string | null): Promise<void> {
 async function runRendererOnly(repoRoot: string | null): Promise<void> {
   console.log("[electron] Starting renderer-only mode (no sidecar)...");
 
+  setupRendererOnlyIpcHandlers();
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -408,6 +410,125 @@ async function runRendererOnly(repoRoot: string | null): Promise<void> {
   });
 
   console.log("[electron] Renderer-only window created and ready.");
+}
+
+function setupRendererOnlyIpcHandlers(): void {
+  const state = createRendererOnlyState();
+  const renderSnapshot = createRendererOnlyRenderSnapshot(state);
+
+  const handlers: Record<string, (_event: Electron.IpcMainInvokeEvent, payload: unknown) => unknown> = {
+    "bridge:handshake": () => ({
+      sidecar_schema_version: "voxelforge@1-renderer-only",
+      compatible: true,
+      supported_capabilities: ["mesh_json", "state_snapshot", "state_delta", "commands", "history", "project_io"],
+    }),
+    "bridge:state-subscribe": () => ({ subscription_id: "renderer-only-state", snapshot: state }),
+    "bridge:state-request-full": () => ({ snapshot: state }),
+    "bridge:mesh-subscribe": () => ({ subscription_id: "renderer-only-mesh" }),
+    "bridge:mesh-unsubscribe": () => ({ success: true }),
+    "bridge:render-snapshot": () => renderSnapshot,
+    "bridge:mesh-snapshot": () => renderSnapshot,
+    "bridge:render-state": () => ({ snapshot: state }),
+    "bridge:palette-get": () => ({ palette_id: "renderer-only-palette", entry_count: state.palette_entries.length, entries: state.palette_entries }),
+    "bridge:command-execute": (_event, payload) => createRendererOnlyCommandResponse(state, "Command executed in renderer-only smoke mode.", payload),
+    "bridge:history-undo": (_event, payload) => createRendererOnlyCommandResponse(state, "Undo is unavailable in renderer-only smoke mode.", payload),
+    "bridge:history-redo": (_event, payload) => createRendererOnlyCommandResponse(state, "Redo is unavailable in renderer-only smoke mode.", payload),
+    "bridge:project-new": (_event, payload) => createRendererOnlyCommandResponse(state, "New project simulated in renderer-only smoke mode.", payload),
+    "bridge:project-load": (_event, payload) => createRendererOnlyCommandResponse(state, "Project load simulated in renderer-only smoke mode.", payload),
+    "bridge:project-save": (_event, payload) => createRendererOnlyCommandResponse(state, "Project save simulated in renderer-only smoke mode.", payload),
+    "bridge:myra-command-execute": (_event, payload) => ({
+      success: true,
+      message: `Renderer-only Myra command simulated: ${formatRendererOnlyCommand(payload)}`,
+      state,
+    }),
+    "bridge:ping": () => ({ echo: "renderer-only", timestamp: Date.now() }),
+    "bridge:version-handshake": () => ({ app_id: "voxelforge", app_version: "renderer-only", compatible: true }),
+  };
+
+  for (const [channel, handler] of Object.entries(handlers)) {
+    try {
+      ipcMain.removeHandler(channel);
+    } catch {
+      // Older Electron builds can throw if the channel was never registered.
+    }
+    ipcMain.handle(channel, handler);
+  }
+}
+
+function createRendererOnlyState() {
+  return {
+    model_id: "renderer-only-smoke",
+    project_path: "",
+    is_dirty: false,
+    voxel_count: 0,
+    bounds: undefined,
+    grid_hint: 32,
+    active_tool: "place",
+    active_palette_index: 1,
+    available_tools: ["place", "remove", "paint", "select"],
+    palette_entries: [
+      { index: 1, name: "Smoke Material", color: "#9ad0ff", a: 255, visible: true },
+    ],
+    palette_entry_count: 1,
+    can_undo: false,
+    can_redo: false,
+    undo_depth: 0,
+    redo_depth: 0,
+    selected_voxel_count: 0,
+    active_frame_index: 0,
+    status_message: "Renderer-only smoke harness active.",
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function createRendererOnlyRenderSnapshot(state: ReturnType<typeof createRendererOnlyState>) {
+  return {
+    schema_version: "voxelforge.render_scene@1",
+    revision: 0,
+    model_id: state.model_id,
+    source: { host: "electron-renderer-only", capabilities: ["renderer_smoke"] },
+    bounds: null,
+    reference_bounds: null,
+    combined_bounds: null,
+    voxel_meshes: [],
+    reference_nodes: [],
+    materials: [],
+    textures: [],
+    palette: state.palette_entries.map((entry) => ({
+      index: entry.index,
+      name: entry.name,
+      r: 154,
+      g: 208,
+      b: 255,
+      a: entry.a,
+      visible: entry.visible,
+    })),
+    diagnostics: [{ severity: "info", code: "renderer_only", message: "Renderer-only smoke snapshot; no C# sidecar is running." }],
+  };
+}
+
+function createRendererOnlyCommandResponse(
+  state: ReturnType<typeof createRendererOnlyState>,
+  message: string,
+  _payload: unknown,
+) {
+  return {
+    success: true,
+    message,
+    mesh_changed: false,
+    state,
+  };
+}
+
+function formatRendererOnlyCommand(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    return "unknown";
+  }
+  const command = (payload as { command?: unknown }).command;
+  if (typeof command === "string" && command) {
+    return command;
+  }
+  return "unknown";
 }
 
 async function runRenderer(repoRoot: string | null): Promise<void> {

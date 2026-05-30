@@ -289,9 +289,31 @@ async function screenshot(page, name) {
 
 async function collectAccessibilitySnapshot(page) {
   try {
-    // Playwright's built-in accessibility snapshot (Chrome DevTools Protocol)
-    const snapshot = await page.accessibility.snapshot();
-    return snapshot;
+    // Playwright's built-in accessibility snapshot (older Playwright builds).
+    if (page.accessibility?.snapshot) {
+      return await page.accessibility.snapshot();
+    }
+
+    // Current Playwright Electron pages may not expose page.accessibility.
+    // Fall back to the Chrome DevTools Protocol AX tree so the report still
+    // contains real accessibility evidence instead of a harness API error.
+    if (page.context?.().newCDPSession) {
+      const session = await page.context().newCDPSession(page);
+      const axTree = await session.send("Accessibility.getFullAXTree");
+      await session.detach().catch(() => {});
+      return {
+        source: "cdp.Accessibility.getFullAXTree",
+        node_count: Array.isArray(axTree.nodes) ? axTree.nodes.length : 0,
+        nodes: Array.isArray(axTree.nodes) ? axTree.nodes.slice(0, 200) : [],
+      };
+    }
+
+    // Last-resort semantic DOM inventory for non-CDP launches.
+    return await page.evaluate(() => Array.from(document.querySelectorAll("[role], button, input, a")).map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      role: el.getAttribute("role") || el.tagName.toLowerCase(),
+      label: el.getAttribute("aria-label") || el.textContent?.trim() || "",
+    })));
   } catch (err) {
     log(`  Accessibility snapshot failed: ${err.message}`);
     return { error: err.message };
