@@ -6,6 +6,7 @@ import { setupMenu } from "./menu";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const isRendererSmokeTest = process.argv.includes("--renderer-smoke-test");
+const isRendererOnly = process.argv.includes("--renderer-only");
 const forwardRendererConsole = process.env.VOXELFORGE_FORWARD_RENDERER_CONSOLE === "1" || process.argv.includes("--forward-renderer-console");
 const isHeadless = isSmokeTest || process.argv.includes("--headless");
 
@@ -39,6 +40,13 @@ async function main(): Promise<void> {
   // For smoke tests, use the simplified ping/version handshake flow
   if (isSmokeTest) {
     await runSmokeTest(repoRoot);
+    return;
+  }
+
+  // For renderer-only mode (no sidecar): used by GUI smoke tests that just
+  // need to verify the renderer HTML loads in a BrowserWindow.
+  if (isRendererOnly) {
+    await runRendererOnly(repoRoot);
     return;
   }
 
@@ -359,6 +367,47 @@ async function runSmokeTest(repoRoot: string | null): Promise<void> {
     bridgeClient.disconnect();
     shutdown(exitCode);
   }
+}
+
+/**
+ * Run the Electron renderer without a sidecar process.
+ * Creates a BrowserWindow loading the renderer HTML, sets up the native menu,
+ * and keeps the window open until closed. Used by the Playwright GUI smoke
+ * test harness to verify the renderer HTML loads correctly without needing
+ * the C# sidecar.
+ */
+async function runRendererOnly(repoRoot: string | null): Promise<void> {
+  console.log("[electron] Starting renderer-only mode (no sidecar)...");
+
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    title: "VoxelForge Mesh Viewer",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "preload", "index.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  mainWindow.loadFile(path.join(__dirname, "..", "renderer", "renderer.html"));
+
+  if (forwardRendererConsole) {
+    mainWindow.webContents.on("console-message", (details) => {
+      const source = details.sourceId ? `${details.sourceId}:${details.lineNumber}` : `line ${details.lineNumber}`;
+      console.log(`[renderer-console:${details.level}] ${details.message} (${source})`);
+    });
+  }
+
+  // Set up native application menu
+  setupMenu(mainWindow);
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    shutdown(0);
+  });
+
+  console.log("[electron] Renderer-only window created and ready.");
 }
 
 async function runRenderer(repoRoot: string | null): Promise<void> {
