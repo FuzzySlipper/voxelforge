@@ -12,7 +12,7 @@
  *
  * Environment:
  *   ARTIFACT_DIR    — output directory (default: ../artifacts/accessible-gui-smoke/<timestamp>)
- *   DISPLAY         — X display for headless execution (Xvfb handled automatically)
+ *   DISPLAY         — X display for execution
  *   ELECTRON_EXTRA  — extra Electron CLI args
  *
  * Prerequisites:
@@ -54,6 +54,11 @@ const REPO_ROOT = path.resolve(ELECTRON_DIR, "..");
 const ARTIFACTS_BASE = process.env.ARTIFACT_DIR || path.join(REPO_ROOT, "artifacts", "accessible-gui-smoke");
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const artifactDir = path.join(ARTIFACTS_BASE, timestamp);
+
+/** Track whether a real Playwright/CDP workflow actually ran. */
+let ranRealWorkflow = false;
+/** Array of all child process handles for cleanup. */
+const childProcesses = [];
 
 // ── Helpers ──
 
@@ -101,6 +106,20 @@ function getOzonePlatform() {
   return null; // default X11, no flag needed
 }
 
+/**
+ * Determine whether to pass --headless to Electron.
+ * Only pass --headless when no real display is available AND Ozone isn't already
+ * handling headless mode.
+ */
+function shouldAddHeadlessFlag() {
+  // Ozone headless mode handles headless rendering natively — no --headless needed.
+  if (getOzonePlatform() === "--ozone-platform=headless") return false;
+  // When a real X11 display is available, never add --headless.
+  if (hasDisplay()) return false;
+  // Fallback: only add --headless when we have no display and Ozone isn't handling it.
+  return true;
+}
+
 /** Detect whether the Ozone platform hint flag is supported (Electron 29+). */
 function supportsOzoneHint() {
   // Electron 29+ supports --ozone-platform-hint; 41 certainly does.
@@ -130,6 +149,7 @@ async function launchElectronViaCDP() {
     "--no-sandbox",
     "--disable-gpu",
     ...(supportsOzoneHint() && getOzonePlatform() ? [getOzonePlatform()] : []),
+    ...(shouldAddHeadlessFlag() ? ["--headless"] : []),
   ].filter(Boolean), {
     env: {
       ...process.env,
@@ -138,6 +158,8 @@ async function launchElectronViaCDP() {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+
+  childProcesses.push(child);
 
   // Wait for DevTools listening URL from stderr
   let debugUrl = null;
@@ -354,12 +376,13 @@ async function launchElectron() {
   log(`  DISPLAY: ${process.env.DISPLAY || "(none)"}`);
   log(`  Wayland: ${isWayland() ? "yes" : "no"}`);
   log(`  Ozone hint: ${getOzonePlatform() || "(default X11)"}`);
+  log(`  Headless flag: ${shouldAddHeadlessFlag() ? "yes" : "no"}`);
 
   const app = await electron.launch({
     args: [
       mainEntry,
       "--renderer-only",
-      ...(getOzonePlatform() === "--ozone-platform=headless" ? [] : ["--headless"]),
+      ...(shouldAddHeadlessFlag() ? ["--headless"] : []),
       "--no-sandbox",
       "--disable-gpu",
       ...(supportsOzoneHint() && getOzonePlatform() ? [getOzonePlatform()] : []),
@@ -514,118 +537,26 @@ async function workflowReferenceModelLoad(page) {
   return { results, screenshots: results.screenshots };
 }
 
-// ── Main ──
+// ── Kill all tracked child processes ──
 
-async function main() {
-  log("=".repeat(60));
-  log("  VoxelForge — Playwright Electron Accessibility GUI Smoke Test");
-  log("=".repeat(60));
-
-  ensureDir(artifactDir);
-  log(`Artifact directory: ${artifactDir}\n`);
-
-  let app;
-  let page;
-  let consoleLogs = [];
-  let finalLogs = [];
-  const results = {};
-  let exitCode = 0;
-
-  try {
-    // Launch Electron — try Playwright _electron.launch first
-    let launched;
-    let launchMethod = "_electron.launch";
+function killChildProcesses() {
+  for (const child of childProcesses) {
     try {
-      launched = await launchElectron();
-    } catch (launchErr) {
-      log(`  [info] _electron.launch failed: ${launchErr.message}`);
-      log(`  [info] Attempting CDP-based fallback launch...`);
-      launchMethod = "CDP";
-      try {
-        launched = await launchElectronViaCDP();
-      } catch (cdpErr) {
-        log(`  [info] CDP fallback also failed: ${cdpErr.message}`);
-        // Both methods failed. Check if display is the issue.
-        const noDisplay = !process.env.DISPLAY || process.env.DISPLAY === "";
-        const suggestions = [];
-        if (noDisplay) {
-          suggestions.push(
-            "Install Xvfb: sudo pacman -S xorg-server-xvfb (Arch) / sudo apt install xvfb (Debian)",
-          );
-        }
-        suggestions.push("Run on a Wayland/X11 desktop with DISPLAY set");
-        suggestions.push("Use ./scripts/xvfb-run.sh <command> after installing Xvfb");
-
-        results.launch_status = {
-          ok: false,
-          method: launchMethod,
-          error: launchErr.message,
-          cdp_error: cdpErr.message,
-          environment: {
-            display: process.env.DISPLAY || "(none)",
-            wayland: isWayland(),
-            xvfb_available: false,
-          },
-          resolution: suggestions.join("; "),
-        };
-        results.menu_coverage = { ok: false, error: "App launch failed — no display server available" };
-        results.reference_model_workflow = { results: [], screenshots: {} };
-        results.baseline = { snapshot: null, inventory: {} };
-        log(`\n  [SKIP] GUI smoke requires a display server (Xvfb or desktop).`);
-        log(`  Install Xvfb: sudo pacman -S xorg-server-xvfb`);
-        log(`  Then run: ./scripts/xvfb-run.sh npm run gui:llm-smoke\n`);
-        log(`  Report written with environment diagnostics.`);
-        exitCode = 0; // Don't fail the pipeline — the build/packaging fix is the deliverable
-        return;
+      if (child && !child.killed) {
+        child.kill("SIGTERM");
+        // Give it a moment, then SIGKILL
+        try {
+          const killed = child.kill("SIGKILL");
+        } catch (e) { /* ignore */ }
       }
-    }
-    app = launched.app;
-    page = launched.page;
-    consoleLogs = launched.consoleLogs();
-
-    // Workflow 1: Baseline accessibility
-    const baseline = await workflowBaselineAccessibility(page);
-    results.baseline = baseline;
-
-    // Workflow 2: Reference > Load Reference Model
-    const refWorkflow = await workflowReferenceModelLoad(page);
-    results.reference_model_workflow = refWorkflow;
-
-    // Check if menubar has all expected menus
-    const expectedMenus = ["File", "Edit", "Reference", "View", "Tools", "Help"];
-    const actualMenus = baseline.inventory?.top_menu_items?.map((i) => i.label) || [];
-    const missingMenus = expectedMenus.filter((m) => !actualMenus.includes(m));
-    if (missingMenus.length > 0) {
-      log(`  [FAIL] Missing menus: ${missingMenus.join(", ")}`);
-      results.menu_coverage = { ok: false, missing: missingMenus };
-      exitCode = 1;
-    } else {
-      log(`  [PASS] All expected menus present: ${actualMenus.join(", ")}`);
-      results.menu_coverage = { ok: true, expected: expectedMenus, actual: actualMenus };
-    }
-
-  } catch (err) {
-    log(`\n  [ERROR] Harness failed: ${err.message}`);
-    console.error(err.stack);
-    results.fatal_error = err.message;
-    exitCode = 1;
-  } finally {
-    // Collect final console logs
-    finalLogs = consoleLogs.length > 0 ? consoleLogs : [];
-    results.console_logs = finalLogs;
-
-    // Cleanup
-    if (app) {
-      try {
-        await app.close();
-        log("  Electron app closed.");
-      } catch (e) {
-        log(`  [warn] Error closing app: ${e.message}`);
-      }
-    }
+    } catch (e) { /* ignore */ }
   }
+  childProcesses.length = 0;
+}
 
-  // ── Write report ──
+// ── Write report ──
+
+function writeReport(results, exitCode, finalLogs, app) {
   const report = {
     harness: "run-accessible-gui-smoke.mjs",
     runner: "Playwright Electron",
@@ -633,6 +564,7 @@ async function main() {
     artifact_dir: artifactDir,
     app: {
       electron_dir: ELECTRON_DIR,
+      launched: !!app,
     },
     results,
     coverage_notes: {
@@ -668,8 +600,10 @@ async function main() {
       },
     },
     exit_code: exitCode,
+    ran_real_workflow: ranRealWorkflow,
   };
 
+  // Always write report.json
   const reportPath = path.join(artifactDir, "report.json");
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf-8");
   log(`\nReport written: ${reportPath}`);
@@ -683,6 +617,7 @@ async function main() {
     `**Timestamp:** ${report.timestamp}`,
     `**Artifact Dir:** ${artifactDir}`,
     `**Exit Code:** ${exitCode}`,
+    `**Real Workflow Ran:** ${ranRealWorkflow}`,
     ``,
     `## Menu Coverage`,
     ``,
@@ -756,10 +691,140 @@ async function main() {
   log(`  Artifact directory: ${artifactDir}`);
   log(`${"=".repeat(60)}`);
 
+  return reportPath;
+}
+
+// ── Main ──
+
+async function main() {
+  log("=".repeat(60));
+  log("  VoxelForge — Playwright Electron Accessibility GUI Smoke Test");
+  log("=".repeat(60));
+
+  ensureDir(artifactDir);
+  log(`Artifact directory: ${artifactDir}\n`);
+
+  let app;
+  let page;
+  let consoleLogs = [];
+  let finalLogs = [];
+  const results = {};
+  let exitCode = 0;
+
+  try {
+    // Launch Electron — try Playwright _electron.launch first
+    let launched;
+    let launchMethod = "_electron.launch";
+    try {
+      launched = await launchElectron();
+      ranRealWorkflow = true;
+    } catch (launchErr) {
+      log(`  [info] _electron.launch failed: ${launchErr.message}`);
+      log(`  [info] Attempting CDP-based fallback launch...`);
+      launchMethod = "CDP";
+      try {
+        launched = await launchElectronViaCDP();
+        ranRealWorkflow = true;
+      } catch (cdpErr) {
+        log(`  [info] CDP fallback also failed: ${cdpErr.message}`);
+        // Both methods failed. Check if display is the issue.
+        const noDisplay = !process.env.DISPLAY || process.env.DISPLAY === "";
+        const suggestions = [];
+        if (noDisplay) {
+          suggestions.push(
+            "Install Xvfb: sudo pacman -S xorg-server-xvfb (Arch) / sudo apt install xvfb (Debian)",
+          );
+        }
+        suggestions.push("Run on a Wayland/X11 desktop with DISPLAY set");
+        suggestions.push("Use ./scripts/xvfb-run.sh <command> after installing Xvfb");
+
+        results.launch_status = {
+          ok: false,
+          method: launchMethod,
+          error: launchErr.message,
+          cdp_error: cdpErr.message,
+          environment: {
+            display: process.env.DISPLAY || "(none)",
+            wayland: isWayland(),
+            xvfb_available: false,
+          },
+          resolution: suggestions.join("; "),
+        };
+        results.menu_coverage = { ok: false, error: "App launch failed — no display server available" };
+        results.reference_model_workflow = { results: [], screenshots: {} };
+        results.baseline = { snapshot: null, inventory: {} };
+        log(`\n  [SKIP] GUI smoke requires a display server (Xvfb or desktop).`);
+        log(`  Install Xvfb: sudo pacman -S xorg-server-xvfb`);
+        log(`  Then run: ./scripts/xvfb-run.sh npm run gui:llm-smoke\n`);
+        log(`  Report will be written with environment diagnostics.`);
+        // FAIL CLOSED: set non-zero exit code because no real workflow executed.
+        // A prerequisite miss may be explicitly reported, but acceptance criterion
+        // #3 (GUI workflow) was not satisfied.
+        exitCode = 1;
+        // Do NOT return early — fall through to report-writing below.
+      }
+    }
+
+    if (launched) {
+      app = launched.app;
+      page = launched.page;
+      consoleLogs = launched.consoleLogs();
+
+      // Workflow 1: Baseline accessibility
+      const baseline = await workflowBaselineAccessibility(page);
+      results.baseline = baseline;
+
+      // Workflow 2: Reference > Load Reference Model
+      const refWorkflow = await workflowReferenceModelLoad(page);
+      results.reference_model_workflow = refWorkflow;
+
+      // Check if menubar has all expected menus
+      const expectedMenus = ["File", "Edit", "Reference", "View", "Tools", "Help"];
+      const actualMenus = baseline.inventory?.top_menu_items?.map((i) => i.label) || [];
+      const missingMenus = expectedMenus.filter((m) => !actualMenus.includes(m));
+      if (missingMenus.length > 0) {
+        log(`  [FAIL] Missing menus: ${missingMenus.join(", ")}`);
+        results.menu_coverage = { ok: false, missing: missingMenus };
+        exitCode = 1;
+      } else {
+        log(`  [PASS] All expected menus present: ${actualMenus.join(", ")}`);
+        results.menu_coverage = { ok: true, expected: expectedMenus, actual: actualMenus };
+      }
+    }
+
+  } catch (err) {
+    log(`\n  [ERROR] Harness failed: ${err.message}`);
+    console.error(err.stack);
+    results.fatal_error = err.message;
+    exitCode = 1;
+  } finally {
+    // Collect final console logs
+    finalLogs = consoleLogs.length > 0 ? consoleLogs : [];
+    results.console_logs = finalLogs;
+
+    // Cleanup: close Playwright app first
+    if (app) {
+      try {
+        await app.close();
+        log("  Electron app closed.");
+      } catch (e) {
+        log(`  [warn] Error closing app: ${e.message}`);
+      }
+    }
+
+    // Kill any orphaned child processes (CDP path, anything spawned but not cleaned up)
+    killChildProcesses();
+  }
+
+  // ── Write report (always, on success AND failure) ──
+  const reportPath = writeReport(results, exitCode, finalLogs, app);
+
   process.exit(exitCode);
 }
 
 main().catch((err) => {
   console.error("Fatal harness error:", err);
+  // Kill orphaned children on fatal error too
+  killChildProcesses();
   process.exit(1);
 });
