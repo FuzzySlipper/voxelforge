@@ -10,7 +10,7 @@ Task 680 establishes the first Events-States-Services boundary: durable mutable 
 | `EditorSessionState` | Active tool, active palette index, selected region, active frame, and selected voxels | Runtime editor session only |
 | `EditorConfigState` | User-editable editor configuration from `config.json` | Serialized directly to `config.json` |
 | `UndoHistoryState` | Undo and redo command history plus maximum history depth | Runtime editor session only |
-| `ReferenceModelState` | Loaded reference models and their runtime metadata | Runtime editor session; individual metadata can still be saved by reference commands |
+| `ReferenceModelState` | Loaded reference models and their runtime metadata | Runtime editor session; individual metadata can still be saved by reference commands. **Preset export/import via `ReferenceStatePreset` (`.vf-state-preset.json`) provides durable persistence of all loaded model state, including transforms, texture overrides, sampling controls, visibility, render mode, and animation state.** See `docs/architecture/reference-state-preset-schema.md`. |
 | `ReferenceImageState` | Loaded reference image entries and raw image bytes | Runtime editor session only |
 
 ## Transitional Facades

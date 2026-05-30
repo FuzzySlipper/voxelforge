@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "label": "AM Golem — reference setup",
+  "notes": "Sanitized AM Golem FBX with Unity sidecar texture overrides and bottom-left UV origin. Paths are placeholder-local for repo fixture use.",
+  "createdAt": "2026-05-29T23:31:00Z",
+  "createdBy": "VoxelForge MCP",
+  "entries": [
+    {
+      "sourcePath": "/voxelforge/fixtures/golem_body.fbx",
+      "format": "FBX",
+      "importSourceLabel": "assimp",
+      "positionX": 0,
+      "positionY": 0,
+      "positionZ": 0,
+      "rotationX": 0,
+      "rotationY": 0,
+      "rotationZ": 0,
+      "scale": 1,
+      "isVisible": true,
+      "renderMode": "solid",
+      "meshOverrides": [
+        {
+          "meshIndex": 0,
+          "materialName": "golem_body_mat",
+          "diffuseTexturePath": "/voxelforge/fixtures/textures/golem_body_diffuse.tga",
+          "uvOrigin": "bottom_left",
+          "flipY": "true",
+          "wrapS": "repeat",
+          "wrapT": "repeat",
+          "samplingControlsSource": "unity_sidecar"
+        },
+        {
+          "meshIndex": 1,
+          "materialName": "golem_eyes_mat",
+          "diffuseTexturePath": "/voxelforge/fixtures/textures/golem_eyes_diffuse.png",
+          "emissiveTexturePath": "/voxelforge/fixtures/textures/golem_eyes_emissive.png",
+          "emissiveBrightness": 1.5,
+          "uvOrigin": "bottom_left",
+          "flipY": "true",
+          "wrapS": "clamp",
+          "wrapT": "clamp",
+          "samplingControlsSource": "unity_sidecar"
+        },
+        {
+          "meshIndex": 2,
+          "materialName": "golem_cracks_mat",
+          "diffuseTexturePath": "/voxelforge/fixtures/textures/golem_cracks_diffuse.png",
+          "manualNormalOverridePath": "/voxelforge/fixtures/textures/golem_cracks_normal.png",
+          "uvOrigin": "bottom_left",
+          "flipY": "true",
+          "samplingControlsSource": "manual_sampling_override"
+        }
+      ],
+      "activeClipIndex": 0,
+      "animationSpeed": 1,
+      "hasAnimations": true,
+      "provenance": "Imported from AM Golem Unity package; sidecar-resolved textures and Unity UV flip applied."
+    },
+    {
+      "sourcePath": "/voxelforge/fixtures/golem_ground_plane.obj",
+      "format": "OBJ",
+      "importSourceLabel": "assimp",
+      "positionX": 0,
+      "positionY": -0.01,
+      "positionZ": 0,
+      "rotationX": 0,
+      "rotationY": 0,
+      "rotationZ": 0,
+      "scale": 2,
+      "isVisible": true,
+      "renderMode": "wireframe",
+      "meshOverrides": [
+        {
+          "meshIndex": 0,
+          "materialName": "ground_plane",
+          "diffuseTexturePath": "/voxelforge/fixtures/textures/checker_grid_diffuse.png",
+          "uvOrigin": "top_left",
+          "flipY": "false",
+          "wrapS": "repeat",
+          "wrapT": "repeat",
+          "samplingControlsSource": "assimp"
+        }
+      ],
+      "provenance": "Shadow catcher plane — kept separate for isolation."
+    }
+  ]
+}
