@@ -156,6 +156,7 @@ async function launchElectronViaCDP() {
       VOXELFORGE_FORWARD_RENDERER_CONSOLE: "1",
       ELECTRON_ENABLE_STACK_DUMPING: "true",
     },
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -262,7 +263,7 @@ async function launchElectronViaCDP() {
         try {
           await browser.close();
         } catch (e) { /* ignore */ }
-        child.kill();
+        killProcessTree(child);
       },
     },
     page,
@@ -539,17 +540,31 @@ async function workflowReferenceModelLoad(page) {
 
 // ── Kill all tracked child processes ──
 
+function killProcessTree(child) {
+  if (!child || child.killed) return;
+
+  // CDP fallback launches Electron as a detached process group. Kill the group
+  // first so Chromium/Electron grandchildren do not survive a launch timeout.
+  if (typeof child.pid === "number") {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch (e) { /* ignore */ }
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch (e) { /* ignore */ }
+  }
+
+  try {
+    child.kill("SIGTERM");
+  } catch (e) { /* ignore */ }
+  try {
+    child.kill("SIGKILL");
+  } catch (e) { /* ignore */ }
+}
+
 function killChildProcesses() {
   for (const child of childProcesses) {
-    try {
-      if (child && !child.killed) {
-        child.kill("SIGTERM");
-        // Give it a moment, then SIGKILL
-        try {
-          const killed = child.kill("SIGKILL");
-        } catch (e) { /* ignore */ }
-      }
-    } catch (e) { /* ignore */ }
+    killProcessTree(child);
   }
   childProcesses.length = 0;
 }
