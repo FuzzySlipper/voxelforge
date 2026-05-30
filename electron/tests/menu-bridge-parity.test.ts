@@ -204,54 +204,108 @@ const MYRA_COMMAND_MENU_CHANNELS = new Set<string>([
 const MYRA_COMMAND_BRIDGE = "bridge:myra-command-execute";
 
 /**
- * Build the menu-to-bridge mapping by reading the renderer's setupMenuEventListeners().
- * Uses proper brace matching to find each handler's body in isolation.
+ * Build the menu-to-bridge mapping by reading the renderer's shared menu
+ * command dispatch table (Object.assign(menuCommandHandlers, { ... }))
+ * and any remaining onEvent IPC listeners.
  */
 function extractRendererMenuBridgeMap(rendererSource: string): Map<string, string> {
   const map = new Map<string, string>();
 
-  // Find the start of setupMenuEventListeners
-  const functionStart = rendererSource.indexOf("function setupMenuEventListeners");
-  if (functionStart === -1) return map;
+  // Strategy 1: Scan the Object.assign(menuCommandHandlers, { ... }) block
+  // for the handler entries with their full bodies
+  const assignBlockStart = rendererSource.indexOf("Object.assign(menuCommandHandlers,");
+  if (assignBlockStart !== -1) {
+    const bodyStart = rendererSource.indexOf("{", assignBlockStart + "Object.assign(menuCommandHandlers,".length);
+    if (bodyStart !== -1) {
+      let depth = 1;
+      let pos = bodyStart + 1;
+      while (pos < rendererSource.length && depth > 0) {
+        if (rendererSource[pos] === "{") depth++;
+        else if (rendererSource[pos] === "}") depth--;
+        pos++;
+      }
+      const assignBody = rendererSource.slice(bodyStart + 1, pos - 1);
 
-  // Extract the function body with proper brace matching
-  const bodyStart = rendererSource.indexOf("{", functionStart);
-  let depth = 1;
-  let pos = bodyStart + 1;
-  while (pos < rendererSource.length && depth > 0) {
-    if (rendererSource[pos] === "{") depth++;
-    else if (rendererSource[pos] === "}") depth--;
-    pos++;
-  }
-  const setupFunctionBody = rendererSource.slice(bodyStart + 1, pos - 1);
+      // Extract [MenuChannels.XXX]: () => { ... } entries
+      const handlerRegex = /\[MenuChannels\.([^\]]+)\]\s*:\s*\(\)\s*=>\s*\{/g;
+      let match: RegExpExecArray | null;
+      while ((match = handlerRegex.exec(assignBody)) !== null) {
+        const channelKey = match[1];
+        // Convert MenuChannels.XXX to menu:xxx-xxx channel string
+        const menuChannel = menuChannelFromKey(channelKey);
+        if (!menuChannel) continue;
 
-  // Now find all onEvent("menu:...") calls within this function body
-  const menuChannelRegex = /onEvent\(["'](menu:[^"']+)["']\s*,\s*(\([^)]*\)\s*)=>?\s*\{/g;
-  let match: RegExpExecArray | null;
+        const handlerBody = extractArrowBody(assignBody, match.index + match[0].length);
 
-  while ((match = menuChannelRegex.exec(setupFunctionBody)) !== null) {
-    const menuChannel = match[1];
-    const handlerBody = extractArrowBody(setupFunctionBody, match.index + match[0].length);
-
-    // Determine what bridge channel this handler uses
-    if (EXECUTE_COMMAND_MENU_CHANNELS.has(menuChannel)) {
-      map.set(menuChannel, EXECUTE_COMMAND_BRIDGE);
-    } else if (MYRA_COMMAND_MENU_CHANNELS.has(menuChannel)) {
-      map.set(menuChannel, MYRA_COMMAND_BRIDGE);
-    } else if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
-      // Look for a bridge: channel in the handler body via runAction
-      const bridgeMatch = handlerBody.match(/["'](bridge:[^"']+)["']/);
-      if (bridgeMatch) {
-        map.set(menuChannel, bridgeMatch[1]);
-      } else {
-        // Flag as missing bridge mapping; test will catch it
-        map.set(menuChannel, "");
+        // Determine what bridge channel this handler uses
+        if (EXECUTE_COMMAND_MENU_CHANNELS.has(menuChannel)) {
+          map.set(menuChannel, EXECUTE_COMMAND_BRIDGE);
+        } else if (MYRA_COMMAND_MENU_CHANNELS.has(menuChannel)) {
+          map.set(menuChannel, MYRA_COMMAND_BRIDGE);
+        } else if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
+          const bridgeMatch = handlerBody.match(/["'](bridge:[^"']+)["']/);
+          if (bridgeMatch) {
+            map.set(menuChannel, bridgeMatch[1]);
+          } else {
+            map.set(menuChannel, "");
+          }
+        }
       }
     }
-    // Scene-only channels are skipped (no bridge mapping needed)
+  }
+
+  // Strategy 2: Also scan the onEvent IPC listeners in setupMenuEventListeners
+  // for any that still contain inline handler bodies
+  const functionStart = rendererSource.indexOf("function setupMenuEventListeners");
+  if (functionStart !== -1) {
+    const bodyStart = rendererSource.indexOf("{", functionStart);
+    let depth = 1;
+    let pos = bodyStart + 1;
+    while (pos < rendererSource.length && depth > 0) {
+      if (rendererSource[pos] === "{") depth++;
+      else if (rendererSource[pos] === "}") depth--;
+      pos++;
+    }
+    const setupFunctionBody = rendererSource.slice(bodyStart + 1, pos - 1);
+
+    const menuChannelRegex = /onEvent\(["'](menu:[^"']+)["']\s*,\s*(?:\([^)]*\)\s*=>?\s*\{)/g;
+    let match: RegExpExecArray | null;
+    while ((match = menuChannelRegex.exec(setupFunctionBody)) !== null) {
+      const menuChannel = match[1];
+      // Skip if already mapped via Strategy 1
+      if (map.has(menuChannel)) continue;
+
+      const handlerBody = extractArrowBody(setupFunctionBody, match.index + match[0].length);
+      if (EXECUTE_COMMAND_MENU_CHANNELS.has(menuChannel)) {
+        map.set(menuChannel, EXECUTE_COMMAND_BRIDGE);
+      } else if (MYRA_COMMAND_MENU_CHANNELS.has(menuChannel)) {
+        map.set(menuChannel, MYRA_COMMAND_BRIDGE);
+      } else if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
+        const bridgeMatch = handlerBody.match(/["'](bridge:[^"']+)["']/);
+        if (bridgeMatch) {
+          map.set(menuChannel, bridgeMatch[1]);
+        } else {
+          map.set(menuChannel, "");
+        }
+      }
+    }
   }
 
   return map;
+}
+
+/**
+ * Derive a menu channel string from a MenuChannels constant key name.
+ * E.g. "FILE_NEW" -> "menu:file-new", "COMMAND_PALETTE_AO_BAKE" -> "menu:cmd-ao-bake"
+ * Uses the runtime MenuChannels constants for accurate mapping.
+ */
+function menuChannelFromKey(key: string): string {
+  // MenuChannels values are the authority — use reverse lookup
+  const MenuChannelsAccessor = MenuChannels as Record<string, string>;
+  const value = MenuChannelsAccessor[key];
+  if (typeof value === "string") return value;
+  // Fallback: SNAKE_CASE to kebab-case with menu: prefix
+  return `menu:${key.toLowerCase().replace(/_/g, "-")}`;
 }
 
 /**
@@ -476,9 +530,19 @@ describe("Renderer menu event listeners", () => {
 
   it("every bridge channel used by renderer menu wiring has a main IPC handler", () => {
     const handleSet = new Set(ipcHandleChannels);
+    const missing: string[] = [];
     for (const bridgeChannel of rendererMenuBridgeMap.values()) {
-      expect(handleSet.has(bridgeChannel)).toBe(true);
+      if (!handleSet.has(bridgeChannel)) {
+        missing.push(bridgeChannel);
+      }
     }
+    console.log("[debug] Map entries with empty/unknown bridge channels (" + rendererMenuBridgeMap.size + " total):");
+    for (const [menuCh, bridgeCh] of rendererMenuBridgeMap) {
+      if (!bridgeCh || bridgeCh === "") {
+        console.log(`  [EMPTY] "${menuCh}" -> bridge="<${typeof bridgeCh}>"`);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   it("menu:file-new end-to-end: menu -> bridge:project-new -> voxelforge.project.new", () => {
@@ -495,11 +559,19 @@ describe("Renderer menu event listeners", () => {
 
   it("all non-scene menu channels have populated bridge channel mappings", () => {
     const menuValues = Object.values(MenuChannels);
+    const missing: string[] = [];
     for (const menuChannel of menuValues) {
       if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
-        expect(rendererMenuBridgeMap.get(menuChannel)).toBeTruthy();
+        if (!rendererMenuBridgeMap.get(menuChannel)) {
+          missing.push(menuChannel);
+        }
       }
     }
+    if (missing.length > 0) {
+      console.log("[debug] Missing bridge mappings:", JSON.stringify(missing));
+      console.log("[debug] All map entries:", JSON.stringify(Object.fromEntries(rendererMenuBridgeMap)));
+    }
+    expect(missing).toEqual([]);
   });
 });
 

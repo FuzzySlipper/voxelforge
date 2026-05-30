@@ -159,10 +159,14 @@ and `text=Reference` over brittle `data-testid` attributes.
 
 ### Known Gaps
 - No `axe-core` integration yet (Playwright supports it; add via `@axe-core/playwright`)
-- Reference Model prompt dialog uses `window.prompt` fallback for non-renderer
-  dialog paths; the `showRendererPrompt` async dialog is used for `promptUserAsync`
-  but the accessible menu dispatch uses `dispatchMenuCommand` which uses
-  `window.prompt` synchronously
+- `window.prompt` usage: `handleReferenceModelLoad` (Reference > Load Reference Model…)
+  uses the async `showRendererPrompt` DOM dialog via `promptUserAsync`; all other
+  interactive menu commands (File > Open, Edit > Fill Region, View > Background Color,
+  Reference > Transform/Rotate/Scale, etc.) use `window.prompt` synchronously on both
+  the native IPC path and the accessible menu dispatch path (both now route through the
+  shared `menuCommandHandlers` dispatch table).
+- Reference Model Load uses `showRendererPrompt` for the async dialog path (injected via
+  `MenuHandlerDeps.promptUserAsync`), falling back to `window.prompt` if unavailable.
 - Color contrast not yet audited (theme is dark-on-dark)
 - Viewport HUD is `aria-hidden` (decorative overlay)
 - No screen reader-specific testing yet

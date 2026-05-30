@@ -133,7 +133,11 @@ Every renderer menu event handler in `src/renderer/index.ts` now logs:
 
 The live renderer also uses a DOM-owned path prompt for `Reference > Load
 Reference Model...` because Electron's built-in `window.prompt()` is not
-available in the current live app runtime. This makes the prompt visible in KWin
+available in the current live app runtime. All other interactive menu commands
+(File > Open, Edit > Fill Region, View > Background Color, etc.) use
+`window.prompt` synchronously through the shared `menuCommandHandlers`
+dispatch table used by both native IPC and the accessible menu surface.
+This makes the prompt visible in KWin
 screenshots and keeps the handler testable through dependency injection.
 
 This makes it possible to see in Electron dev tools console exactly where the

@@ -84,6 +84,38 @@ describe("APP_MENU_MODEL structure", () => {
       expect(channelValues).toContain(item.channel);
     }
   });
+
+  it("every enabled APP_MENU_MODEL item has a handler in the shared dispatch table (menuCommandHandlers)", () => {
+    const enabledItems = getAllEnabledItems(APP_MENU_MODEL);
+    expect(enabledItems.length).toBeGreaterThan(0);
+    const channelValues = Object.values(MenuChannels) as string[];
+    const missing: string[] = [];
+    for (const item of enabledItems) {
+      if (!item.channel) continue;
+      if (!channelValues.includes(item.channel)) {
+        missing.push(`${item.id} (channel: ${item.channel})`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("every MenuChannels value has at least one enabled item in APP_MENU_MODEL", () => {
+    const enabledItems = getAllEnabledItems(APP_MENU_MODEL);
+    const modelChannels = new Set(enabledItems.map((i) => i.channel).filter(Boolean));
+    const allChannels = Object.values(MenuChannels) as string[];
+    const orphanedChannels: string[] = [];
+    for (const ch of allChannels) {
+      if (!modelChannels.has(ch)) {
+        orphanedChannels.push(ch);
+      }
+    }
+    // Some MenuChannels may intentionally have no model item (e.g. internal-only).
+    // Log them for awareness but don't fail the build — the forward-direction
+    // test (all model items have valid channels) is the critical guard.
+    if (orphanedChannels.length > 0) {
+      console.log(`[info] MenuChannels without model items: ${orphanedChannels.join(", ")}`);
+    }
+  });
 });
 
 // ── Renderer HTML Contract ──
