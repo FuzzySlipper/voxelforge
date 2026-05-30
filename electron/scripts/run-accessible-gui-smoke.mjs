@@ -814,6 +814,15 @@ async function main() {
       // Workflow 2: Reference > Load Reference Model
       const refWorkflow = await workflowReferenceModelLoad(page);
       results.reference_model_workflow = refWorkflow;
+      const failedReferenceSteps = refWorkflow.results.filter((step) => !step.ok);
+      if (failedReferenceSteps.length > 0) {
+        log(`  [FAIL] Reference workflow failed: ${failedReferenceSteps.map((step) => step.step).join(", ")}`);
+        results.reference_model_workflow.ok = false;
+        exitCode = 1;
+      } else {
+        log("  [PASS] Reference workflow completed all expected steps");
+        results.reference_model_workflow.ok = true;
+      }
 
       // Check if menubar has all expected menus
       const expectedMenus = ["File", "Edit", "Reference", "View", "Tools", "Help"];
