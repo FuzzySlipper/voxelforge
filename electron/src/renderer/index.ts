@@ -829,22 +829,18 @@ function wireViewportEditing(): void {
     // Record raycast debug event when overlay is active
     if (scene.raycastDebugger.isEnabled) {
       const ndcData = computeScreenToNDC(clientX, clientY, canvas);
+      const rayInfo = scene.getRayFromClient(clientX, clientY);
       if (hit) {
-        // Compute ray direction from origin to hit point (normalized)
-        const dx = hit.position.x - hit.ray_origin.x;
-        const dy = hit.position.y - hit.ray_origin.y;
-        const dz = hit.position.z - hit.ray_origin.z;
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
         scene.raycastDebugger.recordEvent(buildRaycastDebugEvent(
           clientX, clientY, hit, ndcData,
-          { x: dx / dist, y: dy / dist, z: dz / dist },
-          "voxel_mesh", canvas.id,
+          hit.ray_direction ?? rayInfo?.rayDirection ?? { x: 0, y: 0, z: 0 },
+          hit.hit_object_type ?? "voxel_mesh", hit.hit_object_id ?? canvas.id,
         ));
       } else {
         scene.raycastDebugger.recordEvent(buildRaycastMissDebugEvent(
           clientX, clientY, ndcData,
-          { x: 0, y: 0, z: 0 },
-          { x: 0, y: 0, z: 0 },
+          rayInfo?.rayOrigin ?? { x: 0, y: 0, z: 0 },
+          rayInfo?.rayDirection ?? { x: 0, y: 0, z: 0 },
           scene.getCamera().far,
         ));
       }

@@ -61,6 +61,8 @@ export interface RaycastDebugEvent {
   voxelCoord?: { x: number; y: number; z: number };
   /** Computed placement position (voxel + normal). */
   placementCoord?: { x: number; y: number; z: number };
+  /** Coordinate convention / model transform note used during conversion. */
+  coordinateConvention?: string;
   /** The full VoxelRaycastHit for reference. */
   rawHit?: VoxelRaycastHit;
 }
@@ -227,6 +229,7 @@ export class RaycastDebugger {
         const pc = latest.placementCoord;
         lines.push(` placement: (${pc.x}, ${pc.y}, ${pc.z})`);
       }
+      lines.push(` convention: ${latest.coordinateConvention ?? "corner-origin voxels [x,x+1]"}`);
     } else {
       lines.push(" hit: none");
     }
@@ -287,7 +290,7 @@ export class RaycastDebugger {
         opacity: 0.7,
       });
       const wireframe = new THREE.LineSegments(edges, edgeMat);
-      wireframe.position.set(vc.x, vc.y, vc.z);
+      wireframe.position.set(vc.x + 0.5, vc.y + 0.5, vc.z + 0.5);
       group.add(wireframe);
     }
 
@@ -369,28 +372,29 @@ export class RaycastDebugger {
 
 // ── Pure utility: compute voxel coordinate from hit point and normal ──
 
-const VOXEL_EPSILON = 1e-9;
+const VOXEL_EPSILON = 1e-6;
 
 /**
  * Compute the voxel grid coordinate from a raycast hit point and face normal.
  *
- * Convention: voxel centers are at integer coordinates. Each voxel occupies
- * space from (center - 0.5) to (center + 0.5) on each axis.
+ * Convention: voxel coordinates are integer cell minima. Each voxel at (x,y,z)
+ * occupies render/world space [x,x+1] × [y,y+1] × [z,z+1]. This matches the C#
+ * GreedyMesher, which emits face vertices on integer grid boundaries.
  *
- * The hit point P is on the face of the voxel at offset ±0.5 from center
- * along the face normal N. So the center C = P - N * 0.5, rounded to integer.
+ * The hit point P is exactly on a face boundary. Step a tiny distance inward
+ * opposite the outward face normal N, then floor each component to recover the
+ * owning voxel cell. This is robust for negative coordinates and boundary hits.
  *
- * Uses Math.round which handles IEEE 754 precision for typical voxel scenes.
  * Returns positive zero (0) instead of -0 for consistent equality checks.
  */
 export function computeVoxelFromHit(
   point: { x: number; y: number; z: number },
   normal: { x: number; y: number; z: number },
-  halfExtent: number = VOXEL_HALF_EXTENT,
+  epsilon: number = VOXEL_EPSILON,
 ): { x: number; y: number; z: number } {
-  const x = Math.round(point.x - normal.x * halfExtent);
-  const y = Math.round(point.y - normal.y * halfExtent);
-  const z = Math.round(point.z - normal.z * halfExtent);
+  const x = Math.floor(point.x - normal.x * epsilon);
+  const y = Math.floor(point.y - normal.y * epsilon);
+  const z = Math.floor(point.z - normal.z * epsilon);
   return {
     x: x === 0 ? 0 : x,
     y: y === 0 ? 0 : y,
@@ -447,7 +451,9 @@ export function buildRaycastDebugEvent(
   hitObjectType?: string,
   hitObjectId?: string,
 ): RaycastDebugEvent {
-  const computedVoxel = computeVoxelFromHit(hit.position, hit.normal);
+  const worldHitPoint = hit.world_position ?? hit.position;
+  const computedVoxel = computeVoxelFromHit(worldHitPoint, hit.normal);
+  const effectiveRayDirection = hit.ray_direction ?? rayDirection;
   return {
     timestamp: performance.now(),
     screenX,
@@ -459,12 +465,12 @@ export function buildRaycastDebugEvent(
     dpr: ndcData.dpr,
     canvasRect: ndcData.canvasRect,
     rayOrigin: { ...hit.ray_origin },
-    rayDirection: { ...rayDirection },
+    rayDirection: { ...effectiveRayDirection },
     hit: true,
-    hitObjectType,
-    hitObjectId,
+    hitObjectType: hit.hit_object_type ?? hitObjectType,
+    hitObjectId: hit.hit_object_id ?? hitObjectId,
     hitDistance: hit.distance,
-    hitPoint: { x: hit.position.x, y: hit.position.y, z: hit.position.z },
+    hitPoint: { x: worldHitPoint.x, y: worldHitPoint.y, z: worldHitPoint.z },
     hitNormal: { ...hit.normal },
     voxelCoord: computedVoxel,
     placementCoord: {
@@ -472,6 +478,7 @@ export function buildRaycastDebugEvent(
       y: computedVoxel.y + hit.normal.y,
       z: computedVoxel.z + hit.normal.z,
     },
+    coordinateConvention: "corner-origin voxel cells; voxel = floor(hitPoint - normal*epsilon)",
     rawHit: { ...hit },
   };
 }

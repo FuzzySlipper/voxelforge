@@ -4,33 +4,37 @@
  * Tests the pure functions extracted from RaycastDebugger:
  *   - computeVoxelFromHit: voxel coordinate computation from hit point + normal
  *   - computeScreenToNDC: screen coordinate → NDC conversion
+ *   - buildRaycastDebugEvent: debug events retain both exact hit point and voxel cell
  *
- * The RaycastDebugger class requires DOM/Three.js and is live-smoke tested
- * via the Electron renderer interactive harness only.
+ * The RaycastDebugger class itself requires DOM/Three.js rendering and is live-smoke
+ * tested via the Electron renderer interactive harness.
  */
 
 import { describe, it, expect } from "vitest";
 import {
   computeVoxelFromHit,
   computeScreenToNDC,
+  buildRaycastDebugEvent,
+  type RaycastDebugEvent,
 } from "../../src/renderer-core/scene/RaycastDebugger";
+import type { VoxelRaycastHit } from "../../src/shared/compute-placement";
 
 // ── computeVoxelFromHit tests ──
 
 describe("computeVoxelFromHit", () => {
-  it("resolves +X face hit to correct voxel", () => {
-    // Hit point on +X face of voxel (0,0,0), face at x=0.5, normal (1,0,0)
+  it("resolves +X face hit to correct voxel using corner-origin cell bounds", () => {
+    // C# GreedyMesher emits voxel (0,0,0) with bounds [0,1] on each axis.
     const voxel = computeVoxelFromHit(
-      { x: 0.5, y: 0.3, z: -0.2 },
+      { x: 1, y: 0.3, z: 0.2 },
       { x: 1, y: 0, z: 0 },
     );
     expect(voxel).toEqual({ x: 0, y: 0, z: 0 });
   });
 
   it("resolves -X face hit to correct voxel", () => {
-    // Hit point on -X face of voxel (1,0,0), face at x=0.5, normal (-1,0,0)
+    // -X face of voxel (1,0,0) lies on x=1 and points toward negative X.
     const voxel = computeVoxelFromHit(
-      { x: 0.5, y: 0.3, z: -0.2 },
+      { x: 1, y: 0.3, z: 0.2 },
       { x: -1, y: 0, z: 0 },
     );
     expect(voxel).toEqual({ x: 1, y: 0, z: 0 });
@@ -38,16 +42,15 @@ describe("computeVoxelFromHit", () => {
 
   it("resolves +Y face hit to correct voxel", () => {
     const voxel = computeVoxelFromHit(
-      { x: 0.3, y: 0.5, z: -0.2 },
+      { x: 0.3, y: 1, z: 0.2 },
       { x: 0, y: 1, z: 0 },
     );
     expect(voxel).toEqual({ x: 0, y: 0, z: 0 });
   });
 
   it("resolves -Y face hit to correct voxel", () => {
-    // Hit point on -Y face of voxel (0,-1,0), face at y=-1.5, normal (0,-1,0)
     const voxel = computeVoxelFromHit(
-      { x: 0.3, y: -1.5, z: -0.2 },
+      { x: 0.3, y: -1, z: 0.2 },
       { x: 0, y: -1, z: 0 },
     );
     expect(voxel).toEqual({ x: 0, y: -1, z: 0 });
@@ -55,7 +58,7 @@ describe("computeVoxelFromHit", () => {
 
   it("resolves +Z face hit to correct voxel", () => {
     const voxel = computeVoxelFromHit(
-      { x: 0.3, y: -0.2, z: 0.5 },
+      { x: 0.3, y: 0.2, z: 1 },
       { x: 0, y: 0, z: 1 },
     );
     expect(voxel).toEqual({ x: 0, y: 0, z: 0 });
@@ -63,61 +66,57 @@ describe("computeVoxelFromHit", () => {
 
   it("resolves -Z face hit to correct voxel", () => {
     const voxel = computeVoxelFromHit(
-      { x: 0.3, y: -0.2, z: 0.5 },
+      { x: 0.3, y: 0.2, z: 1 },
       { x: 0, y: 0, z: -1 },
     );
     expect(voxel).toEqual({ x: 0, y: 0, z: 1 });
   });
 
   it("handles negative coordinate voxels correctly", () => {
-    // Hit +X face of voxel (-1, -2, -3)
+    // Voxel (-1,-2,-3) has +X face on x=0.
     const voxel = computeVoxelFromHit(
-      { x: -0.5, y: -2.3, z: -3.2 },
+      { x: 0, y: -1.7, z: -2.8 },
       { x: 1, y: 0, z: 0 },
     );
     expect(voxel).toEqual({ x: -1, y: -2, z: -3 });
   });
 
-  it("handles floating-point imprecision near +X face boundary", () => {
-    // Simulate slight fp error: hit point at 0.5000001 instead of exactly 0.5
+  it("handles floating-point imprecision slightly outside a +X face boundary", () => {
     const voxel = computeVoxelFromHit(
-      { x: 0.5000001, y: 0.0, z: 0.0 },
+      { x: 1.0000001, y: 0.0, z: 0.0 },
       { x: 1, y: 0, z: 0 },
     );
     expect(voxel).toEqual({ x: 0, y: 0, z: 0 });
   });
 
-  it("handles floating-point imprecision near -X face boundary", () => {
-    // Simulate slight fp error: hit point at 0.4999999 instead of exactly 0.5
+  it("handles floating-point imprecision slightly inside a +X face boundary", () => {
     const voxel = computeVoxelFromHit(
-      { x: 0.4999999, y: 0.0, z: 0.0 },
+      { x: 0.9999999, y: 0.0, z: 0.0 },
       { x: 1, y: 0, z: 0 },
     );
     expect(voxel).toEqual({ x: 0, y: 0, z: 0 });
   });
 
   it("handles floating-point imprecision on -X face near voxel 1", () => {
-    // Hit -X face of voxel (1,0,0) with slight fp error
     const voxel = computeVoxelFromHit(
-      { x: 0.5000001, y: 0.0, z: 0.0 },
+      { x: 0.9999999, y: 0.0, z: 0.0 },
       { x: -1, y: 0, z: 0 },
     );
     expect(voxel).toEqual({ x: 1, y: 0, z: 0 });
   });
 
-  it("uses custom half extent correctly", () => {
-    // For voxels with extent 1.0 (2 units wide)
+  it("uses custom epsilon correctly", () => {
     const voxel = computeVoxelFromHit(
       { x: 1.0, y: 0.0, z: 0.0 },
       { x: 1, y: 0, z: 0 },
-      1.0,
+      1e-6,
     );
     expect(voxel).toEqual({ x: 0, y: 0, z: 0 });
   });
 
   it("resolves placement position via normal sum", () => {
     const voxel = computeVoxelFromHit(
-      { x: 0.5, y: 0.3, z: -0.2 },
+      { x: 1, y: 0.3, z: 0.2 },
       { x: 1, y: 0, z: 0 },
     );
     // Placement = voxel + normal
@@ -128,7 +127,6 @@ describe("computeVoxelFromHit", () => {
 });
 
 // ── computeScreenToNDC tests ──
-// These are structural tests since DOM canvas needed for full test.
 
 describe("computeScreenToNDC", () => {
   it("is a function that accepts clientX, clientY, and canvas", () => {
@@ -139,43 +137,50 @@ describe("computeScreenToNDC", () => {
 
 // ── RaycastDebugEvent shape tests ──
 
-describe("RaycastDebugEvent shape", () => {
-  it("hit event has all required fields", () => {
-    // Use buildRaycastDebugEvent via its signature
-    const event = {
-      timestamp: 0,
-      screenX: 100,
-      screenY: 200,
-      clientX: 50,
-      clientY: 100,
-      ndcX: -0.5,
-      ndcY: 0.5,
-      dpr: 2,
-      canvasRect: { left: 50, top: 100, width: 800, height: 600 },
-      rayOrigin: { x: 0, y: 10, z: 0 },
-      rayDirection: { x: 0.577, y: -0.577, z: 0.577 },
-      hit: true,
-      hitObjectType: "voxel_mesh",
-      hitObjectId: "mesh-0",
-      hitDistance: 8.5,
-      hitPoint: { x: 3.5, y: 0.3, z: 5.2 },
-      hitNormal: { x: 0, y: 1, z: 0 },
-      voxelCoord: { x: 3, y: 0, z: 5 },
-      placementCoord: { x: 3, y: 1, z: 5 },
+describe("buildRaycastDebugEvent", () => {
+  it("hit event preserves exact world hit point separately from computed voxel coord", () => {
+    const hit: VoxelRaycastHit = {
+      position: { x: 3, y: 0, z: 5 },
+      world_position: { x: 4, y: 0.3, z: 5.2 },
+      normal: { x: 1, y: 0, z: 0 },
+      palette_index: 1,
+      screen: { x: 100, y: 200 },
+      ray_origin: { x: 0, y: 10, z: 0 },
+      ray_direction: { x: 0.577, y: -0.577, z: 0.577 },
+      distance: 8.5,
+      hit_object_type: "Mesh",
+      hit_object_id: "voxel-mesh-0",
     };
+
+    const event = buildRaycastDebugEvent(
+      100,
+      200,
+      hit,
+      {
+        clientX: 50,
+        clientY: 100,
+        ndcX: -0.5,
+        ndcY: 0.5,
+        dpr: 2,
+        canvasRect: { left: 50, top: 100, width: 800, height: 600 },
+      },
+      hit.ray_direction!,
+    );
 
     expect(event.hit).toBe(true);
     expect(event.screenX).toBe(100);
     expect(event.screenY).toBe(200);
     expect(event.ndcX).toBe(-0.5);
     expect(event.ndcY).toBe(0.5);
+    expect(event.hitPoint).toEqual({ x: 4, y: 0.3, z: 5.2 });
     expect(event.voxelCoord).toEqual({ x: 3, y: 0, z: 5 });
-    expect(event.placementCoord).toEqual({ x: 3, y: 1, z: 5 });
-    expect(event.hitNormal).toEqual({ x: 0, y: 1, z: 0 });
+    expect(event.placementCoord).toEqual({ x: 4, y: 0, z: 5 });
+    expect(event.hitNormal).toEqual({ x: 1, y: 0, z: 0 });
+    expect(event.hitObjectId).toBe("voxel-mesh-0");
   });
 
-  it("miss event has hit: false and no hit details", () => {
-    const event = {
+  it("miss event shape can omit hit details", () => {
+    const event: Partial<RaycastDebugEvent> = {
       timestamp: 0,
       screenX: 100,
       screenY: 200,

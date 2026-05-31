@@ -65,6 +65,18 @@ export interface VoxelForgeSceneOptions {
   gridColorOther?: number;
 }
 
+export interface RaycastRayInfo {
+  ndcX: number;
+  ndcY: number;
+  canvasX: number;
+  canvasY: number;
+  canvasRect: { left: number; top: number; width: number; height: number };
+  dpr: number;
+  rayOrigin: { x: number; y: number; z: number };
+  rayDirection: { x: number; y: number; z: number };
+  raycaster: THREE.Raycaster;
+}
+
 // ── Pure decision function ──
 
 /**
@@ -887,20 +899,12 @@ export class VoxelForgeScene {
    * Coordinate chain:
    *   event.clientX/clientY (CSS px) → canvas-local via getBoundingClientRect()
    *   → NDC [-1, 1] → ray via setFromCamera → intersection → world-space point
-   *   → back-off half-voxel along face normal → round to integer voxel coord.
+   *   → step epsilon inward from the face boundary → floor to integer voxel cell.
    */
   raycast(clientX: number, clientY: number): VoxelRaycastHit | null {
-    if (!this.renderer || !this.camera) return null;
-
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const canvasX = clientX - rect.left;
-    const canvasY = clientY - rect.top;
-    const ndcX = (canvasX / rect.width) * 2 - 1;
-    const ndcY = -(canvasY / rect.height) * 2 + 1;
-
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2(ndcX, ndcY);
-    raycaster.setFromCamera(mouse, this.camera);
+    const ray = this.getRayFromClient(clientX, clientY);
+    if (!ray) return null;
+    const raycaster = ray.raycaster;
 
     const meshes: THREE.Mesh[] = [];
     this.meshGroup.children.forEach((child) => {
@@ -934,15 +938,49 @@ export class VoxelForgeScene {
 
     return {
       position: voxelCoord,
+      world_position: { x: point.x, y: point.y, z: point.z },
       normal: roundedNormal,
       palette_index: 1,
       screen: { x: clientX, y: clientY },
-      ray_origin: {
+      ray_origin: ray.rayOrigin,
+      ray_direction: ray.rayDirection,
+      distance: hit.distance,
+      hit_object_type: hit.object.type,
+      hit_object_id: hit.object.name || hit.object.uuid,
+    };
+  }
+
+  getRayFromClient(clientX: number, clientY: number): RaycastRayInfo | null {
+    if (!this.renderer || !this.camera) return null;
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
+    const ndcX = (canvasX / rect.width) * 2 - 1;
+    const ndcY = -(canvasY / rect.height) * 2 + 1;
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2(ndcX, ndcY);
+    raycaster.setFromCamera(mouse, this.camera);
+
+    return {
+      ndcX,
+      ndcY,
+      canvasX,
+      canvasY,
+      canvasRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      dpr: window.devicePixelRatio,
+      rayOrigin: {
         x: raycaster.ray.origin.x,
         y: raycaster.ray.origin.y,
         z: raycaster.ray.origin.z,
       },
-      distance: hit.distance,
+      rayDirection: {
+        x: raycaster.ray.direction.x,
+        y: raycaster.ray.direction.y,
+        z: raycaster.ray.direction.z,
+      },
+      raycaster,
     };
   }
 

@@ -195,6 +195,7 @@ async function main() {
     { label: "Redo", expectedChannel: MenuChannels.EDIT_REDO },
     { label: "Front", expectedChannel: MenuChannels.VIEW_FRONT },
     { label: "Wireframe Toggle", expectedChannel: MenuChannels.VIEW_WIREFRAME },
+    { label: "Raycast Debug Toggle", expectedChannel: MenuChannels.VIEW_RAYCAST_DEBUG, required: true },
     { label: "Voxelize...", expectedChannel: MenuChannels.VOXELIZE_EXECUTE },
     { label: "About VoxelForge", expectedChannel: MenuChannels.HELP_ABOUT },
   ];
@@ -209,13 +210,14 @@ async function main() {
     "Edit",
     "View",
     "View",
+    "View",
     "Tools",
     "Help",
   ];
 
   // Allow menu items to be found anywhere (some are nested in submenus)
   for (let i = 0; i < testItems.length; i++) {
-    const { label, expectedChannel } = testItems[i];
+    const { label, expectedChannel, required } = testItems[i];
     const menuLabel = testMenuNames[i];
     const item = findMenuItem(appMenu, new RegExp(
       "^" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$",
@@ -232,6 +234,8 @@ async function main() {
         sent,
         `Expected channel "${expectedChannel}" but sent events were: ${JSON.stringify(sentEvents.map(e => e.channel))}`,
       );
+    } else if (required) {
+      assert(`Found required menu item: "${label}"`, false, `${menuLabel} > ${label} was not found`);
     } else {
       console.log(`  ⚠ Skipping "${label}" — not found in menu (may be nested deeper)`);
     }

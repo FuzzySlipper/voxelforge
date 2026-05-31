@@ -4,6 +4,8 @@
 export interface VoxelRaycastHit {
   /** The voxel position that was hit. */
   position: { x: number; y: number; z: number };
+  /** Exact world/render-space point on the intersected face. */
+  world_position?: { x: number; y: number; z: number };
   /** The face normal of the hit (which face was intersected). */
   normal: { x: number; y: number; z: number };
   /** Palette index of the hit voxel, or 0 for air. */
@@ -12,8 +14,13 @@ export interface VoxelRaycastHit {
   screen: { x: number; y: number };
   /** World-space ray origin. */
   ray_origin: { x: number; y: number; z: number };
+  /** World-space ray direction. */
+  ray_direction?: { x: number; y: number; z: number };
   /** Distance along the ray. */
   distance: number;
+  /** Optional renderer object metadata for debug overlays. */
+  hit_object_type?: string;
+  hit_object_id?: string;
 }
 
 /**

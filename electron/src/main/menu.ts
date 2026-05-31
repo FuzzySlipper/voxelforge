@@ -198,6 +198,11 @@ function buildViewMenu(win: BrowserWindow): MenuItemConstructorOptions {
         label: "&Background Color...",
         click: () => send(win, MenuChannels.VIEW_BG_COLOR),
       },
+      { type: "separator" },
+      {
+        label: "Raycast Debug Toggle",
+        click: () => send(win, MenuChannels.VIEW_RAYCAST_DEBUG),
+      },
     ],
   };
 }
