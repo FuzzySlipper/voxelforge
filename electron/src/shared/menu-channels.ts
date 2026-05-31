@@ -25,6 +25,9 @@ export const MenuChannels = {
   VIEW_MEASURE_SCALE: "menu:view-measure-scale",
   VIEW_BG_COLOR: "menu:view-bg-color",
 
+  // Debug
+  VIEW_RAYCAST_DEBUG: "menu:view-raycast-debug",
+
   // Reference model menu
   REFERENCE_MODEL_LOAD: "menu:reference-model-load",
   REFERENCE_MODEL_LIST: "menu:reference-model-list",

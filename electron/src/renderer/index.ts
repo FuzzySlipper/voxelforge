@@ -17,6 +17,11 @@ import { handleReferenceModelLoad } from "./menu-handlers";
 import { AccessibleMenuSurface } from "./accessible-menu-surface";
 import { MenuChannels } from "../shared/menu-channels";
 import { menuCommandHandlers } from "../shared/menu-command-dispatch";
+import {
+  computeScreenToNDC,
+  buildRaycastDebugEvent,
+  buildRaycastMissDebugEvent,
+} from "../renderer-core/scene/RaycastDebugger";
 
 declare global {
   interface Window {
@@ -303,6 +308,9 @@ function setupMenuEventListeners(): void {
   window.voxelforgeBridge.onEvent("menu:view-measure-scale", () => menuCommandHandlers[ch.VIEW_MEASURE_SCALE]?.());
   window.voxelforgeBridge.onEvent("menu:view-bg-color", () => menuCommandHandlers[ch.VIEW_BG_COLOR]?.());
 
+  // ── Raycast debug menu ──
+  window.voxelforgeBridge.onEvent("menu:view-raycast-debug", () => menuCommandHandlers[ch.VIEW_RAYCAST_DEBUG]?.());
+
   // ── Help menu ──
   window.voxelforgeBridge.onEvent("menu:help-about", () => menuCommandHandlers[ch.HELP_ABOUT]?.());
 
@@ -503,6 +511,11 @@ Object.assign(menuCommandHandlers, {
     if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
       scene.setBackgroundColor(Math.max(0, Math.min(255, r)), Math.max(0, Math.min(255, g)), Math.max(0, Math.min(255, b)));
     }
+  },
+  [MenuChannels.VIEW_RAYCAST_DEBUG]: () => {
+    const enabled = !scene.isRaycastDebugEnabled;
+    scene.setRaycastDebugEnabled(enabled);
+    setStatus(enabled ? "Raycast debug overlay enabled" : "Raycast debug overlay disabled");
   },
 
   // ── Reference Model menu ──
@@ -809,7 +822,34 @@ function wireViewportEditing(): void {
 
   // ── Mouse click → raycast → C# editing command ──
   canvas.addEventListener("click", async (event: MouseEvent) => {
-    const hit = scene.raycast(event.clientX, event.clientY);
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    const hit = scene.raycast(clientX, clientY);
+
+    // Record raycast debug event when overlay is active
+    if (scene.raycastDebugger.isEnabled) {
+      const ndcData = computeScreenToNDC(clientX, clientY, canvas);
+      if (hit) {
+        // Compute ray direction from origin to hit point (normalized)
+        const dx = hit.position.x - hit.ray_origin.x;
+        const dy = hit.position.y - hit.ray_origin.y;
+        const dz = hit.position.z - hit.ray_origin.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+        scene.raycastDebugger.recordEvent(buildRaycastDebugEvent(
+          clientX, clientY, hit, ndcData,
+          { x: dx / dist, y: dy / dist, z: dz / dist },
+          "voxel_mesh", canvas.id,
+        ));
+      } else {
+        scene.raycastDebugger.recordEvent(buildRaycastMissDebugEvent(
+          clientX, clientY, ndcData,
+          { x: 0, y: 0, z: 0 },
+          { x: 0, y: 0, z: 0 },
+          scene.getCamera().far,
+        ));
+      }
+    }
+
     if (!hit) return;
 
     const state = currentState;

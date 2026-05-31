@@ -139,6 +139,7 @@ const SCENE_ONLY_MENU_CHANNELS = new Set<string>([
   "menu:view-top",
   "menu:view-wireframe",
   "menu:view-bg-color",
+  "menu:view-raycast-debug",
   "menu:help-about",
   "menu:file-exit", // main process closes window; renderer just logs
   // Command palette channels — handled by setupCommandPalette() not setupMenuEventListeners()

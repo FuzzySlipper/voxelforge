@@ -32,9 +32,11 @@ import {
   resolveTextureUrl,
 } from "./referenceModels";
 import { captureReadyManager } from "./captureReady";
+import { RaycastDebugger, computeVoxelFromHit } from "./RaycastDebugger";
 
 // Re-export for consumers
 export type { VoxelRaycastHit };
+export { RaycastDebugger };
 
 // ── Render metrics ──
 
@@ -97,6 +99,8 @@ export class VoxelForgeScene {
   private renderCallbacks: ((metrics: RendererMetrics) => void)[] = [];
   private container: HTMLElement;
   protected webglAvailable: boolean;
+  /** Raycast debug overlay manager. */
+  readonly raycastDebugger: RaycastDebugger;
 
   constructor(container: HTMLElement, options: VoxelForgeSceneOptions = {}) {
     this.container = container;
@@ -149,6 +153,9 @@ export class VoxelForgeScene {
     // Reference model group (separate from voxel mesh)
     this.referenceGroup = new THREE.Group();
     this.scene.add(this.referenceGroup);
+
+    // Raycast debug overlay
+    this.raycastDebugger = new RaycastDebugger(this.container, this.scene, this.camera);
 
     // Lights
     this.setupLights();
@@ -870,12 +877,26 @@ export class VoxelForgeScene {
 
   // ── Raycasting / Picking ──
 
-  raycast(screenX: number, screenY: number): VoxelRaycastHit | null {
+  /**
+   * Perform a raycast from a 2D screen position (CSS pixel coordinates relative
+   * to the viewport — e.g., event.clientX, event.clientY) into the 3D scene.
+   *
+   * Returns the nearest voxel hit with position, normal, and ray details,
+   * or null if nothing was hit.
+   *
+   * Coordinate chain:
+   *   event.clientX/clientY (CSS px) → canvas-local via getBoundingClientRect()
+   *   → NDC [-1, 1] → ray via setFromCamera → intersection → world-space point
+   *   → back-off half-voxel along face normal → round to integer voxel coord.
+   */
+  raycast(clientX: number, clientY: number): VoxelRaycastHit | null {
     if (!this.renderer || !this.camera) return null;
 
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
+    const ndcX = (canvasX / rect.width) * 2 - 1;
+    const ndcY = -(canvasY / rect.height) * 2 + 1;
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2(ndcX, ndcY);
@@ -899,15 +920,23 @@ export class VoxelForgeScene {
     const normal = face.normal.clone();
     normal.transformDirection(hit.object.matrixWorld);
 
-    const voxelX = Math.round(point.x - normal.x * 0.5);
-    const voxelY = Math.round(point.y - normal.y * 0.5);
-    const voxelZ = Math.round(point.z - normal.z * 0.5);
+    const voxelCoord = computeVoxelFromHit(
+      { x: point.x, y: point.y, z: point.z },
+      { x: normal.x, y: normal.y, z: normal.z },
+    );
+
+    // Round normal components to nearest axis (±1 or 0)
+    const roundedNormal = {
+      x: Math.round(normal.x),
+      y: Math.round(normal.y),
+      z: Math.round(normal.z),
+    };
 
     return {
-      position: { x: voxelX, y: voxelY, z: voxelZ },
-      normal: { x: Math.round(normal.x), y: Math.round(normal.y), z: Math.round(normal.z) },
+      position: voxelCoord,
+      normal: roundedNormal,
       palette_index: 1,
-      screen: { x: screenX, y: screenY },
+      screen: { x: clientX, y: clientY },
       ray_origin: {
         x: raycaster.ray.origin.x,
         y: raycaster.ray.origin.y,
@@ -950,12 +979,28 @@ export class VoxelForgeScene {
   getReferenceGroup(): THREE.Group { return this.referenceGroup; }
   get isWebglAvailable(): boolean { return this.webglAvailable; }
 
+  /** Enable or disable the raycast debug overlay. */
+  setRaycastDebugEnabled(enabled: boolean): void {
+    this.raycastDebugger.setEnabled(enabled);
+  }
+
+  /** Returns whether the raycast debug overlay is currently active. */
+  get isRaycastDebugEnabled(): boolean {
+    return this.raycastDebugger.isEnabled;
+  }
+
+  /** Clear raycast debug events and drawings. */
+  clearRaycastDebug(): void {
+    this.raycastDebugger.clear();
+  }
+
   dispose(): void {
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
     }
     this.clearMesh();
     this.clearReferenceModels();
+    this.raycastDebugger.dispose();
     if (this.renderer) {
       this.renderer.dispose();
     }

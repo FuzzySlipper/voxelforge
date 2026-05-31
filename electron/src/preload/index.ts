@@ -57,6 +57,8 @@ const allowedEventChannels = [
   "menu:view-measure-grid",
   "menu:view-measure-scale",
   "menu:view-bg-color",
+  // Renderer debug menu events
+  "menu:view-raycast-debug",
   // Reference model menu events
   "menu:reference-model-load",
   "menu:reference-model-list",

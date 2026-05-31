@@ -26,6 +26,10 @@ export {
 } from "./scene/VoxelForgeScene";
 export type { RendererMetrics, VoxelForgeSceneOptions } from "./scene/VoxelForgeScene";
 
+// Raycast debugger
+export { RaycastDebugger } from "./scene/VoxelForgeScene";
+export type { RaycastDebugEvent } from "./scene/RaycastDebugger";
+
 // Reference models, materials, capture readiness
 export * from "./scene/referenceModels";
 export * from "./scene/materials";

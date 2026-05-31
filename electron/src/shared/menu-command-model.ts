@@ -130,6 +130,8 @@ export const APP_MENU_MODEL: MenuCommandModel = [
       { id: "view-measure-scale", label: "Measure Scale…", type: "item", channel: MenuChannels.VIEW_MEASURE_SCALE, enabled: true },
       { id: "view-sep-3", label: "", type: "separator" },
       { id: "view-bg-color", label: "Background Color…", type: "item", channel: MenuChannels.VIEW_BG_COLOR, enabled: true },
+      { id: "view-sep-4", label: "", type: "separator" },
+      { id: "view-raycast-debug", label: "Raycast Debug Toggle", type: "item", channel: MenuChannels.VIEW_RAYCAST_DEBUG, enabled: true },
     ],
   },
   {
