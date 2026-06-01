@@ -91,6 +91,9 @@ describe("handleReferenceModelLoad", () => {
     await handleReferenceModelLoad(deps);
 
     expect(myraExecuteCommand).not.toHaveBeenCalled();
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.stringContaining("cancelled"),
+    );
   });
 });
 

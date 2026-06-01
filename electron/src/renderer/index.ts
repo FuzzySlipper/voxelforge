@@ -1012,11 +1012,6 @@ async function myraExecuteCommand(label: string, command: string, args: string[]
   }
 }
 
-/** Prompt for a file path using the browser prompt pattern. */
-function promptPath(label: string, placeholder = ""): string | null {
-  return window.prompt(`${label}\n\nEnter file path:`, placeholder);
-}
-
 /** Prompt for a positive integer. */
 function promptInt(label: string, defaultValue = "0"): number | null {
   const s = window.prompt(label, defaultValue);
