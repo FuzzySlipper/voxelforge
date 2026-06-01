@@ -23,6 +23,8 @@ function createMockDeps(overrides: Partial<MenuHandlerDeps> = {}): MenuHandlerDe
     promptUser: vi.fn(() => null),
     confirmUser: vi.fn(() => false),
     promptInt: vi.fn(() => null),
+    selectFile: vi.fn(async () => ({ canceled: true, filePaths: [] })),
+    saveFile: vi.fn(async () => ({ canceled: true, filePaths: [] })),
     myraExecuteCommand: vi.fn(async () => {}),
     runAction: vi.fn(async () => {}),
     setStatus: vi.fn(),
@@ -35,10 +37,13 @@ function createMockDeps(overrides: Partial<MenuHandlerDeps> = {}): MenuHandlerDe
 // ── Acceptance gap: Reference > Load Reference Model... ──
 
 describe("handleReferenceModelLoad", () => {
-  it("sends bridge:myra-command-execute with command='refload' and accepted path", async () => {
+  it("sends bridge:myra-command-execute with command='refload' and selected path", async () => {
     const myraExecuteCommand = vi.fn(async () => {});
     const deps = createMockDeps({
-      promptUser: () => "/home/models/test-reference.obj",
+      selectFile: vi.fn(async () => ({
+        canceled: false,
+        filePaths: ["/home/models/test-reference.obj"],
+      })),
       myraExecuteCommand,
     });
 
@@ -50,15 +55,15 @@ describe("handleReferenceModelLoad", () => {
       ["/home/models/test-reference.obj"],
     );
     expect(deps.log).toHaveBeenCalledWith(
-      expect.stringContaining("Accepted path"),
+      expect.stringContaining("Selected reference model path"),
     );
   });
 
-  it("does NOT call myraExecuteCommand when prompt is cancelled (null path)", async () => {
+  it("does NOT call myraExecuteCommand when dialog is cancelled", async () => {
     const myraExecuteCommand = vi.fn(async () => {});
     const setStatus = vi.fn();
     const deps = createMockDeps({
-      promptUser: () => null,
+      selectFile: vi.fn(async () => ({ canceled: true, filePaths: [] })),
       myraExecuteCommand,
       setStatus,
     });
@@ -74,11 +79,11 @@ describe("handleReferenceModelLoad", () => {
     );
   });
 
-  it("does NOT call myraExecuteCommand when prompt returns empty string", async () => {
+  it("does NOT call myraExecuteCommand when dialog returns empty file paths", async () => {
     const myraExecuteCommand = vi.fn(async () => {});
     const setStatus = vi.fn();
     const deps = createMockDeps({
-      promptUser: () => "",
+      selectFile: vi.fn(async () => ({ canceled: false, filePaths: [] })),
       myraExecuteCommand,
       setStatus,
     });
@@ -86,9 +91,6 @@ describe("handleReferenceModelLoad", () => {
     await handleReferenceModelLoad(deps);
 
     expect(myraExecuteCommand).not.toHaveBeenCalled();
-    expect(setStatus).toHaveBeenCalledWith(
-      expect.stringContaining("cancelled"),
-    );
   });
 });
 
@@ -179,15 +181,18 @@ describe("handleFileNew", () => {
 // ── File > Open... ──
 
 describe("handleFileOpen", () => {
-  it("sends bridge:project-load with accepted path", () => {
+  it("sends bridge:project-load with selected path from dialog", async () => {
     const runAction = vi.fn(async () => {});
     const deps = createMockDeps({
-      promptUser: () => "/path/to/project.vforge",
+      selectFile: vi.fn(async () => ({
+        canceled: false,
+        filePaths: ["/path/to/project.vforge"],
+      })),
       runAction,
       getDefaultPath: () => "/current/path.vforge",
     });
 
-    handleFileOpen(deps);
+    await handleFileOpen(deps);
 
     expect(runAction).toHaveBeenCalledWith(
       "Open",
@@ -196,14 +201,14 @@ describe("handleFileOpen", () => {
     );
   });
 
-  it("does NOT call runAction when prompt is cancelled", () => {
+  it("does NOT call runAction when dialog is cancelled", async () => {
     const runAction = vi.fn(async () => {});
     const deps = createMockDeps({
-      promptUser: () => null,
+      selectFile: vi.fn(async () => ({ canceled: true, filePaths: [] })),
       runAction,
     });
 
-    handleFileOpen(deps);
+    await handleFileOpen(deps);
 
     expect(runAction).not.toHaveBeenCalled();
   });

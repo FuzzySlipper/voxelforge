@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DialogRequest, DialogResponse } from "../shared/dialog-types";
+import { DialogChannels } from "../shared/dialog-types";
 
 /**
  * Preload script exposing safe IPC methods to the renderer process.
@@ -26,6 +28,9 @@ const allowedChannels = [
   "bridge:render-state",
   // Myra CLI command routing for reference/image/voxelize workflows
   "bridge:myra-command-execute",
+  // Native file dialog channels
+  DialogChannels.SELECT_FILE,
+  DialogChannels.SAVE_FILE,
   "renderer:ready",
   "renderer:metrics",
 ] as const;
@@ -139,5 +144,25 @@ contextBridge.exposeInMainWorld("voxelforgeBridge", {
    */
   sendMetrics(metrics: Record<string, number>): void {
     ipcRenderer.send("renderer:metrics", metrics);
+  },
+
+  /**
+   * Open a native Electron file-open dialog for the given allowlisted kind.
+   * Returns the dialog response with selected file paths or cancellation.
+   * Only accepts typed DialogKind values — no arbitrary filesystem access.
+   */
+  selectFile(request: DialogRequest): Promise<DialogResponse> {
+    validateChannel(DialogChannels.SELECT_FILE);
+    return ipcRenderer.invoke(DialogChannels.SELECT_FILE, request);
+  },
+
+  /**
+   * Open a native Electron save dialog for the given allowlisted kind.
+   * Returns the dialog response with the chosen save path or cancellation.
+   * Only accepts typed DialogKind values — no arbitrary filesystem access.
+   */
+  saveFile(request: DialogRequest): Promise<DialogResponse> {
+    validateChannel(DialogChannels.SAVE_FILE);
+    return ipcRenderer.invoke(DialogChannels.SAVE_FILE, request);
   },
 });

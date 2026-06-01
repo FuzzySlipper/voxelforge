@@ -205,6 +205,16 @@ const MYRA_COMMAND_MENU_CHANNELS = new Set<string>([
 const MYRA_COMMAND_BRIDGE = "bridge:myra-command-execute";
 
 /**
+ * Menu channels that delegate to factored handlers (menu-handlers.ts) which
+ * internally call runAction() with a bridge channel. These handlers use native
+ * file dialogs but ultimately route to a bridge channel.
+ */
+const FACTORED_RUNACTION_MENU_CHANNELS: Map<string, string> = new Map([
+  ["menu:file-open", "bridge:project-load"],
+  ["menu:file-save-as", "bridge:project-save"],
+]);
+
+/**
  * Build the menu-to-bridge mapping by reading the renderer's shared menu
  * command dispatch table (Object.assign(menuCommandHandlers, { ... }))
  * and any remaining onEvent IPC listeners.
@@ -243,6 +253,8 @@ function extractRendererMenuBridgeMap(rendererSource: string): Map<string, strin
           map.set(menuChannel, EXECUTE_COMMAND_BRIDGE);
         } else if (MYRA_COMMAND_MENU_CHANNELS.has(menuChannel)) {
           map.set(menuChannel, MYRA_COMMAND_BRIDGE);
+        } else if (FACTORED_RUNACTION_MENU_CHANNELS.has(menuChannel)) {
+          map.set(menuChannel, FACTORED_RUNACTION_MENU_CHANNELS.get(menuChannel)!);
         } else if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
           const bridgeMatch = handlerBody.match(/["'](bridge:[^"']+)["']/);
           if (bridgeMatch) {
@@ -281,6 +293,8 @@ function extractRendererMenuBridgeMap(rendererSource: string): Map<string, strin
         map.set(menuChannel, EXECUTE_COMMAND_BRIDGE);
       } else if (MYRA_COMMAND_MENU_CHANNELS.has(menuChannel)) {
         map.set(menuChannel, MYRA_COMMAND_BRIDGE);
+      } else if (FACTORED_RUNACTION_MENU_CHANNELS.has(menuChannel)) {
+        map.set(menuChannel, FACTORED_RUNACTION_MENU_CHANNELS.get(menuChannel)!);
       } else if (!SCENE_ONLY_MENU_CHANNELS.has(menuChannel)) {
         const bridgeMatch = handlerBody.match(/["'](bridge:[^"']+)["']/);
         if (bridgeMatch) {

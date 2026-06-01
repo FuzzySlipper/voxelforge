@@ -6,6 +6,8 @@
  * tests (mocked/stub deps).
  */
 
+import type { DialogKind, DialogResponse } from "../shared/dialog-types";
+
 export interface MenuHandlerDeps {
   /** Prompt the user for a string value. Returns null on cancel. */
   promptUser(message: string, defaultValue?: string): string | null;
@@ -18,6 +20,20 @@ export interface MenuHandlerDeps {
 
   /** Prompt for an integer. Returns null on cancel or invalid input. */
   promptInt(label: string, defaultValue?: string): number | null;
+
+  /**
+   * Open a native Electron file-open dialog for the given allowlisted kind.
+   * Returns the dialog response with selected file paths or cancellation.
+   * Falls back to promptUser if native dialogs are unavailable.
+   */
+  selectFile(kind: DialogKind, defaultPath?: string): Promise<DialogResponse>;
+
+  /**
+   * Open a native Electron save dialog for the given allowlisted kind.
+   * Returns the dialog response with the chosen save path or cancellation.
+   * Falls back to promptUser if native dialogs are unavailable.
+   */
+  saveFile(kind: DialogKind, defaultPath?: string): Promise<DialogResponse>;
 
   /** Execute a Myra CLI command through the bridge:myra-command-execute channel. */
   myraExecuteCommand(label: string, command: string, args: string[]): Promise<void>;
@@ -55,6 +71,36 @@ export function createRendererDeps(
       if (s === null) return null;
       const n = parseInt(s, 10);
       return isNaN(n) ? null : n;
+    },
+    selectFile: async (kind, defaultPath) => {
+      try {
+        if (window.voxelforgeBridge?.selectFile) {
+          return await window.voxelforgeBridge.selectFile({ kind, defaultPath });
+        }
+      } catch {
+        // Native dialog unavailable or failed — fall back to prompt
+      }
+      // Fallback: use text prompt
+      const path = window.prompt(`Select file (${kind})\n\nEnter file path:`, defaultPath ?? "");
+      if (path) {
+        return { canceled: false, filePaths: [path] };
+      }
+      return { canceled: true, filePaths: [] };
+    },
+    saveFile: async (kind, defaultPath) => {
+      try {
+        if (window.voxelforgeBridge?.saveFile) {
+          return await window.voxelforgeBridge.saveFile({ kind, defaultPath });
+        }
+      } catch {
+        // Native dialog unavailable or failed — fall back to prompt
+      }
+      // Fallback: use text prompt
+      const path = window.prompt(`Save file (${kind})\n\nEnter save path:`, defaultPath ?? "");
+      if (path) {
+        return { canceled: false, filePaths: [path] };
+      }
+      return { canceled: true, filePaths: [] };
     },
     myraExecuteCommand,
     runAction,

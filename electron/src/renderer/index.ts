@@ -13,7 +13,16 @@ import { titleCase, formatError, escapeHtml } from "../shared/string-utils";
 import { createCoalescer } from "../shared/refresh-coalescer";
 import { CommandPalette } from "./command-palette-ui";
 import { createRendererDeps } from "./menu-handler-deps";
-import { handleReferenceModelLoad } from "./menu-handlers";
+import {
+  handleReferenceModelLoad,
+  handleFileOpen,
+  handleFileSaveAs,
+  handleReferenceMetaLoad,
+  handleReferenceMetaSave,
+  handleImageRefLoad,
+  handleReferenceTextureAssign,
+  handleReferenceEmissiveAssign,
+} from "./menu-handlers";
 import { AccessibleMenuSurface } from "./accessible-menu-surface";
 import { MenuChannels } from "../shared/menu-channels";
 import { menuCommandHandlers } from "../shared/menu-command-dispatch";
@@ -30,6 +39,8 @@ declare global {
       onEvent(channel: string, callback: (payload: unknown) => void): () => void;
       notifyReady(): void;
       sendMetrics(metrics: Record<string, number>): void;
+      selectFile(request: import("../shared/dialog-types").DialogRequest): Promise<import("../shared/dialog-types").DialogResponse>;
+      saveFile(request: import("../shared/dialog-types").DialogRequest): Promise<import("../shared/dialog-types").DialogResponse>;
     };
   }
 }
@@ -384,11 +395,12 @@ Object.assign(menuCommandHandlers, {
   },
   [MenuChannels.FILE_OPEN]: () => {
     console.log("[renderer] Menu command: file-open");
-    const path = promptPath("Enter project file path (.vforge):", ui.projectPath.value);
-    if (path) {
-      ui.projectPath.value = path;
-      void runAction("Open", "bridge:project-load", { path });
-    }
+    void handleFileOpen(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   },
   [MenuChannels.FILE_SAVE]: () => {
     console.log("[renderer] Menu command: file-save");
@@ -396,12 +408,12 @@ Object.assign(menuCommandHandlers, {
   },
   [MenuChannels.FILE_SAVE_AS]: () => {
     console.log("[renderer] Menu command: file-save-as");
-    const path = promptPath("Save project as (.vforge):", ui.projectPath.value);
-    if (path) {
-      const fullPath = path.endsWith(".vforge") ? path : path + ".vforge";
-      ui.projectPath.value = fullPath;
-      void runAction("Save As", "bridge:project-save", { path: fullPath });
-    }
+    void handleFileSaveAs(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   },
   [MenuChannels.FILE_EXIT]: () => {
     console.log("[renderer] Menu command: file-exit");
@@ -603,48 +615,46 @@ Object.assign(menuCommandHandlers, {
     void myraExecuteCommand("Animation list", "refanim", [String(idx), "list"]);
   },
   [MenuChannels.REFERENCE_TEXTURE_ASSIGN]: () => {
-    const idx = promptInt("Texture Assign — Reference Model Index:");
-    if (idx === null) return;
-    const texPath = window.prompt("Texture Assign — Texture file path:", "");
-    if (!texPath) return;
-    const meshIdx = window.prompt("Texture Assign — Mesh index (optional, blank for all):", "");
-    const args = [String(idx), texPath];
-    if (meshIdx) args.push(meshIdx);
-    void myraExecuteCommand("Assign Texture", "reftex", args);
+    void handleReferenceTextureAssign(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   },
   [MenuChannels.REFERENCE_EMISSIVE_ASSIGN]: () => {
-    const idx = promptInt("Emissive Assign — Reference Model Index:");
-    if (idx === null) return;
-    const texPath = window.prompt("Emissive Assign — Texture file path:", "");
-    if (!texPath) return;
-    const brightness = promptFloat("Emissive Assign — Brightness (default 1.0):", "1.0");
-    if (brightness === null) return;
-    const meshIdx = window.prompt("Emissive Assign — Mesh index (optional):", "");
-    const args = [String(idx), texPath, String(brightness)];
-    if (meshIdx) args.push(meshIdx);
-    void myraExecuteCommand("Assign Emissive", "reftex-emissive", args);
+    void handleReferenceEmissiveAssign(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   },
   [MenuChannels.REFERENCE_META_SAVE]: () => {
-    const idx = promptInt("Save Meta — Reference Model Index:");
-    if (idx === null) return;
-    const path = promptPath("Save Meta — Enter .refmeta path:", `${idx}.refmeta`);
-    if (path) {
-      void myraExecuteCommand("Save Meta", "refsave", [String(idx), path]);
-    }
+    void handleReferenceMetaSave(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   },
   [MenuChannels.REFERENCE_META_LOAD]: () => {
-    const path = promptPath("Load Meta — Enter .refmeta file path:", "");
-    if (path) {
-      void myraExecuteCommand("Load Meta", "refloadmeta", [path]);
-    }
+    void handleReferenceMetaLoad(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   },
 
   // ── Image Reference menu ──
   [MenuChannels.IMAGE_REF_LOAD]: () => {
-    const path = promptPath("Load Image Reference — Enter file path:", "");
-    if (path) {
-      void myraExecuteCommand("Load Image Ref", "imgload", [path]);
-    }
+    void handleImageRefLoad(createRendererDeps(
+      myraExecuteCommand,
+      runAction,
+      setStatus,
+      () => ui.projectPath.value,
+    ));
   },
   [MenuChannels.IMAGE_REF_LIST]: () => {
     void myraExecuteCommand("List Image Refs", "imglist", []);

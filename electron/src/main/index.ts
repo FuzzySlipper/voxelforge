@@ -1,8 +1,16 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import * as path from "path";
 import { spawn } from "child_process";
 import { BridgeClient } from "./bridge-client";
 import { setupMenu } from "./menu";
+import {
+  OPEN_DIALOG_KINDS,
+  SAVE_DIALOG_KINDS,
+  getOpenDialogConfig,
+  getSaveDialogConfig,
+  DialogChannels,
+} from "../shared/dialog-types";
+import type { DialogRequest, DialogResponse } from "../shared/dialog-types";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const isRendererSmokeTest = process.argv.includes("--renderer-smoke-test");
@@ -443,6 +451,15 @@ function setupRendererOnlyIpcHandlers(): void {
     }),
     "bridge:ping": () => ({ echo: "renderer-only", timestamp: Date.now() }),
     "bridge:version-handshake": () => ({ app_id: "voxelforge", app_version: "renderer-only", compatible: true }),
+    // Native file dialog stubs for renderer-only mode (no real dialogs available)
+    "dialog:select-file": (_event, _payload: unknown) => {
+      console.log(`[renderer-only] dialog:select-file stub`);
+      return { canceled: true, filePaths: [] };
+    },
+    "dialog:save-file": (_event, _payload: unknown) => {
+      console.log(`[renderer-only] dialog:save-file stub`);
+      return { canceled: true, filePaths: [] };
+    },
   };
 
   for (const [channel, handler] of Object.entries(handlers)) {
@@ -917,6 +934,35 @@ function setupIpcHandlers(handshake: { endpoint: string; auth_token: string }): 
       throw new Error(`Myra command error: ${response.error.message}`);
     }
     return response.result;
+  });
+
+  // ── Native file dialog IPC handlers (allowlisted dialog kinds only) ──
+
+  ipcMain.handle(DialogChannels.SELECT_FILE, async (_event, payload: unknown): Promise<DialogResponse> => {
+    const req = payload as DialogRequest;
+    if (!req || !OPEN_DIALOG_KINDS.has(req.kind)) {
+      return { canceled: true, filePaths: [] };
+    }
+    const config = getOpenDialogConfig(req.kind);
+    const result = await dialog.showOpenDialog({
+      defaultPath: req.defaultPath,
+      filters: config.filters,
+      properties: config.properties,
+    });
+    return { canceled: result.canceled, filePaths: result.filePaths };
+  });
+
+  ipcMain.handle(DialogChannels.SAVE_FILE, async (_event, payload: unknown): Promise<DialogResponse> => {
+    const req = payload as DialogRequest;
+    if (!req || !SAVE_DIALOG_KINDS.has(req.kind)) {
+      return { canceled: true, filePaths: [] };
+    }
+    const config = getSaveDialogConfig(req.kind);
+    const result = await dialog.showSaveDialog({
+      defaultPath: req.defaultPath,
+      filters: config.filters,
+    });
+    return { canceled: result.canceled, filePaths: result.filePath ? [result.filePath] : [] };
   });
 }
 
